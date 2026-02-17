@@ -45,3 +45,9 @@ uvicorn app.main:app --reload
 - 权限模型 UI 与审计日志
 - 更细粒度 diff/report
 - 大体量 Excel 并行与性能优化
+
+## 项目文档
+
+- [项目需求说明](docs/PROJECT_REQUIREMENTS.md)
+- [架构与设计说明](docs/ARCHITECTURE_DESIGN.md)
+- [项目进度说明](docs/PROJECT_PROGRESS.md)
