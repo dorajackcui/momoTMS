@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import load_workbook
@@ -37,26 +38,27 @@ class FillService:
         release_snapshot_id: int,
         master_snapshot_id: int | None,
         target_col_index: int = 3,
-    ) -> dict[str, str | int]:
+        work_dir: str | None = None,
+    ) -> dict[str, Any]:
         release_map = self._build_translation_map(release_snapshot_id, lang)
         master_map = self._build_translation_map(master_snapshot_id, lang) if master_snapshot_id else {}
 
         root = Path(source_dir)
-        work_dir = root.parent / f"{root.name}_filled"
-        if work_dir.exists():
-            for p in sorted(work_dir.rglob("*"), reverse=True):
+        export_dir = Path(work_dir) if work_dir else root.parent / f"{root.name}_filled"
+        if export_dir.exists():
+            for p in sorted(export_dir.rglob("*"), reverse=True):
                 if p.is_file():
                     p.unlink()
                 elif p.is_dir():
                     p.rmdir()
-        work_dir.mkdir(parents=True, exist_ok=True)
+        export_dir.mkdir(parents=True, exist_ok=True)
 
         filled = miss = mismatch = kept = 0
-        report_rows: list[list[str | int]] = []
+        report_rows: list[dict[str, str | int]] = []
 
         for path in root.rglob("*.xlsx"):
             rel = path.relative_to(root)
-            out_path = work_dir / rel
+            out_path = export_dir / rel
             out_path.parent.mkdir(parents=True, exist_ok=True)
             wb = load_workbook(path)
             for sheet in wb.worksheets:
@@ -71,12 +73,28 @@ class FillService:
                     candidate = release_map.get(key) or master_map.get(key)
                     if not candidate:
                         miss += 1
-                        report_rows.append([rel, sheet.title, row_idx, key, "MISSING_KEY_IN_BASE"])
+                        report_rows.append(
+                            {
+                                "file_path": str(rel).replace("\\", "/"),
+                                "sheet": sheet.title,
+                                "row": row_idx,
+                                "key": key,
+                                "status": "MISSING_KEY_IN_BASE",
+                            }
+                        )
                         continue
                     cand_src, cand_tgt = candidate
                     if cand_src != src_digest:
                         mismatch += 1
-                        report_rows.append([rel, sheet.title, row_idx, key, "SRC_MISMATCH"])
+                        report_rows.append(
+                            {
+                                "file_path": str(rel).replace("\\", "/"),
+                                "sheet": sheet.title,
+                                "row": row_idx,
+                                "key": key,
+                                "status": "SRC_MISMATCH",
+                            }
+                        )
                         continue
                     if current_tgt not in (None, ""):
                         kept += 1
@@ -84,16 +102,17 @@ class FillService:
                     filled += 1
             wb.save(out_path)
 
-        report_path = work_dir / "fill_report.csv"
+        report_path = export_dir / "fill_report.csv"
         with report_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["file_path", "sheet", "row", "key", "status"])
-            writer.writerows(report_rows)
+            for row in report_rows:
+                writer.writerow([row["file_path"], row["sheet"], row["row"], row["key"], row["status"]])
 
         with ZipFile(output_zip, "w", compression=ZIP_DEFLATED) as zf:
-            for p in work_dir.rglob("*"):
+            for p in export_dir.rglob("*"):
                 if p.is_file():
-                    zf.write(p, p.relative_to(work_dir))
+                    zf.write(p, p.relative_to(export_dir))
 
         return {
             "filled_count": filled,
@@ -101,4 +120,6 @@ class FillService:
             "src_mismatch_count": mismatch,
             "kept_original_count": kept,
             "report_path": str(report_path),
+            "report_rows": report_rows,
+            "output_zip": output_zip,
         }

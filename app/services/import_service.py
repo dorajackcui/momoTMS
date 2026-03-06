@@ -5,7 +5,7 @@ from typing import Iterable
 
 from openpyxl import load_workbook
 
-from app.db import get_conn, json_dumps
+from app.db import get_conn, json_dumps, json_loads
 from app.services.utils import now_iso, src_hash
 
 
@@ -63,3 +63,37 @@ class ImportService:
                 (import_batch_id,),
             ).fetchall()
         return list(rows)
+
+    def list_batches(self, limit: int = 10) -> list[dict]:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    i.import_batch_id,
+                    i.created_at,
+                    i.meta_json,
+                    COUNT(ir.row_index) AS rows_scanned,
+                    COUNT(DISTINCT ir.file_path) AS files_scanned,
+                    SUM(CASE WHEN ir.status != 'ok' THEN 1 ELSE 0 END) AS issues
+                FROM imports i
+                LEFT JOIN import_rows ir ON ir.import_batch_id = i.import_batch_id
+                GROUP BY i.import_batch_id, i.created_at, i.meta_json
+                ORDER BY i.import_batch_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        batches: list[dict] = []
+        for row in rows:
+            meta = json_loads(row["meta_json"])
+            batches.append(
+                {
+                    "import_batch_id": int(row["import_batch_id"]),
+                    "created_at": row["created_at"],
+                    "meta": meta,
+                    "rows_scanned": int(row["rows_scanned"] or 0),
+                    "files_scanned": int(row["files_scanned"] or 0),
+                    "issues": int(row["issues"] or 0),
+                }
+            )
+        return batches

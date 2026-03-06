@@ -19,6 +19,16 @@ pip install -e .[dev]
 uvicorn app.main:app --reload
 ```
 
+## Windows Agent Note
+
+If the agent cannot access your user-level Python install, copy Python into the workspace once and recreate `.venv`:
+
+```powershell
+cd d:\tms\Momo_TMS
+.\scripts\bootstrap_local_python.ps1 -PythonHome "C:\Users\yizhi003\AppData\Local\Programs\Python\Python311"
+.\.venv\Scripts\python.exe -m pip install -e .[dev]
+```
+
 ## API 概览
 
 - `POST /import`

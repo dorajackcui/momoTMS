@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.db import get_conn, json_dumps
+from app.db import get_conn, json_dumps, json_loads
 from app.services.utils import now_iso
 
 
@@ -58,3 +58,28 @@ class SnapshotService:
                 (snapshot_id,),
             ).fetchall()
         return {row["key"]: row for row in rows}
+
+    def get_snapshot(self, snapshot_id: int) -> dict[str, Any] | None:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE snapshot_id = ?",
+                (snapshot_id,),
+            ).fetchone()
+        if not row:
+            return None
+        snapshot = dict(row)
+        snapshot["snapshot_id"] = int(snapshot["snapshot_id"])
+        snapshot["parent_snapshot_id"] = (
+            int(snapshot["parent_snapshot_id"]) if snapshot["parent_snapshot_id"] is not None else None
+        )
+        snapshot["meta"] = json_loads(snapshot.pop("meta_json"))
+        snapshot["key_count"] = self.count_items(snapshot_id)
+        return snapshot
+
+    def count_items(self, snapshot_id: int) -> int:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM snapshot_items WHERE snapshot_id = ?",
+                (snapshot_id,),
+            ).fetchone()
+        return int(row["count"])

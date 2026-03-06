@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Momo TMS Workbench</title>
+    <link rel="stylesheet" href="/static/workbench.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Momo TMS</p>
+          <h1>核心功能验证工作台</h1>
+          <p class="hero-copy">围绕 Content Management 与线间流转做可重复验证，所有改动操作都写入 snapshot、report 与 job。</p>
+        </div>
+        <div class="hero-actions">
+          <label class="field compact">
+            <span>样例</span>
+            <select id="sample-select" data-testid="sample-select"></select>
+          </label>
+          <button id="reset-demo" class="button danger" data-testid="reset-demo">重置演示环境</button>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel span-2">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Environment</p>
+              <h2>样例与三线状态</h2>
+            </div>
+            <p id="flash-message" class="flash" data-testid="flash-message">等待加载</p>
+          </div>
+          <div id="sample-summary" class="sample-summary" data-testid="sample-summary"></div>
+          <div class="branch-grid">
+            <article class="branch-card" data-testid="branch-dev">
+              <h3>Dev</h3>
+              <dl id="branch-dev-content"></dl>
+            </article>
+            <article class="branch-card" data-testid="branch-release">
+              <h3>Release</h3>
+              <dl id="branch-release-content"></dl>
+            </article>
+            <article class="branch-card" data-testid="branch-master">
+              <h3>Master</h3>
+              <dl id="branch-master-content"></dl>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Content Management</p>
+              <h2>Import / Update Dev</h2>
+            </div>
+          </div>
+          <div class="stack">
+            <button id="import-button" class="button" data-testid="import-button">导入样例包</button>
+            <button id="update-dev-button" class="button accent" data-testid="update-dev-button">写回 Dev</button>
+          </div>
+          <div id="import-result" class="result-block" data-testid="import-result"></div>
+          <div id="imports-list" class="mini-list" data-testid="imports-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Release</p>
+              <h2>Hotfix</h2>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Active key</span>
+              <input id="active-key" data-testid="active-key">
+            </label>
+            <label class="field">
+              <span>语言</span>
+              <input id="active-lang" data-testid="active-lang">
+            </label>
+            <label class="field span-all">
+              <span>新 target</span>
+              <input id="active-target" data-testid="active-target">
+            </label>
+          </div>
+          <button id="active-hotfix-button" class="button accent" data-testid="active-hotfix-button">执行 Active Hotfix</button>
+          <hr>
+          <div class="form-grid">
+            <label class="field">
+              <span>Passive key</span>
+              <input id="passive-key" data-testid="passive-key">
+            </label>
+            <label class="field">
+              <span>版本号</span>
+              <input id="passive-version" data-testid="passive-version">
+            </label>
+            <label class="field span-all">
+              <span>新 src</span>
+              <input id="passive-src" data-testid="passive-src">
+            </label>
+            <label class="field span-all">
+              <span>targets(JSON)</span>
+              <textarea id="passive-targets" rows="4" data-testid="passive-targets"></textarea>
+            </label>
+          </div>
+          <button id="passive-hotfix-button" class="button" data-testid="passive-hotfix-button">执行 Passive Hotfix</button>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Lifecycle</p>
+              <h2>Promote Preview / Execute</h2>
+            </div>
+          </div>
+          <div class="stack">
+            <label class="field">
+              <span>Release 版本</span>
+              <input id="promote-release-version" data-testid="promote-release-version">
+            </label>
+            <div class="inline-actions">
+              <button id="promote-preview-button" class="button" data-testid="promote-preview-button">生成 Promote 预览</button>
+              <button id="promote-execute-button" class="button accent" data-testid="promote-execute-button">确认 Promote</button>
+            </div>
+          </div>
+          <div id="promote-preview" class="result-block" data-testid="promote-preview"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Lifecycle</p>
+              <h2>Archive / Delete</h2>
+            </div>
+          </div>
+          <div class="stack">
+            <button id="archive-button" class="button" data-testid="archive-button">归档当前 Release 到 Master</button>
+            <label class="field">
+              <span>Delete branch</span>
+              <select id="delete-branch" data-testid="delete-branch">
+                <option value="release">release</option>
+                <option value="dev">dev</option>
+                <option value="master">master</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Delete keys</span>
+              <textarea id="delete-keys" rows="4" data-testid="delete-keys"></textarea>
+            </label>
+            <button id="delete-button" class="button danger" data-testid="delete-button">执行 Delete Keys</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Verification</p>
+              <h2>Fill / QA</h2>
+            </div>
+          </div>
+          <div class="inline-actions">
+            <button id="fill-button" class="button" data-testid="fill-button">运行 Fill 导出</button>
+            <button id="qa-button" class="button" data-testid="qa-button">运行 QA 报告</button>
+          </div>
+          <div id="verification-result" class="result-block" data-testid="verification-result"></div>
+        </section>
+
+        <aside class="panel jobs-panel span-2">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Audit</p>
+              <h2>Jobs & Reports</h2>
+            </div>
+          </div>
+          <div class="jobs-layout">
+            <div id="jobs-list" class="jobs-list" data-testid="jobs-list"></div>
+            <div id="job-detail" class="job-detail" data-testid="job-detail">
+              <p class="muted">选择一个 job 查看 summary、明细报告和产物链接。</p>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+    <script src="/static/workbench.js"></script>
+  </body>
+</html>

@@ -79,6 +79,30 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 PRIMARY KEY (import_batch_id, file_path, sheet_name, row_index),
                 FOREIGN KEY (import_batch_id) REFERENCES imports(import_batch_id)
             );
+
+            CREATE TABLE IF NOT EXISTS branch_heads (
+                branch TEXT PRIMARY KEY,
+                snapshot_id INTEGER,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (snapshot_id) REFERENCES snapshots(snapshot_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                input_json TEXT NOT NULL DEFAULT '{}',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                report_path TEXT,
+                artifact_path TEXT,
+                snapshot_id INTEGER,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                finished_at TEXT,
+                FOREIGN KEY (snapshot_id) REFERENCES snapshots(snapshot_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
             """
         )
         conn.commit()
@@ -99,3 +123,9 @@ def get_conn(db_path: Path = DB_PATH) -> Iterator[sqlite3.Connection]:
 
 def json_dumps(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False)
+
+
+def json_loads(payload: str | None) -> dict[str, Any]:
+    if not payload:
+        return {}
+    return json.loads(payload)

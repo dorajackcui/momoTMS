@@ -1,0 +1,376 @@
+:root {
+  --bg: #f4efe6;
+  --bg-strong: #fffaf2;
+  --ink: #1c2220;
+  --muted: #5f6b65;
+  --line: rgba(28, 34, 32, 0.12);
+  --accent: #0f766e;
+  --accent-strong: #0c5b55;
+  --danger: #a23a2f;
+  --danger-strong: #7d2c24;
+  --warm: #d8b776;
+  --panel-shadow: 0 18px 40px rgba(51, 44, 24, 0.08);
+  --font: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", "Consolas", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(216, 183, 118, 0.28), transparent 28%),
+    linear-gradient(180deg, #f7f1e8 0%, #efe7db 100%);
+}
+
+.shell {
+  width: min(1440px, calc(100vw - 32px));
+  margin: 24px auto 40px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 28px 32px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: linear-gradient(135deg, rgba(255, 250, 242, 0.96), rgba(249, 240, 220, 0.88));
+  box-shadow: var(--panel-shadow);
+}
+
+.eyebrow,
+.panel-kicker {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 0.95;
+  max-width: 11ch;
+}
+
+.hero-copy {
+  margin-top: 14px;
+  max-width: 64ch;
+  color: var(--muted);
+}
+
+.hero-actions {
+  display: grid;
+  gap: 12px;
+  min-width: 260px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+.panel {
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 242, 0.88);
+  box-shadow: var(--panel-shadow);
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.flash {
+  min-height: 20px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-strong);
+  font-size: 14px;
+}
+
+.sample-summary {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(216, 183, 118, 0.14);
+}
+
+.branch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.branch-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--bg-strong);
+  border: 1px solid rgba(15, 118, 110, 0.08);
+}
+
+.branch-card dl,
+.result-block dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+
+.button {
+  appearance: none;
+  border: none;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: #38423d;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  transform: none;
+}
+
+.button.accent {
+  background: var(--accent);
+}
+
+.button.danger {
+  background: var(--danger);
+}
+
+.button.accent:hover {
+  background: var(--accent-strong);
+}
+
+.button.danger:hover {
+  background: var(--danger-strong);
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.field.compact {
+  min-width: 220px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  border: 1px solid rgba(28, 34, 32, 0.14);
+  border-radius: 14px;
+  padding: 11px 12px;
+  font: inherit;
+  color: var(--ink);
+  background: #fffdf8;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.span-all {
+  grid-column: 1 / -1;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 18px 0;
+}
+
+.result-block,
+.mini-list,
+.job-detail {
+  min-height: 92px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(28, 34, 32, 0.08);
+  overflow: auto;
+}
+
+.mini-list ul,
+.jobs-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.mini-list li,
+.job-row {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 118, 110, 0.05);
+}
+
+.jobs-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.jobs-list {
+  max-height: 520px;
+}
+
+.job-row button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.job-row strong,
+.result-title {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.job-meta,
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.summary-chips span {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  font-size: 13px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 8px 6px;
+  border-bottom: 1px solid rgba(28, 34, 32, 0.08);
+  text-align: left;
+  vertical-align: top;
+}
+
+code,
+pre {
+  font-family: var(--mono);
+}
+
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+a {
+  color: var(--accent-strong);
+}
+
+@media (max-width: 1080px) {
+  .grid,
+  .branch-grid,
+  .jobs-layout,
+  .form-grid,
+  .hero {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .span-2 {
+    grid-column: auto;
+  }
+
+  .shell {
+    width: min(100vw - 20px, 100%);
+    margin-top: 10px;
+  }
+}

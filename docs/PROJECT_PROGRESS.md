@@ -1,53 +1,67 @@
 # Momo TMS 项目进度说明
 
-> 更新时间：以当前仓库主分支代码为准。
+> 更新时间：以当前仓库代码、`pytest` 与 Playwright E2E 通过结果为准。
 
-## 1. 阶段状态总览
-- 项目阶段：**MVP 后端核心能力已可运行**。
-- 交付形态：FastAPI 服务 + SQLite 存储 + 基础单元测试。
-- 当前重点：补全文档、增强测试覆盖、推进可视化与工程化。
+## 1. 当前阶段
+- 阶段定位：**三线生命周期 MVP 已可运行，并已有验证工作台与自动化测试**。
+- 当前重点：补齐文档口径，让“目标能力 / 当前实现 / API 缺口”一致。
 
-## 2. 已完成（Done）
+## 2. 已完成
 
-### 2.1 后端能力
-- 已完成导入接口与导入异常报表。
-- 已完成快照创建、复制、条目映射能力。
-- 已完成 dev 更新、release 主动/被动单条更新。
-- 已完成 promote 合并逻辑与统计报表。
-- 已完成 fill 回填导出（含报告与 zip 打包）。
-- 已完成 QA 基础规则校验函数。
+### 2.1 三线生命周期能力
+- 已完成 `dev` 批量写回与 `dev_last` 形成。
+- 已完成 `release` 的 active / passive hotfix。
+- 已完成 `promote preview` 与 `promote execute`。
+- 已完成 `archive release -> master`。
+- 已完成 `delete keys`。
+- 已完成 `fill` 与 `qa` 验证动作。
 
-### 2.2 数据结构
-- 已落地 SQLite 表结构：entries/translations/snapshots/snapshot_items/imports/import_rows。
-- 已定义核心主键、外键与索引，支持快照追溯与按键检索。
+### 2.2 数据与编排能力
+- 已落地核心表：`entries / translations / snapshots / snapshot_items / imports / import_rows`。
+- 已落地三线状态管理：`branch_heads`。
+- 已落地任务与报告管理：`jobs`。
+- 已落地 demo/sample fixture，用于可重复 reset 和 E2E。
 
-### 2.3 质量保障
-- 已有测试：
-  - promote 冲突保留旧 release 规则。
-  - QA 三条规则的正常/异常场景。
+### 2.3 前端与验证
+- 已完成单页 workbench，覆盖：
+  - 样例 / reset
+  - 三线状态
+  - import / update dev
+  - hotfix
+  - promote preview / execute
+  - archive / delete
+  - fill / qa
+  - jobs / reports
+- 已完成后端自动化测试。
+- 已完成前端 Playwright E2E。
 
-## 3. 进行中（In Progress）
-- 文档体系建设（需求、设计、进度文档）已启动并落地首版。
-- 进一步梳理 API 示例与端到端操作手册。
+## 3. 当前进行中
+- 文档重构：统一为“目标产品能力 + 当前实现现状 + 明确缺口”口径。
+- 对齐三线生命周期描述、能力矩阵、系统设计、页面设计与项目进度。
 
-## 4. 待办（Todo）
+## 4. 真实待办
 
-### 4.1 测试与质量
-- 增加 import / update / fill 的端到端测试。
-- 补充异常输入与边界值测试（空 sheet、合并单元格、超大文件）。
-- 建立 CI（lint + test）自动校验。
+### 4.1 能力缺口
+- 未实现 untranslated report。
+- 未实现 diff / delta report。
+- 未实现 conflict report。
+- 未实现 package validation。
+- 未实现 delete preview。
 
-### 4.2 工程能力
-- 统一错误码与异常返回结构。
-- 增加日志分级、追踪 ID、操作审计。
-- 引入数据库迁移与配置分环境管理。
+### 4.2 API 与工程化
+- 基础 API 与 workbench API 仍是双轨，尚未统一。
+- 缺少正式 branch heads 公共查询接口。
+- 缺少统一错误码、trace id、操作主体审计字段。
+- 缺少 migration 与环境分层配置。
 
-### 4.3 产品能力
-- 增加 Web UI：批次上传、报表可视化、快照对比。
-- 增加权限模型（角色/项目/语言维度）。
-- 增加更丰富 QA 规则和可配置化策略。
+### 4.3 产品化能力
+- 当前 workbench 仍是验证页，不是最终产品 IA。
+- 缺少正式上传体验与更完整的批次管理。
+- 缺少权限模型与角色控制。
 
-## 5. 建议里程碑
-- M1：补齐测试与 CI，保证主链路稳定。
-- M2：上线内部 UI，支持业务同学自助操作。
-- M3：完善权限与审计，准备跨团队推广。
+## 5. 当前结论
+- 从“代码可运行”角度看，三线生命周期主链路已打通。
+- 从“产品定义清晰”角度看，当前最重要的工作不是继续加功能，而是先把文档和 API 对齐。
+- 下一阶段建议先完成文档对齐，再决定：
+  - 是继续补生命周期周边报告能力
+  - 还是把单页 workbench 拆向正式产品信息架构
