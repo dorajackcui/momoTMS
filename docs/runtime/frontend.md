@@ -1,6 +1,6 @@
 # Frontend
 
-The repository currently serves three browser surfaces.
+The repository currently serves one product surface and one frozen internal validation page.
 
 ## Product Surface
 
@@ -22,20 +22,36 @@ Main product routes inside the SPA:
 - `/app/queue`
 - `/app/master`
 - `/app/imports`
+- `/app/inspection`
 - `/app/projects/new`
+
+Product boundary:
+
+- `/app` is the only operator-facing surface.
+- `/app` bootstraps from `GET /api/projects/{project_id}/state`.
+- `/app` should not depend on default-project compatibility routes.
+- Project schema is defined during `/app/projects/new` and is fixed after creation.
+- `/app` owns the no-project empty state and project-switch reset behavior.
 
 ## Validation Surfaces
 
-- `/workbench`: legacy/compatibility validation UI
-- `/variant-workbench`: variant-model validation UI
+- `/workbench`: removed in P1; `GET /workbench` now returns `410 Gone`
+- `/variant-workbench`: deprecated internal validation UI
 
-These pages are still useful for validation, but they are not the long-term product shell.
+`/variant-workbench` remains useful for compatibility-route regression, but it is not a product shell and should not gain new features.
+
+Current validation split:
+
+- `/variant-workbench` exercises compatibility bootstrap, compatibility read-model routes, and upload-based flows
+- `/variant-workbench` is explicitly internal and marked deprecated in the page chrome
 
 ## Product Responsibilities
 
 `/app` currently covers:
 
 - project selection and creation
+- no-project empty state
+- project switching with project-scoped reset
 - branch overview
 - branch compare
 - translation queue
@@ -44,12 +60,14 @@ These pages are still useful for validation, but they are not the long-term prod
 - dev import execution
 - fill and QA execution
 - promote preview and execution
-- job/report inspection
+- jobs/report/artifact inspection
+- retained/orphan inspection and business-key variant lookup
 
 Out of scope in the current product app:
 
 - bulk inline translation editing
 - schema editing after project creation
+- release hotfix UI
 - Translation Memory UI
 - permission or audit management
 
@@ -61,8 +79,10 @@ The product app depends on:
 - paginated compare and queue APIs
 - import preview data with `available_headers`, `suggested_mapping`, and `missing_targets`
 - job detail/report APIs
+- retained/orphan/entry-variant inspection APIs
+- project-scoped workflow routes for dev import, promote, fill, and QA
 
-The product app stores selected project id locally and refreshes branch state from the project-scoped APIs.
+The product app stores selected project id locally, clears it when no projects exist, and refreshes branch state from project-scoped APIs only.
 
 ## Build and Run
 

@@ -14,8 +14,8 @@ from app.schemas import (
     QaRequest,
     RelHotfixActiveRequest,
     RelHotfixPassiveRequest,
-    TrashDeleteRequest,
-    TrashRestoreRequest,
+    ScopedTrashDeleteRequest,
+    VariantTrashRestoreRequest,
 )
 from app.services.workflows.dev_versions import DevVersionService
 from app.services.project.service import DEFAULT_PROJECT_ID
@@ -75,8 +75,8 @@ def project_get_dev_version(project_id: int, version: str) -> DevVersionDetail:
     return handle_errors(lambda: DevVersionDetail(**DevVersionService().get_version(version, project_id)))
 
 
-@router.post("/api/rel/hotfix/active", response_model=JobDetail)
-def rel_hotfix_active(payload: RelHotfixActiveRequest) -> JobDetail:
+@router.post("/api/projects/{project_id}/scopes/rel/current/hotfix/active", response_model=JobDetail)
+def project_rel_hotfix_active(project_id: int, payload: RelHotfixActiveRequest) -> JobDetail:
     service = WorkbenchService()
     return handle_errors(
         lambda: JobDetail(
@@ -84,13 +84,14 @@ def rel_hotfix_active(payload: RelHotfixActiveRequest) -> JobDetail:
                 payload.business_key,
                 payload.lang,
                 payload.target_text,
+                project_id=project_id,
             )
         )
     )
 
 
-@router.post("/api/rel/hotfix/passive", response_model=JobDetail)
-def rel_hotfix_passive(payload: RelHotfixPassiveRequest) -> JobDetail:
+@router.post("/api/projects/{project_id}/scopes/rel/current/hotfix/passive", response_model=JobDetail)
+def project_rel_hotfix_passive(project_id: int, payload: RelHotfixPassiveRequest) -> JobDetail:
     service = WorkbenchService()
     return handle_errors(
         lambda: JobDetail(
@@ -100,6 +101,7 @@ def rel_hotfix_passive(payload: RelHotfixPassiveRequest) -> JobDetail:
                 payload.translations_by_lang,
                 payload.remarks_by_key,
                 payload.file_name,
+                project_id=project_id,
             )
         )
     )
@@ -125,14 +127,29 @@ def project_promote_execute(project_id: int, payload: PromoteExecuteRequest) -> 
     return handle_errors(lambda: JobDetail(**WorkbenchService().execute_promote(payload.version, project_id)))
 
 
-@router.post("/api/trash/delete", response_model=JobDetail)
-def trash_delete(payload: TrashDeleteRequest) -> JobDetail:
-    return handle_errors(lambda: JobDetail(**WorkbenchService().trash_delete(payload.business_keys)))
+@router.post("/api/projects/{project_id}/variants/trash/delete", response_model=JobDetail)
+def project_trash_delete(project_id: int, payload: ScopedTrashDeleteRequest) -> JobDetail:
+    return handle_errors(
+        lambda: JobDetail(
+            **WorkbenchService().trash_delete(
+                payload.scope_ref,
+                payload.business_keys,
+                project_id=project_id,
+            )
+        )
+    )
 
 
-@router.post("/api/trash/restore", response_model=JobDetail)
-def trash_restore(payload: TrashRestoreRequest) -> JobDetail:
-    return handle_errors(lambda: JobDetail(**WorkbenchService().trash_restore(payload.business_keys)))
+@router.post("/api/projects/{project_id}/variants/trash/restore", response_model=JobDetail)
+def project_trash_restore(project_id: int, payload: VariantTrashRestoreRequest) -> JobDetail:
+    return handle_errors(
+        lambda: JobDetail(
+            **WorkbenchService().trash_restore(
+                payload.variant_ids,
+                project_id=project_id,
+            )
+        )
+    )
 
 
 @router.post("/api/fill", response_model=JobDetail)

@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 from typing import Any
+from time import perf_counter
 
 from app.services.workflows.dev_versions import DevVersionService
 from app.services.project.service import DEFAULT_PROJECT_ID
-from app.services.variant.compatibility import StringService
 from app.services.variant.services import ScopeBindingService
 
 
 class PromoteService:
     def __init__(self) -> None:
         self.dev_versions = DevVersionService()
-        self.strings = StringService()
         self.bindings = ScopeBindingService()
 
     def preview(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
-        version_info = self.dev_versions.get_version(version, project_id)
+        version_info = self._require_promotable_version(version, project_id)
         target_strings = version_info["members"]
         target_keys = {item["business_key"] for item in target_strings}
-        rel_strings = self.strings.get_membership_strings("rel", "current", project_id)
+        rel_strings = self.bindings.list_scope_entries("rel", "current", project_id)
         rel_keys = {item["business_key"] for item in rel_strings}
 
         added = sorted(target_keys - rel_keys)
@@ -49,8 +48,9 @@ class PromoteService:
         }
 
     def execute(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+        promote_started = perf_counter()
         preview = self.preview(version, project_id)
-        version_info = self.dev_versions.get_version(version, project_id)
+        version_info = self._require_promotable_version(version, project_id)
         target_members = self.bindings.list_scope_entries("dev", version, project_id)
         self.bindings.clear_scope("rel", "current", project_id)
         for item in target_members:
@@ -72,5 +72,21 @@ class PromoteService:
             "already_in_rel_count": preview["already_in_rel_count"],
             "removed_from_rel_count": preview["removed_from_rel_count"],
             "cleaned_dev_membership_count": removed_membership_count,
+            "stages": [
+                {
+                    "stage": "promote_rebind",
+                    "elapsed_ms": int((perf_counter() - promote_started) * 1000),
+                    "meta": {
+                        "version": version,
+                        "target_key_count": preview["target_key_count"],
+                    },
+                }
+            ],
         }
         return {"summary": summary, "report_rows": preview["report_rows"]}
+
+    def _require_promotable_version(self, version: str, project_id: int) -> dict[str, Any]:
+        try:
+            return self.dev_versions.get_version(version, project_id)
+        except KeyError as exc:
+            raise ValueError(f"dev version not found: {version}") from exc

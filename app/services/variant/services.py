@@ -45,6 +45,9 @@ class EntryService:
         normalized_key = self._require_non_content("business_key", business_key)
         return self.entries.get_by_business_key(project_id, normalized_key)
 
+    def get_entry_by_id(self, entry_id: int) -> EntryRecord | None:
+        return self.entries.get_by_id(entry_id)
+
     def ensure_entries(
         self,
         business_keys: list[str],
@@ -311,6 +314,24 @@ class VariantLifecycleService:
     def list_retained_entries(self, project_id: int = DEFAULT_PROJECT_ID) -> list[ScopeEntryRecord]:
         return self.retained.list_entries(project_id, self.variants)
 
+    def list_orphaned_entries(self, project_id: int = DEFAULT_PROJECT_ID) -> list[dict[str, Any]]:
+        return self.variants.list_orphaned_entries(project_id)
+
+    def trash_variant(
+        self,
+        variant_id: int,
+        entry_id: int,
+        trash_days: int = 30,
+    ) -> None:
+        timestamp = now_iso()
+        self.variants.trash_variant(variant_id, timestamp, self._trash_until(trash_days))
+        self.retained.delete_by_variant(variant_id)
+        self.refresh_orphan_states(entry_id)
+
+    def restore_variant(self, variant_id: int, entry_id: int) -> None:
+        self.variants.restore_variant(variant_id, now_iso())
+        self.refresh_orphan_states(entry_id)
+
     def _normalize_business_keys(self, business_keys: list[str]) -> list[str]:
         normalized_keys: list[str] = []
         seen: set[str] = set()
@@ -445,6 +466,25 @@ class ScopeBindingService:
             )
             self.lifecycle.refresh_orphan_states(int(row["entry_id"]))
         return len(removed)
+
+    def remove_binding(
+        self,
+        entry_id: int,
+        scope_type: str,
+        scope_value: str,
+    ) -> BindingRecord | None:
+        normalized_scope_value = self._require_non_content("scope_value", scope_value)
+        removed = self.bindings.delete(entry_id, scope_type, normalized_scope_value)
+        if removed is None:
+            return None
+        self.lifecycle.retain_variant_if_inactive(
+            int(removed["variant_id"]),
+            int(removed["entry_id"]),
+            scope_type,
+            normalized_scope_value,
+        )
+        self.lifecycle.refresh_orphan_states(int(removed["entry_id"]))
+        return removed
 
     def _require_non_content(self, field_name: str, value: Any) -> str:
         normalized = normalize_non_content_value(value)

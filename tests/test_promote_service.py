@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.db import DB_PATH
+from app.db import get_db_path
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.variant.compatibility import StringService
@@ -9,8 +9,9 @@ from app.services.workflows.promote import PromoteService
 
 
 def reset_demo() -> dict:
-    if Path(DB_PATH).exists():
-        Path(DB_PATH).unlink()
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
     demo = DemoService()
     demo.reset()
     return demo.get_sample("core-cycle")
@@ -56,3 +57,18 @@ def test_promote_switches_rel_memberships_and_cleans_dev_line_tags() -> None:
         item["membership_type"] == "retained" and item["membership_value"] == "retained"
         for item in retained_string["memberships"]
     )
+
+
+def test_promote_cleans_all_versions_in_same_version_line() -> None:
+    sample = reset_demo()
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+    service = DevVersionService()
+    service.import_batch(batch["import_batch_id"], "2.2.3", mark_as_candidate=False)
+    service.import_batch(batch["import_batch_id"], "2.2.4", mark_as_candidate=True)
+
+    preview = PromoteService().preview("2.2.4")
+    assert preview["cleanup_dev_membership_count"] == 8
+
+    result = PromoteService().execute("2.2.4")
+    assert result["summary"]["cleaned_dev_membership_count"] == 8
+    assert service.list_versions(active_only=True) == []

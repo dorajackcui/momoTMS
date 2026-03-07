@@ -13,6 +13,7 @@ test("uploads real folders and validates the variant workbench flow", async ({ p
   await page.goto("/variant-workbench");
 
   await expect(page.getByTestId("project-summary")).toContainText("Demo Project");
+  await expect(page.getByTestId("variant-workbench-status")).toContainText("Deprecated internal validation page");
   await page.getByTestId("import-folder").setInputFiles(importDir);
   await page.getByTestId("upload-import-button").click();
   await expect(page.getByTestId("import-mapping-modal")).toBeVisible();

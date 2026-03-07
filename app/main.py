@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
 from app.routers import (
+    inspection_router,
     imports_jobs_router,
     pages_router,
     projects_state_router,
@@ -35,3 +36,4 @@ app.include_router(projects_state_router)
 app.include_router(imports_jobs_router)
 app.include_router(workflows_router)
 app.include_router(scopes_read_models_router)
+app.include_router(inspection_router)

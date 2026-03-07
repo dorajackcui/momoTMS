@@ -3,13 +3,14 @@ import re
 
 import pytest
 
-from app.db import DB_PATH, init_db
+from app.db import get_db_path, init_db
 from app.services.project.service import ProjectService
 
 
 def reset_db() -> None:
-    if Path(DB_PATH).exists():
-        Path(DB_PATH).unlink()
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
     init_db()
 
 
@@ -31,6 +32,7 @@ def test_create_project_sets_default_only_for_first_project() -> None:
         (["fr", "fr"], ["context"], "translation_columns contains duplicate column: fr"),
         (["fr"], ["context", "context"], "remark_columns contains duplicate column: context"),
         (["fr"], ["fr"], "schema columns must be distinct across translations and remarks: ['fr']"),
+        (["file_name"], ["context"], "schema columns cannot reuse fixed business headers"),
         (["business_key"], ["context"], "schema columns cannot reuse fixed business headers"),
         (["fr"], ["source"], "schema columns cannot reuse fixed business headers"),
         (["fr", " "], ["context"], "translation_columns contains a blank column name"),

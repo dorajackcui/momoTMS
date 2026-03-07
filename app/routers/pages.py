@@ -12,8 +12,8 @@ STATIC_DIR = APP_DIR / "static"
 
 
 @router.get("/workbench")
-def workbench() -> FileResponse:
-    return FileResponse(STATIC_DIR / "workbench.html")
+def workbench():
+    raise HTTPException(status_code=410, detail="workbench removed; use /app or /variant-workbench")
 
 
 @router.get("/variant-workbench")

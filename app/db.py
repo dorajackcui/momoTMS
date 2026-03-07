@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
+DB_PATH_ENV_VAR = "MOMO_TMS_DB_PATH"
 SCHEMA_VERSION = "variant-v3"
 
 
@@ -19,7 +21,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def init_db(db_path: Path = DB_PATH) -> None:
+def get_db_path(db_path: Path | str | None = None) -> Path:
+    if db_path is not None:
+        return Path(db_path)
+    override = os.getenv(DB_PATH_ENV_VAR)
+    if override:
+        return Path(override)
+    return DB_PATH
+
+
+def init_db(db_path: Path | str | None = None) -> None:
+    db_path = get_db_path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
@@ -241,7 +253,8 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
 
 
 @contextmanager
-def get_conn(db_path: Path = DB_PATH) -> Iterator[sqlite3.Connection]:
+def get_conn(db_path: Path | str | None = None) -> Iterator[sqlite3.Connection]:
+    db_path = get_db_path(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = _dict_factory
     conn.execute("PRAGMA foreign_keys = ON")

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.schemas import CreateProjectRequest, ProjectSummary, StateResponse, StringDetail
+from app.schemas import CompatStateResponse, CreateProjectRequest, ProductStateResponse, ProjectSummary, StringDetail
 from app.services.demo.service import DemoService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
+from app.services.project.state import ProjectStateService
 from app.services.variant.compatibility import StringService
 from app.services.workflows.workbench import WorkbenchService
 from app.routers.common import handle_errors
@@ -12,9 +13,9 @@ from app.routers.common import handle_errors
 router = APIRouter()
 
 
-@router.get("/api/state", response_model=StateResponse)
-def state() -> StateResponse:
-    return handle_errors(lambda: StateResponse(**WorkbenchService().get_state(DEFAULT_PROJECT_ID)))
+@router.get("/api/state", response_model=CompatStateResponse)
+def state() -> CompatStateResponse:
+    return handle_errors(lambda: CompatStateResponse(**WorkbenchService().get_state(DEFAULT_PROJECT_ID)))
 
 
 @router.get("/api/projects", response_model=list[ProjectSummary])
@@ -35,16 +36,16 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
     )
 
 
-@router.get("/api/projects/{project_id}/state", response_model=StateResponse)
-def project_state(project_id: int) -> StateResponse:
-    return handle_errors(lambda: StateResponse(**WorkbenchService().get_state(project_id)))
+@router.get("/api/projects/{project_id}/state", response_model=ProductStateResponse)
+def project_state(project_id: int) -> ProductStateResponse:
+    return handle_errors(lambda: ProductStateResponse(**ProjectStateService().get_state(project_id)))
 
 
-@router.post("/api/demo/reset", response_model=StateResponse)
-def demo_reset() -> StateResponse:
-    def run() -> StateResponse:
+@router.post("/api/demo/reset", response_model=CompatStateResponse)
+def demo_reset() -> CompatStateResponse:
+    def run() -> CompatStateResponse:
         DemoService().reset()
-        return StateResponse(**WorkbenchService().get_state())
+        return CompatStateResponse(**WorkbenchService().get_state())
 
     return handle_errors(run)
 

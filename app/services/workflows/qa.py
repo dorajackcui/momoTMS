@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from openpyxl import load_workbook
@@ -23,8 +24,9 @@ class QaScanService:
         self.projects.require_language(lang, project_id)
         root = Path(source_dir)
         if not root.exists() or not root.is_dir():
-            raise FileNotFoundError(f"qa source directory not found: {source_dir}")
+            raise ValueError(f"qa source directory not found: {source_dir}")
 
+        qa_started = perf_counter()
         scanned_rows = 0
         report_rows: list[dict[str, Any]] = []
         for path in sorted(root.rglob("*.xlsx")):
@@ -71,6 +73,13 @@ class QaScanService:
             "issue_count": len(report_rows),
             "rule_counts": rule_counts,
             "report_rows": report_rows,
+            "stages": [
+                {
+                    "stage": "qa_scan",
+                    "elapsed_ms": int((perf_counter() - qa_started) * 1000),
+                    "meta": {"scanned_rows": scanned_rows, "issue_count": len(report_rows)},
+                }
+            ],
         }
 
     def _cell_non_content(self, sheet: Any, row_index: int, column_index: int | None) -> str:

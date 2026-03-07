@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.db import DB_PATH, get_conn, json_dumps
+from app.db import get_conn, get_db_path, json_dumps
 from app.services.demo.service import DemoService
 from app.services.shared.utils import now_iso
 from app.services.variant.compatibility import StringService
@@ -9,8 +9,9 @@ from app.services.workflows.dev_versions import DevVersionService
 
 
 def reset_demo() -> None:
-    if Path(DB_PATH).exists():
-        Path(DB_PATH).unlink()
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
     DemoService().reset()
 
 

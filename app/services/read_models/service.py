@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.workflows.dev_versions import DevVersionService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
+from app.services.workflows.dev_versions import DevVersionService
 
 
 class ReadModelService:
@@ -13,17 +13,18 @@ class ReadModelService:
         self.entries = EntryService()
         self.bindings = ScopeBindingService()
         self.catalog = VariantCatalogService()
+        self.binding_repo = self.bindings.bindings
+        self.variant_repo = self.catalog.variants
 
     def scope_summary(self, project_id: int = DEFAULT_PROJECT_ID, lang: str | None = None) -> dict[str, Any]:
-        rel_entries = self.bindings.list_scope_entries("rel", "current", project_id)
-        rel_key_map = {item["business_key"]: item for item in rel_entries}
+        rel_projection = self._scope_projection_map("rel", "current", project_id, lang)
         scopes = [
             {
                 "scope_type": "rel",
                 "scope_value": "current",
-                "entry_count": len(rel_entries),
+                "entry_count": len(rel_projection),
                 "status_counts": {
-                    "aligned": len(rel_entries),
+                    "aligned": len(rel_projection),
                     "diverged": 0,
                     "base_only": 0,
                     "target_only": 0,
@@ -31,8 +32,8 @@ class ReadModelService:
             }
         ]
         for version in self.dev_versions.list_versions(project_id=project_id, active_only=True):
-            members = self.bindings.list_scope_entries("dev", version["version"], project_id)
-            compare = self._compare_maps(rel_key_map, {item["business_key"]: item for item in members}, lang)
+            members = self._scope_projection_map("dev", version["version"], project_id, lang)
+            compare = self._build_compare_rows(rel_projection, members, lang)
             scopes.append(
                 {
                     "scope_type": "dev",
@@ -60,13 +61,11 @@ class ReadModelService:
         page: int = 1,
         page_size: int | None = None,
     ) -> dict[str, Any]:
-        base_entries = self.bindings.list_scope_entries(base_scope_type, base_scope_value, project_id)
-        target_entries = self.bindings.list_scope_entries(target_scope_type, target_scope_value, project_id)
-        base_map = {item["business_key"]: item for item in base_entries}
-        target_map = {item["business_key"]: item for item in target_entries}
-        compare = self._compare_maps(
-            base_map,
-            target_map,
+        base_projection = self._scope_projection_map(base_scope_type, base_scope_value, project_id, lang)
+        target_projection = self._scope_projection_map(target_scope_type, target_scope_value, project_id, lang)
+        compare = self._build_compare_rows(
+            base_projection,
+            target_projection,
             lang,
             search=search,
             states=states,
@@ -74,6 +73,11 @@ class ReadModelService:
             priority_statuses=priority_statuses,
             page=page,
             page_size=page_size,
+            project_id=project_id,
+            base_scope_type=base_scope_type,
+            base_scope_value=base_scope_value,
+            target_scope_type=target_scope_type,
+            target_scope_value=target_scope_value,
         )
         compare["base_scope"] = f"{base_scope_type}/{base_scope_value}"
         compare["target_scope"] = f"{target_scope_type}/{target_scope_value}"
@@ -145,19 +149,27 @@ class ReadModelService:
         }
 
     def master_search(self, source: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
-        needle = source
-        results: list[dict[str, Any]] = []
-        rel_entries = self.bindings.list_scope_entries("rel", "current", project_id)
-        for item in rel_entries:
-            variant = item["variant"]
-            if variant["source"] == needle:
-                results.append(self._search_row(item))
-        for version in self.dev_versions.list_versions(project_id=project_id, active_only=True):
-            for item in self.bindings.list_scope_entries("dev", version["version"], project_id):
-                variant = item["variant"]
-                if variant["source"] == needle:
-                    results.append(self._search_row(item))
-        return {"source": needle, "results": results}
+        results = [
+            self._search_row(item)
+            for item in self.binding_repo.search_active_by_source(
+                project_id,
+                source,
+                self.variant_repo,
+            )
+        ]
+        return {"source": source, "results": results}
+
+    def _scope_projection_map(
+        self,
+        scope_type: str,
+        scope_value: str,
+        project_id: int,
+        lang: str | None,
+    ) -> dict[str, dict[str, Any]]:
+        return {
+            item["business_key"]: item
+            for item in self.binding_repo.list_scope_projection(project_id, scope_type, scope_value, lang)
+        }
 
     def _search_row(self, item: dict[str, Any]) -> dict[str, Any]:
         variant = item["variant"]
@@ -172,17 +184,23 @@ class ReadModelService:
             "remarks": variant["remarks"],
         }
 
-    def _compare_maps(
+    def _build_compare_rows(
         self,
         base_map: dict[str, dict[str, Any]],
         target_map: dict[str, dict[str, Any]],
         lang: str | None,
+        *,
         search: str | None = None,
         states: list[str] | None = None,
         diff_categories: list[str] | None = None,
         priority_statuses: list[str] | None = None,
         page: int = 1,
         page_size: int | None = None,
+        project_id: int | None = None,
+        base_scope_type: str | None = None,
+        base_scope_value: str | None = None,
+        target_scope_type: str | None = None,
+        target_scope_value: str | None = None,
     ) -> dict[str, Any]:
         all_rows: list[dict[str, Any]] = []
         status_counts = {"aligned": 0, "diverged": 0, "base_only": 0, "target_only": 0}
@@ -198,22 +216,11 @@ class ReadModelService:
                     "state": state,
                     "diff_categories": row_diff_categories,
                     "priority_status": priority_status,
-                    "base": self._compare_side(base_item),
-                    "target": self._compare_side(target_item),
+                    "base_projection": base_item,
+                    "target_projection": target_item,
                 }
             )
-        full_priority_rows = [
-            {
-                "business_key": row["business_key"],
-                "priority_status": row["priority_status"],
-                "state": row["state"],
-                "diff_categories": row["diff_categories"],
-                "file_name": self._preferred_file_name(row["target"], row["base"]),
-                "source": self._preferred_source(row["target"], row["base"]),
-                "target_text": self._preferred_target_text(row["target"], row["base"], lang),
-            }
-            for row in all_rows
-        ]
+
         filtered_rows = self._filter_compare_rows(
             all_rows,
             search=search,
@@ -221,9 +228,52 @@ class ReadModelService:
             diff_filter=diff_categories,
             priority_statuses=priority_statuses,
         )
-        filtered_priority_rows = self._build_priority_rows(filtered_rows, lang)
-        page_value, page_size_value, paged_rows = self._paginate(filtered_rows, page, page_size)
+        filtered_priority_rows = [self._priority_row(row, lang) for row in filtered_rows]
+        full_priority_rows = [self._priority_row(row, lang) for row in all_rows]
+        page_value, page_size_value, paged_rows_meta = self._paginate(filtered_rows, page, page_size)
         _, _, paged_priority_rows = self._paginate(filtered_priority_rows, page, page_size)
+
+        paged_rows = paged_rows_meta
+        if (
+            project_id is not None
+            and base_scope_type is not None
+            and base_scope_value is not None
+            and target_scope_type is not None
+            and target_scope_value is not None
+        ):
+            page_keys = [row["business_key"] for row in paged_rows_meta]
+            base_full_map = {
+                item["business_key"]: item
+                for item in self.binding_repo.list_scope_entries_for_keys(
+                    project_id,
+                    base_scope_type,
+                    base_scope_value,
+                    page_keys,
+                    self.variant_repo,
+                )
+            }
+            target_full_map = {
+                item["business_key"]: item
+                for item in self.binding_repo.list_scope_entries_for_keys(
+                    project_id,
+                    target_scope_type,
+                    target_scope_value,
+                    page_keys,
+                    self.variant_repo,
+                )
+            }
+            paged_rows = [
+                {
+                    "business_key": row["business_key"],
+                    "state": row["state"],
+                    "diff_categories": row["diff_categories"],
+                    "priority_status": row["priority_status"],
+                    "base": self._compare_side(base_full_map.get(row["business_key"])),
+                    "target": self._compare_side(target_full_map.get(row["business_key"])),
+                }
+                for row in paged_rows_meta
+            ]
+
         return {
             "status_counts": status_counts,
             "rows": paged_rows,
@@ -261,19 +311,19 @@ class ReadModelService:
             filtered.append(row)
         return filtered
 
-    def _build_priority_rows(self, rows: list[dict[str, Any]], lang: str | None) -> list[dict[str, Any]]:
-        return [
-            {
-                "business_key": row["business_key"],
-                "priority_status": row["priority_status"],
-                "state": row["state"],
-                "diff_categories": row["diff_categories"],
-                "file_name": self._preferred_file_name(row["target"], row["base"]),
-                "source": self._preferred_source(row["target"], row["base"]),
-                "target_text": self._preferred_target_text(row["target"], row["base"], lang),
-            }
-            for row in rows
-        ]
+    def _priority_row(self, row: dict[str, Any], lang: str | None) -> dict[str, Any]:
+        target = row["target_projection"]
+        base = row["base_projection"]
+        preferred = target or base
+        return {
+            "business_key": row["business_key"],
+            "priority_status": row["priority_status"],
+            "state": row["state"],
+            "diff_categories": row["diff_categories"],
+            "file_name": preferred["file_name"] if preferred else None,
+            "source": preferred["source"] if preferred else "",
+            "target_text": preferred["lang_target_text"] if preferred and lang is not None else "",
+        }
 
     def _paginate(
         self,
@@ -287,31 +337,6 @@ class ReadModelService:
         start = (page_value - 1) * page_size
         end = start + page_size
         return page_value, page_size, rows[start:end]
-
-    def _preferred_file_name(self, target: dict[str, Any] | None, base: dict[str, Any] | None) -> str | None:
-        preferred = target or base
-        if preferred is None:
-            return None
-        return preferred["file_name"]
-
-    def _preferred_source(self, target: dict[str, Any] | None, base: dict[str, Any] | None) -> str:
-        preferred = target or base
-        if preferred is None:
-            return ""
-        return preferred["source"]
-
-    def _preferred_target_text(
-        self,
-        target: dict[str, Any] | None,
-        base: dict[str, Any] | None,
-        lang: str | None,
-    ) -> str:
-        if lang is None:
-            return ""
-        preferred = target or base
-        if preferred is None:
-            return ""
-        return preferred["translations"].get(lang, "")
 
     def _compare_side(self, item: dict[str, Any] | None) -> dict[str, Any] | None:
         if item is None:
@@ -338,16 +363,14 @@ class ReadModelService:
             return "target_only", []
         if not base_item and not target_item:
             return "target_only", []
-        base_variant = base_item["variant"]
-        target_variant = target_item["variant"]
         diff_categories: list[str] = []
-        if base_variant["source"] != target_variant["source"]:
+        if base_item["source"] != target_item["source"]:
             diff_categories.append("source_changed")
-        if dict(base_variant["translations"]) != dict(target_variant["translations"]):
+        if base_item["translations_fingerprint"] != target_item["translations_fingerprint"]:
             diff_categories.append("translation_changed")
-        if dict(base_variant["remarks"]) != dict(target_variant["remarks"]):
+        if base_item["remarks_fingerprint"] != target_item["remarks_fingerprint"]:
             diff_categories.append("remark_changed")
-        if base_variant["file_name"] != target_variant["file_name"]:
+        if base_item["file_name"] != target_item["file_name"]:
             diff_categories.append("file_name_changed")
         if diff_categories:
             return "diverged", diff_categories
@@ -363,13 +386,13 @@ class ReadModelService:
     ) -> str:
         if lang is None:
             return "needs_review" if state == "diverged" else "already_translated"
-        base_target = self._lang_value(base_item, lang)
-        target_target = self._lang_value(target_item, lang)
+        base_target = self._lang_value(base_item)
+        target_target = self._lang_value(target_item)
         if state == "diverged" and "source_changed" in diff_categories:
             return "source_mismatch"
-        if state == "rel_only":
+        if state == "base_only":
             return "fillable" if base_target else "needs_translation"
-        if state == "dev_only":
+        if state == "target_only":
             return "already_translated" if target_target else "needs_translation"
         if state == "aligned":
             return "already_translated" if target_target else "needs_translation"
@@ -381,7 +404,7 @@ class ReadModelService:
             return "needs_review"
         return "already_translated"
 
-    def _lang_value(self, item: dict[str, Any] | None, lang: str) -> str:
+    def _lang_value(self, item: dict[str, Any] | None) -> str:
         if item is None:
             return ""
-        return item["variant"]["translations"].get(lang, "")
+        return item["lang_target_text"]

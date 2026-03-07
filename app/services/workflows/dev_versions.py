@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 from typing import Any
+from time import perf_counter
 
 from app.db import get_conn, json_loads
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.utils import now_iso
-from app.services.variant.compatibility import StringService
 from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
 
 
 class DevVersionService:
     def __init__(self) -> None:
         self.imports = ImportService()
-        self.strings = StringService()
         self.entries = EntryService()
         self.catalog = VariantCatalogService()
         self.bindings = ScopeBindingService()
@@ -69,6 +68,7 @@ class DevVersionService:
         mark_as_candidate: bool = True,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
+        bind_started = perf_counter()
         version_info = self.ensure_version(version, mark_as_candidate, project_id)
         self.imports.require_batch_project(import_batch_id, project_id)
         with get_conn() as conn:
@@ -143,6 +143,16 @@ class DevVersionService:
             "is_candidate_release": mark_as_candidate,
             **counts,
             "processed_count": len(report_rows),
+            "stages": [
+                {
+                    "stage": "bind_dev_scope",
+                    "elapsed_ms": int((perf_counter() - bind_started) * 1000),
+                    "meta": {
+                        "version": version,
+                        "processed_count": len(report_rows),
+                    },
+                }
+            ],
         }
         return {"summary": summary, "report_rows": report_rows}
 
@@ -178,7 +188,10 @@ class DevVersionService:
     def get_version(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         for version_info in self.list_versions(project_id=project_id, active_only=False):
             if version_info["version"] == version:
-                version_info["members"] = self.strings.get_membership_strings("dev", version, project_id)
+                version_info["members"] = [
+                    self._scope_entry_to_string_detail(item)
+                    for item in self.bindings.list_scope_entries("dev", version, project_id)
+                ]
                 return version_info
         raise KeyError(f"dev version not found: {version}")
 
@@ -385,3 +398,27 @@ class DevVersionService:
         if len(parts) >= 2:
             return f"{parts[0]}.{parts[1]}.x"
         return f"{version}.x"
+
+    def _scope_entry_to_string_detail(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "string_id": int(item["variant"]["variant_id"]),
+            "entry_id": int(item["entry_id"]),
+            "project_id": int(item["project_id"]),
+            "business_key": item["business_key"],
+            "file_name": item["variant"]["file_name"],
+            "source": item["variant"]["source"],
+            "translations": item["variant"]["translations"],
+            "remarks": item["variant"]["remarks"],
+            "memberships": [
+                {
+                    "membership_type": binding["scope_type"],
+                    "membership_value": binding["scope_value"],
+                }
+                for binding in self.bindings.list_bindings_for_entry(int(item["entry_id"]))
+            ],
+            "deleted_at": item["variant"]["trashed_at"],
+            "trash_until": item["variant"]["trash_until"],
+            "restored_at": item["variant"]["restored_at"],
+            "created_at": item["variant"]["created_at"],
+            "updated_at": item["variant"]["updated_at"],
+        }

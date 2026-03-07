@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,16 @@ from app.db import get_conn, json_dumps, json_loads
 from app.services.shared.utils import now_iso
 
 JOBS_DIR = Path("data/jobs")
+JOBS_DIR_ENV_VAR = "MOMO_TMS_JOBS_DIR"
+
+
+def get_jobs_dir(path: Path | str | None = None) -> Path:
+    if path is not None:
+        return Path(path)
+    override = os.getenv(JOBS_DIR_ENV_VAR)
+    if override:
+        return Path(override)
+    return JOBS_DIR
 
 
 class JobService:
@@ -17,7 +28,7 @@ class JobService:
         input_payload: dict[str, Any],
         project_id: int,
     ) -> int:
-        JOBS_DIR.mkdir(parents=True, exist_ok=True)
+        get_jobs_dir().mkdir(parents=True, exist_ok=True)
         with get_conn() as conn:
             cur = conn.execute(
                 """
@@ -114,7 +125,7 @@ class JobService:
         return json_loads(Path(report_path).read_text(encoding="utf-8"))
 
     def job_dir(self, job_id: int) -> Path:
-        return JOBS_DIR / str(job_id)
+        return get_jobs_dir() / str(job_id)
 
     def artifact_path(self, job_id: int, filename: str) -> Path:
         job_dir = self.job_dir(job_id)
@@ -127,8 +138,9 @@ class JobService:
         return report_path
 
     def clear_storage(self) -> None:
-        if JOBS_DIR.exists():
-            shutil.rmtree(JOBS_DIR)
+        jobs_dir = get_jobs_dir()
+        if jobs_dir.exists():
+            shutil.rmtree(jobs_dir)
 
     def _hydrate_job(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

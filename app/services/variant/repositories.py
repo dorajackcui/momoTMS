@@ -359,6 +359,33 @@ class VariantRepository:
                 (timestamp, timestamp, project_id, business_key),
             )
 
+    def trash_variant(self, variant_id: int, timestamp: str, trash_until: str) -> None:
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE variants
+                SET trashed_at = ?,
+                    trash_until = ?,
+                    updated_at = ?
+                WHERE variant_id = ?
+                """,
+                (timestamp, trash_until, timestamp, variant_id),
+            )
+
+    def restore_variant(self, variant_id: int, timestamp: str) -> None:
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE variants
+                SET trashed_at = NULL,
+                    trash_until = NULL,
+                    restored_at = ?,
+                    updated_at = ?
+                WHERE variant_id = ?
+                """,
+                (timestamp, timestamp, variant_id),
+            )
+
     def count_trashed_entries(self, project_id: int) -> int:
         with get_conn() as conn:
             row = conn.execute(
@@ -371,6 +398,46 @@ class VariantRepository:
                 (project_id,),
             ).fetchone()
         return int(row["count"] or 0)
+
+    def list_orphaned_entries(self, project_id: int) -> list[dict[str, Any]]:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    e.entry_id,
+                    e.project_id,
+                    e.business_key,
+                    v.variant_id,
+                    v.file_name,
+                    v.source,
+                    v.orphaned_at,
+                    v.trashed_at,
+                    v.trash_until,
+                    v.restored_at,
+                    v.created_at,
+                    v.updated_at
+                FROM variants v
+                JOIN entries e ON e.entry_id = v.entry_id
+                WHERE e.project_id = ?
+                  AND v.orphaned_at IS NOT NULL
+                  AND v.trashed_at IS NULL
+                ORDER BY v.orphaned_at DESC, e.business_key, v.variant_id
+                """,
+                (project_id,),
+            ).fetchall()
+        hydrated_variants = {
+            int(item["variant_id"]): item
+            for item in self._hydrate_rows(rows)
+        }
+        return [
+            {
+                "project_id": int(row["project_id"]),
+                "entry_id": int(row["entry_id"]),
+                "business_key": normalize_non_content_value(row["business_key"]),
+                "variant": hydrated_variants[int(row["variant_id"])],
+            }
+            for row in rows
+        ]
 
     def _hydrate_rows(self, rows: list[dict[str, Any]]) -> list[VariantRecord]:
         if not rows:
@@ -479,6 +546,20 @@ class ScopeBindingRepository:
             return None
         return self._hydrate_rows([row])[0]
 
+    def delete(self, entry_id: int, scope_type: str, scope_value: str) -> BindingRecord | None:
+        previous = self.get(entry_id, scope_type, scope_value)
+        if previous is None:
+            return None
+        with get_conn() as conn:
+            conn.execute(
+                """
+                DELETE FROM scope_bindings
+                WHERE scope_type = ? AND scope_value = ? AND entry_id = ?
+                """,
+                (scope_type, scope_value, entry_id),
+            )
+        return previous
+
     def get_for_entries(self, entry_ids: list[int], scope_type: str, scope_value: str) -> dict[int, BindingRecord]:
         if not entry_ids:
             return {}
@@ -535,6 +616,108 @@ class ScopeBindingRepository:
             ).fetchall()
         return self._hydrate_bound_rows(rows, variant_repo)
 
+    def list_scope_projection(
+        self,
+        project_id: int,
+        scope_type: str,
+        scope_value: str,
+        lang: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    e.entry_id,
+                    e.project_id,
+                    e.business_key,
+                    b.scope_type,
+                    b.scope_value,
+                    v.variant_id,
+                    COALESCE(v.file_name, '') AS file_name,
+                    COALESCE(v.source, '') AS source,
+                    COALESCE((
+                        SELECT target_text
+                        FROM variant_translations vt
+                        WHERE vt.variant_id = v.variant_id AND vt.lang = ?
+                        LIMIT 1
+                    ), '') AS lang_target_text,
+                    COALESCE((
+                        SELECT group_concat(piece, char(31))
+                        FROM (
+                            SELECT vt.lang || '=' || COALESCE(vt.target_text, '') AS piece
+                            FROM variant_translations vt
+                            WHERE vt.variant_id = v.variant_id
+                            ORDER BY vt.lang
+                        )
+                    ), '') AS translations_fingerprint,
+                    COALESCE((
+                        SELECT group_concat(piece, char(31))
+                        FROM (
+                            SELECT vr.remark_key || '=' || COALESCE(vr.remark_value, '') AS piece
+                            FROM variant_remarks vr
+                            WHERE vr.variant_id = v.variant_id
+                            ORDER BY vr.remark_key
+                        )
+                    ), '') AS remarks_fingerprint
+                FROM scope_bindings b
+                JOIN entries e ON e.entry_id = b.entry_id
+                JOIN variants v ON v.variant_id = b.variant_id
+                WHERE e.project_id = ?
+                  AND b.scope_type = ?
+                  AND b.scope_value = ?
+                  AND v.trashed_at IS NULL
+                ORDER BY e.business_key
+                """,
+                (lang, project_id, scope_type, scope_value),
+            ).fetchall()
+        return [
+            {
+                "entry_id": int(row["entry_id"]),
+                "project_id": int(row["project_id"]),
+                "business_key": normalize_non_content_value(row["business_key"]),
+                "scope_type": row["scope_type"],
+                "scope_value": row["scope_value"],
+                "variant_id": int(row["variant_id"]),
+                "file_name": normalize_non_content_value(row["file_name"]),
+                "source": normalize_non_content_value(row["source"]),
+                "lang_target_text": normalize_content_value(row["lang_target_text"]),
+                "translations_fingerprint": row["translations_fingerprint"],
+                "remarks_fingerprint": row["remarks_fingerprint"],
+            }
+            for row in rows
+        ]
+
+    def list_scope_entries_for_keys(
+        self,
+        project_id: int,
+        scope_type: str,
+        scope_value: str,
+        business_keys: list[str],
+        variant_repo: VariantRepository,
+    ) -> list[ScopeEntryRecord]:
+        if not business_keys:
+            return []
+        placeholders = ", ".join("?" for _ in business_keys)
+        with get_conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT e.entry_id, e.project_id, e.business_key, e.created_at AS entry_created_at, e.updated_at AS entry_updated_at,
+                       v.variant_id, v.file_name, v.source, v.orphaned_at, v.trashed_at, v.trash_until, v.restored_at, v.created_at AS variant_created_at, v.updated_at AS variant_updated_at,
+                       b.scope_type, b.scope_value
+                FROM scope_bindings b
+                JOIN entries e ON e.entry_id = b.entry_id
+                JOIN variants v ON v.variant_id = b.variant_id
+                WHERE e.project_id = ?
+                  AND b.scope_type = ?
+                  AND b.scope_value = ?
+                  AND e.business_key IN ({placeholders})
+                  AND v.trashed_at IS NULL
+                ORDER BY e.business_key
+                """,
+                [project_id, scope_type, scope_value, *business_keys],
+            ).fetchall()
+        return self._hydrate_bound_rows(rows, variant_repo)
+
     def count_scope(self, project_id: int, scope_type: str, scope_value: str) -> int:
         with get_conn() as conn:
             row = conn.execute(
@@ -551,6 +734,30 @@ class ScopeBindingRepository:
                 (project_id, scope_type, scope_value),
             ).fetchone()
         return int(row["count"] or 0)
+
+    def search_active_by_source(
+        self,
+        project_id: int,
+        source: str,
+        variant_repo: VariantRepository,
+    ) -> list[ScopeEntryRecord]:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT e.entry_id, e.project_id, e.business_key, e.created_at AS entry_created_at, e.updated_at AS entry_updated_at,
+                       v.variant_id, v.file_name, v.source, v.orphaned_at, v.trashed_at, v.trash_until, v.restored_at, v.created_at AS variant_created_at, v.updated_at AS variant_updated_at,
+                       b.scope_type, b.scope_value
+                FROM scope_bindings b
+                JOIN entries e ON e.entry_id = b.entry_id
+                JOIN variants v ON v.variant_id = b.variant_id
+                WHERE e.project_id = ?
+                  AND v.trashed_at IS NULL
+                  AND v.source = ?
+                ORDER BY e.business_key, b.scope_type, b.scope_value
+                """,
+                (project_id, source),
+            ).fetchall()
+        return self._hydrate_bound_rows(rows, variant_repo)
 
     def clear_scope(self, project_id: int, scope_type: str, scope_value: str) -> list[BindingRecord]:
         with get_conn() as conn:

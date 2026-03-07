@@ -48,7 +48,7 @@ class ProjectService:
         overlap = set(normalized_translation_columns) & set(normalized_remark_columns)
         if overlap:
             raise ValueError(f"schema columns must be distinct across translations and remarks: {sorted(overlap)}")
-        fixed_names = {self.FIXED_COLUMNS["business_key"], self.FIXED_COLUMNS["source"]}
+        fixed_names = set(self.FIXED_COLUMNS.values())
         if fixed_names & set(normalized_translation_columns + normalized_remark_columns):
             raise ValueError("schema columns cannot reuse fixed business headers")
 

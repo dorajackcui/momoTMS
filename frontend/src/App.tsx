@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type AppRoute = "overview" | "compare" | "queue" | "master" | "imports" | "project-new";
+type AppRoute = "overview" | "compare" | "queue" | "master" | "imports" | "inspection" | "project-new";
 
 type ProjectSummary = {
   project_id: number;
@@ -9,13 +9,29 @@ type ProjectSummary = {
   created_at: string;
 };
 
-type StateResponse = {
+type ProductBootstrapResponse = {
   project: ProjectSummary;
   schema: { translation_columns: string[]; remark_columns: string[] };
   candidate_dev_version: { version: string } | null;
   dev_versions: Array<{ version: string; version_line: string; is_candidate_release: boolean }>;
-  imports: Array<{ import_batch_id: number; project_id: number; meta: Record<string, unknown> }>;
+  imports: ImportBatchSummary[];
   jobs: JobSummary[];
+};
+
+type ImportBatchSummary = {
+  import_batch_id: number;
+  project_id: number;
+  created_at: string;
+  meta: Record<string, unknown>;
+  rows_scanned: number;
+  files_scanned: number;
+  issues: number;
+};
+
+type JobStageSummary = {
+  stage: string;
+  elapsed_ms: number;
+  meta: Record<string, unknown>;
 };
 
 type JobSummary = {
@@ -23,7 +39,13 @@ type JobSummary = {
   project_id: number;
   job_type: string;
   status: string;
+  input: Record<string, unknown>;
   summary: Record<string, unknown>;
+  report_path: string | null;
+  artifact_path: string | null;
+  error_message: string | null;
+  created_at: string;
+  finished_at?: string | null;
 };
 
 type JobDetail = {
@@ -128,6 +150,76 @@ type ImportSheetMapping = {
 
 type PromotePreview = Record<string, unknown> & { report_rows?: Array<Record<string, unknown>> };
 
+type VariantBindingSummary = {
+  scope_type: string;
+  scope_value: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type EntryVariantInspection = {
+  variant_id: number;
+  file_name: string | null;
+  source: string;
+  translations: Record<string, string>;
+  remarks: Record<string, string>;
+  bindings: VariantBindingSummary[];
+  is_retained: boolean;
+  is_orphaned: boolean;
+  is_trashed: boolean;
+  orphaned_at: string | null;
+  trashed_at: string | null;
+  trash_until: string | null;
+  restored_at: string | null;
+  last_active_scope: { scope_type: string; scope_value: string } | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type EntryVariantsResponse = {
+  project_id: number;
+  entry_id: number;
+  business_key: string;
+  variants: EntryVariantInspection[];
+};
+
+type RetainedVariantSummary = {
+  project_id: number;
+  entry_id: number;
+  business_key: string;
+  variant_id: number;
+  file_name: string | null;
+  source: string;
+  translations: Record<string, string>;
+  remarks: Record<string, string>;
+  last_active_scope: { scope_type: string; scope_value: string };
+  retained_at: string;
+  updated_at: string;
+};
+
+type RetainedVariantsResponse = {
+  project_id: number;
+  results: RetainedVariantSummary[];
+};
+
+type OrphanVariantSummary = {
+  project_id: number;
+  entry_id: number;
+  business_key: string;
+  variant_id: number;
+  file_name: string | null;
+  source: string;
+  translations: Record<string, string>;
+  remarks: Record<string, string>;
+  orphaned_at: string;
+  updated_at: string;
+};
+
+type OrphanVariantsResponse = {
+  project_id: number;
+  results: OrphanVariantSummary[];
+};
+
 const PAGE_SIZE = 25;
 const PROJECT_STORAGE_KEY = "momo_tms_selected_project_id";
 const NAV_ITEMS: Array<{ route: AppRoute; label: string }> = [
@@ -136,6 +228,7 @@ const NAV_ITEMS: Array<{ route: AppRoute; label: string }> = [
   { route: "queue", label: "Translation Queue" },
   { route: "master", label: "Master Query" },
   { route: "imports", label: "Imports & Jobs" },
+  { route: "inspection", label: "Inspection" },
 ];
 
 export function App() {
@@ -147,7 +240,7 @@ export function App() {
   });
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [bootstrap, setBootstrap] = useState<StateResponse | null>(null);
+  const [bootstrap, setBootstrap] = useState<ProductBootstrapResponse | null>(null);
   const [scopeSummary, setScopeSummary] = useState<ScopeSummaryResponse | null>(null);
   const [selectedLang, setSelectedLang] = useState("fr");
   const [baseScope, setBaseScope] = useState("rel/current");
@@ -177,8 +270,10 @@ export function App() {
   const [promoteVersion, setPromoteVersion] = useState("");
   const [selectedImportBatch, setSelectedImportBatch] = useState("");
   const [candidateRelease, setCandidateRelease] = useState(true);
-  const [fillResult, setFillResult] = useState<JobDetail | null>(null);
-  const [qaResult, setQaResult] = useState<JobDetail | null>(null);
+  const [inspectionLookupKey, setInspectionLookupKey] = useState("");
+  const [inspectionEntry, setInspectionEntry] = useState<EntryVariantsResponse | null>(null);
+  const [retainedVariants, setRetainedVariants] = useState<RetainedVariantSummary[]>([]);
+  const [orphanVariants, setOrphanVariants] = useState<OrphanVariantSummary[]>([]);
   const [createProjectName, setCreateProjectName] = useState("");
   const [createTranslationColumns, setCreateTranslationColumns] = useState("fr, en");
   const [createRemarkColumns, setCreateRemarkColumns] = useState("context");
@@ -195,15 +290,59 @@ export function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  function clearFolderInputs() {
+    if (importInputRef.current) {
+      importInputRef.current.value = "";
+    }
+    if (fillInputRef.current) {
+      fillInputRef.current.value = "";
+    }
+    if (qaInputRef.current) {
+      qaInputRef.current.value = "";
+    }
+  }
+
+  function resetProjectScopedUi() {
+    setBootstrap(null);
+    setScopeSummary(null);
+    setCompare(null);
+    setQueue(null);
+    setCompareSearch("");
+    setCompareState("");
+    setCompareDiff("");
+    setQueueStatus("");
+    setQueueSearch("");
+    setComparePage(1);
+    setQueuePage(1);
+    setMasterKey("");
+    setMasterSource("");
+    setMasterRows([]);
+    setMasterMode("key");
+    setSelectedJobId(null);
+    setJobDetail(null);
+    setImportPreview(null);
+    setImportMappings({});
+    setPendingImportFiles([]);
+    setShowImportModal(false);
+    setPromotePreview(null);
+    setPromoteVersion("");
+    setDevVersionInput("");
+    setSelectedImportBatch("");
+    setInspectionLookupKey("");
+    setInspectionEntry(null);
+    setRetainedVariants([]);
+    setOrphanVariants([]);
+    clearFolderInputs();
+  }
+
   useEffect(() => {
     if (!projectsLoaded) {
       return;
     }
     if (projects.length === 0) {
+      clearStoredProjectId();
+      resetProjectScopedUi();
       setSelectedProjectId(null);
-      if (route !== "project-new") {
-        navigate("project-new", setRoute);
-      }
       return;
     }
     const storedProjectId = getStoredProjectId();
@@ -218,18 +357,11 @@ export function App() {
       setSelectedProjectId(fallback);
       setStoredProjectId(fallback);
     }
-  }, [projects, projectsLoaded, route, selectedProjectId]);
-
-  useEffect(() => {
-    if (selectedProjectId) {
-      setStoredProjectId(selectedProjectId);
-    }
-  }, [selectedProjectId]);
+  }, [projects, projectsLoaded, selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
-      setBootstrap(null);
-      setScopeSummary(null);
+      resetProjectScopedUi();
       return;
     }
     void refreshProjectState(selectedProjectId, "Project loaded");
@@ -325,13 +457,39 @@ export function App() {
   );
   const compareTotalPages = compare ? Math.max(1, Math.ceil(compare.total_rows / Math.max(compare.page_size || 1, 1))) : 1;
   const queueTotalPages = queue ? Math.max(1, Math.ceil(queue.total_rows / Math.max(queue.page_size || 1, 1))) : 1;
-  const showProjectShell = projects.length > 0 || route !== "project-new";
+  const showProjectShell = projects.length > 0;
+  const selectedImportSummary = imports.find((item) => String(item.import_batch_id) === selectedImportBatch) || null;
+  const noProjects = projectsLoaded && projects.length === 0;
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      setJobDetail(null);
+      return;
+    }
+    if (isBusy || !bootstrap) {
+      return;
+    }
+    if (!jobs.some((job) => job.job_id === selectedJobId)) {
+      setSelectedJobId(null);
+      setJobDetail(null);
+    }
+  }, [bootstrap, isBusy, jobs, selectedJobId]);
+
+  useEffect(() => {
+    if (!selectedProjectId || route !== "inspection") {
+      return;
+    }
+    void loadInspectionLists(selectedProjectId);
+  }, [selectedProjectId, route]);
 
   async function refreshProjects(message = "Projects refreshed") {
     try {
       setIsBusy(true);
       const result = await fetchJson<ProjectSummary[]>("/api/projects");
       setProjects(result);
+      if (result.length === 0) {
+        clearStoredProjectId();
+      }
       setFlash({ message, error: false });
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -341,10 +499,55 @@ export function App() {
     }
   }
 
+  async function loadInspectionLists(projectId: number) {
+    try {
+      const [retained, orphaned] = await Promise.all([
+        fetchJson<RetainedVariantsResponse>(`/api/projects/${projectId}/retained-variants`),
+        fetchJson<OrphanVariantsResponse>(`/api/projects/${projectId}/orphan-variants`),
+      ]);
+      setRetainedVariants(retained.results);
+      setOrphanVariants(orphaned.results);
+    } catch (error) {
+      setFlash({ message: asMessage(error), error: true });
+    }
+  }
+
+  async function loadInspectionEntry(businessKey: string) {
+    if (!selectedProjectId) {
+      return;
+    }
+    const normalized = businessKey.trim();
+    if (!normalized) {
+      setFlash({ message: "Business key is required.", error: true });
+      return;
+    }
+    try {
+      const result = await fetchJson<EntryVariantsResponse>(
+        `/api/projects/${selectedProjectId}/entries/${encodeURIComponent(normalized)}/variants`,
+      );
+      setInspectionLookupKey(normalized);
+      setInspectionEntry(result);
+    } catch (error) {
+      setInspectionEntry(null);
+      setFlash({ message: asMessage(error), error: true });
+    }
+  }
+
+  async function handleProjectSelection(projectId: number) {
+    if (projectId === selectedProjectId) {
+      return;
+    }
+    resetProjectScopedUi();
+    setSelectedProjectId(projectId);
+    setStoredProjectId(projectId);
+    navigate("overview", setRoute);
+    setFlash({ message: `Switched to project #${projectId}`, error: false });
+  }
+
   async function refreshProjectState(projectId: number, message = "State refreshed") {
     try {
       setIsBusy(true);
-      const state = await fetchJson<StateResponse>(`/api/projects/${projectId}/state`);
+      const state = await fetchJson<ProductBootstrapResponse>(`/api/projects/${projectId}/state`);
       const nextLang = selectedLang || state.schema.translation_columns[0] || "";
       const summary = await fetchJson<ScopeSummaryResponse>(
         `/api/projects/${projectId}/scopes/summary?${new URLSearchParams({ lang: nextLang }).toString()}`,
@@ -656,7 +859,6 @@ export function App() {
       });
       setSelectedJobId(result.job.job_id);
       setJobDetail(result);
-      setFillResult(result);
       await refreshProjectState(selectedProjectId, `Fill job #${result.job.job_id} finished`);
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -673,7 +875,6 @@ export function App() {
       });
       setSelectedJobId(result.job.job_id);
       setJobDetail(result);
-      setQaResult(result);
       await refreshProjectState(selectedProjectId, `QA job #${result.job.job_id} finished`);
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -693,13 +894,43 @@ export function App() {
     }
   }
 
+  if (noProjects && route !== "project-new") {
+    return (
+      <div className="empty-shell" data-testid="app-empty-state">
+        <section className="empty-card">
+          <div className="stack">
+            <p className="eyebrow">Momo TMS</p>
+            <h1>Operator Console</h1>
+            <p>No projects are available yet. Create the first project to define the workbook schema and start import, compare, queue, fill, QA, and promote workflows.</p>
+            <p className="muted">Translation and remark column names are fixed after project creation.</p>
+          </div>
+          <div className="flash-wrap">
+            <p className={`flash ${flash.error ? "error" : ""}`}>{flash.message}</p>
+          </div>
+          <div className="toolbar">
+            <button
+              className="button accent"
+              onClick={() => navigate("project-new", setRoute)}
+              data-testid="app-empty-create-project"
+            >
+              Create Project
+            </button>
+            <button className="button subtle" onClick={() => void refreshProjects("Projects refreshed")}>
+              Refresh Projects
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell" data-testid="product-app">
       <aside className="sidebar">
         <div>
           <p className="eyebrow">Momo TMS</p>
-          <h1>Product App</h1>
-          <p className="muted">Project-first operator console for compare, queue, master lookup, and import workflows.</p>
+          <h1>Operator Console</h1>
+          <p className="muted">Primary product surface for project-scoped compare, queue, import workflows, and job inspection.</p>
         </div>
         {showProjectShell ? (
           <>
@@ -744,12 +975,7 @@ export function App() {
                 <span>Project</span>
                 <select
                   value={selectedProjectId || ""}
-                  onChange={(event) => {
-                    setSelectedProjectId(Number(event.target.value));
-                    setStoredProjectId(Number(event.target.value));
-                    setComparePage(1);
-                    setQueuePage(1);
-                  }}
+                  onChange={(event) => void handleProjectSelection(Number(event.target.value))}
                   data-testid="app-project-select"
                 >
                   {projects.map((project) => (
@@ -782,7 +1008,7 @@ export function App() {
               </div>
             </div>
             <p className="muted">
-              Define the fixed template once. Translation and remark column names will be used by import, compare, queue, fill, and master query.
+              Define the fixed template once. Translation and remark column names are fixed after project creation and are used by import, compare, queue, fill, and master query.
             </p>
             <div className="stack form-stack">
               <label className="field">
@@ -832,31 +1058,39 @@ export function App() {
                 Go to Imports & Jobs
               </button>
             </div>
-            <div className="overview-grid" data-testid="overview-grid">
-              {(scopeSummary?.scopes || []).map((scope) => (
-                <button
-                  key={`${scope.scope_type}/${scope.scope_value}`}
-                  className="scope-card"
-                  onClick={() => {
-                    const nextTarget = `${scope.scope_type}/${scope.scope_value}`;
-                    if (nextTarget !== "rel/current") {
-                      setTargetScope(nextTarget);
-                      if (nextTarget.startsWith("dev/")) {
-                        setQueueTargetScope(nextTarget);
+            {(scopeSummary?.scopes || []).length > 0 ? (
+              <div className="overview-grid" data-testid="overview-grid">
+                {(scopeSummary?.scopes || []).map((scope) => (
+                  <button
+                    key={`${scope.scope_type}/${scope.scope_value}`}
+                    className="scope-card"
+                    onClick={() => {
+                      const nextTarget = `${scope.scope_type}/${scope.scope_value}`;
+                      if (nextTarget !== "rel/current") {
+                        setTargetScope(nextTarget);
+                        if (nextTarget.startsWith("dev/")) {
+                          setQueueTargetScope(nextTarget);
+                        }
                       }
-                    }
-                    navigate("compare", setRoute);
-                  }}
-                >
-                  <div className="scope-card__top">
-                    <strong>{scope.scope_type}/{scope.scope_value}</strong>
-                    {scope.is_candidate_release ? <span className="badge accent">candidate</span> : null}
-                  </div>
-                  <span className="muted">entries {scope.entry_count}</span>
-                  <code>{JSON.stringify(scope.status_counts)}</code>
-                </button>
-              ))}
-            </div>
+                      navigate("compare", setRoute);
+                    }}
+                  >
+                    <div className="scope-card__top">
+                      <strong>{scope.scope_type}/{scope.scope_value}</strong>
+                      {scope.is_candidate_release ? <span className="badge accent">candidate</span> : null}
+                    </div>
+                    <span className="muted">entries {scope.entry_count}</span>
+                    <code>{JSON.stringify(scope.status_counts)}</code>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <PanelEmptyState
+                message="No scopes are available yet. Create an import batch and run dev import to populate branch views."
+                actionLabel="Go to Imports & Jobs"
+                onAction={() => navigate("imports", setRoute)}
+              />
+            )}
           </section>
         ) : null}
 
@@ -897,6 +1131,7 @@ export function App() {
                     setTargetScope(event.target.value);
                     setComparePage(1);
                   }}
+                  disabled={devScopeOptions.length === 0}
                   data-testid="app-target-scope"
                 >
                   {scopeOptions.map((option) => (
@@ -934,26 +1169,36 @@ export function App() {
             {baseScope === targetScope ? (
               <p className="flash error">Base scope and target scope must be different.</p>
             ) : null}
-            <DataTable
-              headers={["business_key", "file_name", "source", `target:${selectedLang}`, "state", "priority", "diffs"]}
-              rows={(compare?.rows || []).map((row) => [
-                row.business_key,
-                row.target?.file_name || row.base?.file_name || "-",
-                row.target?.source || row.base?.source || "-",
-                row.target?.translations?.[selectedLang] || row.base?.translations?.[selectedLang] || "",
-                presentState(row.state, baseScope, targetScope),
-                row.priority_status,
-                row.diff_categories.join(", ") || "-",
-              ])}
-              emptyText="No compare rows."
-              dataTestId="compare-table"
-            />
-            <Pagination
-              page={compare?.page || 1}
-              totalPages={compareTotalPages}
-              onPrev={() => setComparePage((value) => Math.max(1, value - 1))}
-              onNext={() => setComparePage((value) => Math.min(compareTotalPages, value + 1))}
-            />
+            {devScopeOptions.length === 0 ? (
+              <PanelEmptyState
+                message="No dev scopes are available for compare yet. Run dev import from Imports & Jobs first."
+                actionLabel="Go to Imports & Jobs"
+                onAction={() => navigate("imports", setRoute)}
+              />
+            ) : (
+              <>
+                <DataTable
+                  headers={["business_key", "file_name", "source", `target:${selectedLang}`, "state", "priority", "diffs"]}
+                  rows={(compare?.rows || []).map((row) => [
+                    row.business_key,
+                    row.target?.file_name || row.base?.file_name || "-",
+                    row.target?.source || row.base?.source || "-",
+                    row.target?.translations?.[selectedLang] || row.base?.translations?.[selectedLang] || "",
+                    presentState(row.state, baseScope, targetScope),
+                    row.priority_status,
+                    row.diff_categories.join(", ") || "-",
+                  ])}
+                  emptyText="No compare rows for the current filters."
+                  dataTestId="compare-table"
+                />
+                <Pagination
+                  page={compare?.page || 1}
+                  totalPages={compareTotalPages}
+                  onPrev={() => setComparePage((value) => Math.max(1, value - 1))}
+                  onNext={() => setComparePage((value) => Math.min(compareTotalPages, value + 1))}
+                />
+              </>
+            )}
           </section>
         ) : null}
 
@@ -977,6 +1222,7 @@ export function App() {
                     setQueueTargetScope(event.target.value);
                     setQueuePage(1);
                   }}
+                  disabled={devScopeOptions.length === 0}
                   data-testid="app-queue-target"
                 >
                   {devScopeOptions.map((option) => (
@@ -1002,26 +1248,36 @@ export function App() {
                 </select>
               </label>
             </div>
-            <DataTable
-              headers={["business_key", "file_name", "source", `target:${selectedLang}`, "state", "priority", "diffs"]}
-              rows={(queue?.rows || []).map((row) => [
-                row.business_key,
-                row.file_name || "-",
-                row.source,
-                row.target_text,
-                presentState(row.state, "rel/current", queueTargetScope),
-                row.priority_status,
-                row.diff_categories.join(", ") || "-",
-              ])}
-              emptyText="No queue rows."
-              dataTestId="queue-table"
-            />
-            <Pagination
-              page={queue?.page || 1}
-              totalPages={queueTotalPages}
-              onPrev={() => setQueuePage((value) => Math.max(1, value - 1))}
-              onNext={() => setQueuePage((value) => Math.min(queueTotalPages, value + 1))}
-            />
+            {devScopeOptions.length === 0 ? (
+              <PanelEmptyState
+                message="No dev scopes are available for translation queue yet. Run dev import from Imports & Jobs first."
+                actionLabel="Go to Imports & Jobs"
+                onAction={() => navigate("imports", setRoute)}
+              />
+            ) : (
+              <>
+                <DataTable
+                  headers={["business_key", "file_name", "source", `target:${selectedLang}`, "state", "priority", "diffs"]}
+                  rows={(queue?.rows || []).map((row) => [
+                    row.business_key,
+                    row.file_name || "-",
+                    row.source,
+                    row.target_text,
+                    presentState(row.state, "rel/current", queueTargetScope),
+                    row.priority_status,
+                    row.diff_categories.join(", ") || "-",
+                  ])}
+                  emptyText="No queue rows for the current filters."
+                  dataTestId="queue-table"
+                />
+                <Pagination
+                  page={queue?.page || 1}
+                  totalPages={queueTotalPages}
+                  onPrev={() => setQueuePage((value) => Math.max(1, value - 1))}
+                  onNext={() => setQueuePage((value) => Math.min(queueTotalPages, value + 1))}
+                />
+              </>
+            )}
           </section>
         ) : null}
 
@@ -1065,6 +1321,138 @@ export function App() {
               emptyText="No active matches."
               dataTestId="master-table"
             />
+          </section>
+        ) : null}
+
+        {route === "inspection" ? (
+          <section className="imports-layout" data-testid="app-inspection-page">
+            <section className="panel">
+              <div className="panel-head">
+                <div>
+                  <p className="panel-kicker">Debug</p>
+                  <h3>Inspection</h3>
+                </div>
+              </div>
+              <div className="toolbar">
+                <label className="field compact">
+                  <span>Business Key</span>
+                  <input
+                    value={inspectionLookupKey}
+                    onChange={(event) => setInspectionLookupKey(event.target.value)}
+                    data-testid="app-inspection-key"
+                  />
+                </label>
+                <button className="button" onClick={() => void loadInspectionEntry(inspectionLookupKey)} data-testid="app-inspection-lookup">
+                  Inspect Entry
+                </button>
+                <button className="button subtle" onClick={() => selectedProjectId && void loadInspectionLists(selectedProjectId)}>
+                  Refresh Lists
+                </button>
+              </div>
+            </section>
+
+            <section className="inspection-grid">
+              <section className="panel">
+                <div className="panel-head">
+                  <div>
+                    <p className="panel-kicker">Lifecycle</p>
+                    <h3>Retained Variants</h3>
+                  </div>
+                </div>
+                <div className="job-list" data-testid="app-retained-list">
+                  {retainedVariants.length > 0 ? (
+                    retainedVariants.map((item) => (
+                      <button
+                        key={`retained-${item.variant_id}`}
+                        className={`job-card ${inspectionEntry?.business_key === item.business_key ? "active" : ""}`}
+                        onClick={() => void loadInspectionEntry(item.business_key)}
+                      >
+                        <strong>{item.business_key}</strong>
+                        <span className="muted">{item.last_active_scope.scope_type}/{item.last_active_scope.scope_value}</span>
+                        <span className="muted">{formatTimestamp(item.retained_at)}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <PanelEmptyState message="No retained variants in this project." />
+                  )}
+                </div>
+              </section>
+
+              <section className="panel">
+                <div className="panel-head">
+                  <div>
+                    <p className="panel-kicker">Lifecycle</p>
+                    <h3>Orphan Variants</h3>
+                  </div>
+                </div>
+                <div className="job-list" data-testid="app-orphan-list">
+                  {orphanVariants.length > 0 ? (
+                    orphanVariants.map((item) => (
+                      <button
+                        key={`orphan-${item.variant_id}`}
+                        className={`job-card ${inspectionEntry?.business_key === item.business_key ? "active" : ""}`}
+                        onClick={() => void loadInspectionEntry(item.business_key)}
+                      >
+                        <strong>{item.business_key}</strong>
+                        <span className="muted">{item.file_name || "-"}</span>
+                        <span className="muted">{formatTimestamp(item.orphaned_at)}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <PanelEmptyState message="No orphan variants in this project." />
+                  )}
+                </div>
+              </section>
+            </section>
+
+            <section className="panel" data-testid="app-inspection-detail">
+              <div className="panel-head">
+                <div>
+                  <p className="panel-kicker">Entry</p>
+                  <h3>{inspectionEntry?.business_key || "Variant Detail"}</h3>
+                </div>
+              </div>
+              {inspectionEntry ? (
+                <div className="stack">
+                  {inspectionEntry.variants.map((variant) => (
+                    <article key={variant.variant_id} className="mapping-card">
+                      <div className="scope-card__top">
+                        <strong>variant #{variant.variant_id}</strong>
+                        <div className="toolbar">
+                          {variant.is_retained ? <span className="badge accent">retained</span> : null}
+                          {variant.is_orphaned ? <span className="badge warning">orphan</span> : null}
+                          {variant.is_trashed ? <span className="badge danger">trashed</span> : null}
+                        </div>
+                      </div>
+                      <SummaryKeyValueList
+                        items={[
+                          ["file_name", variant.file_name || "-"],
+                          ["source", variant.source],
+                          ["last_active_scope", variant.last_active_scope ? `${variant.last_active_scope.scope_type}/${variant.last_active_scope.scope_value}` : "-"],
+                          ["orphaned_at", variant.orphaned_at || "-"],
+                          ["updated_at", formatTimestamp(variant.updated_at)],
+                        ]}
+                      />
+                      <SummaryKeyValueList title="translations" items={Object.entries(variant.translations)} />
+                      <SummaryKeyValueList title="remarks" items={Object.entries(variant.remarks)} />
+                      <SummaryKeyValueList
+                        title="bindings"
+                        items={
+                          variant.bindings.length > 0
+                            ? variant.bindings.map((binding) => [
+                                `${binding.scope_type}/${binding.scope_value}`,
+                                formatTimestamp(binding.updated_at),
+                              ])
+                            : [["state", "No active bindings"]]
+                        }
+                      />
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <PanelEmptyState message="Look up a business key or pick a retained/orphan row to inspect bindings and lifecycle flags." />
+              )}
+            </section>
           </section>
         ) : null}
 
@@ -1124,27 +1512,57 @@ export function App() {
                 </div>
               </div>
               <div className="stack">
-                <label className="field">
-                  <span>Import Batch</span>
-                  <select value={selectedImportBatch} onChange={(event) => setSelectedImportBatch(event.target.value)} data-testid="app-import-batch">
-                    {imports.map((item) => (
-                      <option key={item.import_batch_id} value={item.import_batch_id}>
-                        #{item.import_batch_id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Dev Version</span>
-                  <input value={devVersionInput} onChange={(event) => setDevVersionInput(event.target.value)} placeholder="2.3.2" data-testid="app-dev-version-input" />
-                </label>
-                <label className="checkbox">
-                  <input type="checkbox" checked={candidateRelease} onChange={(event) => setCandidateRelease(event.target.checked)} />
-                  <span>Mark as candidate release</span>
-                </label>
-                <button className="button accent" onClick={() => void runDevImport()} data-testid="app-run-dev-import">
-                  Run Dev Import
-                </button>
+                {imports.length > 0 ? (
+                  <>
+                    <label className="field">
+                      <span>Import Batch</span>
+                      <select value={selectedImportBatch} onChange={(event) => setSelectedImportBatch(event.target.value)} data-testid="app-import-batch">
+                        {imports.map((item) => (
+                          <option key={item.import_batch_id} value={item.import_batch_id}>
+                            #{item.import_batch_id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="job-list" data-testid="app-import-batches">
+                      {imports.map((item) => (
+                        <button
+                          key={item.import_batch_id}
+                          className={`job-card ${selectedImportBatch === String(item.import_batch_id) ? "active" : ""}`}
+                          onClick={() => setSelectedImportBatch(String(item.import_batch_id))}
+                        >
+                          <strong>batch #{item.import_batch_id}</strong>
+                          <span className="muted">{formatTimestamp(item.created_at)}</span>
+                          <span className="muted">{item.files_scanned} files · {item.rows_scanned} rows · {item.issues} issues</span>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedImportSummary ? (
+                      <SummaryKeyValueList
+                        title="selected batch"
+                        items={[
+                          ["created_at", formatTimestamp(selectedImportSummary.created_at)],
+                          ["files_scanned", String(selectedImportSummary.files_scanned)],
+                          ["rows_scanned", String(selectedImportSummary.rows_scanned)],
+                          ["issues", String(selectedImportSummary.issues)],
+                        ]}
+                      />
+                    ) : null}
+                    <label className="field">
+                      <span>Dev Version</span>
+                      <input value={devVersionInput} onChange={(event) => setDevVersionInput(event.target.value)} placeholder="2.3.2" data-testid="app-dev-version-input" />
+                    </label>
+                    <label className="checkbox">
+                      <input type="checkbox" checked={candidateRelease} onChange={(event) => setCandidateRelease(event.target.checked)} />
+                      <span>Mark as candidate release</span>
+                    </label>
+                    <button className="button accent" onClick={() => void runDevImport()} data-testid="app-run-dev-import">
+                      Run Dev Import
+                    </button>
+                  </>
+                ) : (
+                  <PanelEmptyState message="No import batches yet. Upload a folder to create the first import batch." />
+                )}
               </div>
             </section>
 
@@ -1173,7 +1591,7 @@ export function App() {
                       data-testid="app-fill-folder"
                     />
                   </label>
-                  {fillResult ? <code>{JSON.stringify(fillResult.job.summary)}</code> : null}
+                  <p className="muted">Fill results appear in the selected job detail panel.</p>
                 </div>
                 <div className="stack">
                   <label className="field">
@@ -1192,7 +1610,7 @@ export function App() {
                       data-testid="app-qa-folder"
                     />
                   </label>
-                  {qaResult ? <code>{JSON.stringify(qaResult.job.summary)}</code> : null}
+                  <p className="muted">QA report details appear in the selected job detail panel.</p>
                 </div>
                 <div className="stack">
                   <label className="field">
@@ -1207,7 +1625,14 @@ export function App() {
                       Execute
                     </button>
                   </div>
-                  {promotePreview ? <code>{JSON.stringify(promotePreview)}</code> : null}
+                  {promotePreview ? (
+                    <SummaryKeyValueList
+                      title="promote preview"
+                      items={Object.entries(promotePreview).filter(([key]) => key !== "report_rows").map(([key, value]) => [key, stringifyValue(value)])}
+                    />
+                  ) : (
+                    <p className="muted">Preview summarize promote impact before execution.</p>
+                  )}
                 </div>
               </div>
             </section>
@@ -1221,19 +1646,21 @@ export function App() {
               </div>
               <div className="imports-jobs-grid">
                 <div className="job-list" data-testid="app-jobs-list">
-                  {jobs.map((job) => (
-                    <button key={job.job_id} className={`job-card ${selectedJobId === job.job_id ? "active" : ""}`} onClick={() => void inspectJob(job.job_id)}>
-                      <strong>#{job.job_id} · {job.job_type}</strong>
-                      <span className="muted">{job.status}</span>
-                    </button>
-                  ))}
+                  {jobs.length > 0 ? (
+                    jobs.map((job) => (
+                      <button key={job.job_id} className={`job-card ${selectedJobId === job.job_id ? "active" : ""}`} onClick={() => void inspectJob(job.job_id)}>
+                        <strong>#{job.job_id} · {job.job_type}</strong>
+                        <span className="muted">{job.status}</span>
+                        <span className="muted">{formatTimestamp(job.created_at)}</span>
+                        <span className="muted">{summarizeJob(job)}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <PanelEmptyState message="No jobs yet. Run import, dev import, fill, QA, or promote to populate this list." />
+                  )}
                 </div>
                 <div className="job-detail" data-testid="app-job-detail">
-                  {jobDetail ? (
-                    <code>{JSON.stringify({ summary: jobDetail.job.summary, rows: jobDetail.report.rows.slice(0, 20) }, null, 2)}</code>
-                  ) : (
-                    <p className="muted">Select a job to inspect report output.</p>
-                  )}
+                  <JobDetailPanel jobDetail={jobDetail} projectId={selectedProjectId} />
                 </div>
               </div>
             </section>
@@ -1405,6 +1832,141 @@ function Pagination(props: {
   );
 }
 
+function PanelEmptyState(props: { message: string; actionLabel?: string; onAction?: () => void }) {
+  return (
+    <div className="empty-card empty-card--inline">
+      <p className="muted">{props.message}</p>
+      {props.actionLabel && props.onAction ? (
+        <button className="button subtle" onClick={props.onAction}>
+          {props.actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryKeyValueList(props: { title?: string; items: Array<[string, string]> }) {
+  if (props.items.length === 0) {
+    return null;
+  }
+  return (
+    <div className="summary-list">
+      {props.title ? <p className="eyebrow">{props.title}</p> : null}
+      {props.items.map(([label, value]) => (
+        <div key={`${props.title || "summary"}-${label}`} className="summary-row">
+          <span className="summary-label">{label}</span>
+          <span>{value || "-"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function JobDetailPanel(props: { jobDetail: JobDetail | null; projectId: number | null }) {
+  if (!props.jobDetail || !props.projectId) {
+    return <p className="muted">Select a job to inspect report output, stages, and downloads.</p>;
+  }
+  const stages = readJobStages(props.jobDetail.job.summary);
+  const reportRows = props.jobDetail.report.rows.slice(0, 12);
+  const artifactHref = buildArtifactHref(props.projectId, props.jobDetail.job);
+  const reportHref = `/api/projects/${props.projectId}/jobs/${props.jobDetail.job.job_id}/report`;
+  return (
+    <div className="stack">
+      <div className="mapping-card">
+        <div className="panel-head">
+          <div>
+            <p className="panel-kicker">Job Detail</p>
+            <h3>#{props.jobDetail.job.job_id} · {props.jobDetail.job.job_type}</h3>
+          </div>
+          <span className={`badge ${props.jobDetail.job.status === "done" ? "accent" : "warning"}`}>{props.jobDetail.job.status}</span>
+        </div>
+        <SummaryKeyValueList
+          items={[
+            ["created_at", formatTimestamp(props.jobDetail.job.created_at)],
+            ["finished_at", props.jobDetail.job.finished_at ? formatTimestamp(props.jobDetail.job.finished_at) : "-"],
+            ["error", props.jobDetail.job.error_message || "-"],
+          ]}
+        />
+        <div className="toolbar">
+          <a className="button subtle" href={reportHref} target="_blank" rel="noreferrer" data-testid="app-job-report-link">
+            Open Report
+          </a>
+          {artifactHref ? (
+            <a className="button subtle" href={artifactHref} target="_blank" rel="noreferrer" data-testid="app-job-artifact-link">
+              Download Artifact
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      <SummaryKeyValueList title="input" items={objectEntries(props.jobDetail.job.input)} />
+      <SummaryKeyValueList title="summary" items={objectEntries(props.jobDetail.job.summary, ["stages"])} />
+
+      {stages.length > 0 ? (
+        <div className="mapping-card">
+          <p className="eyebrow">stages</p>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>stage</th>
+                  <th>elapsed_ms</th>
+                  <th>meta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stages.map((stage) => (
+                  <tr key={stage.stage}>
+                    <td>{stage.stage}</td>
+                    <td>{String(stage.elapsed_ms)}</td>
+                    <td>{stringifyValue(stage.meta)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mapping-card">
+        <p className="eyebrow">report rows</p>
+        <ReportRowsPreview rows={reportRows} />
+      </div>
+    </div>
+  );
+}
+
+function ReportRowsPreview(props: { rows: Array<Record<string, unknown>> }) {
+  if (props.rows.length === 0) {
+    return <p className="muted">No report rows recorded for this job.</p>;
+  }
+  const columns = Array.from(
+    new Set(props.rows.flatMap((row) => Object.keys(row))),
+  ).slice(0, 8);
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column}>{column}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {props.rows.map((row, index) => (
+            <tr key={`report-row-${index}`}>
+              {columns.map((column) => (
+                <td key={`report-row-${index}-${column}`}>{stringifyValue(row[column])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function parseRoute(pathname: string): AppRoute {
   if (pathname.startsWith("/app/projects/new")) {
     return "project-new";
@@ -1421,6 +1983,9 @@ function parseRoute(pathname: string): AppRoute {
   if (pathname.startsWith("/app/imports")) {
     return "imports";
   }
+  if (pathname.startsWith("/app/inspection")) {
+    return "inspection";
+  }
   return "overview";
 }
 
@@ -1436,6 +2001,8 @@ function routePath(route: AppRoute): string {
       return "/app/master";
     case "imports":
       return "/app/imports";
+    case "inspection":
+      return "/app/inspection";
     case "project-new":
       return "/app/projects/new";
   }
@@ -1552,6 +2119,72 @@ function getStoredProjectId(): number | null {
 
 function setStoredProjectId(projectId: number) {
   window.localStorage.setItem(PROJECT_STORAGE_KEY, String(projectId));
+}
+
+function clearStoredProjectId() {
+  window.localStorage.removeItem(PROJECT_STORAGE_KEY);
+}
+
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return "-";
+  }
+  return value.replace("T", " ").replace("+00:00", "Z");
+}
+
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function objectEntries(value: Record<string, unknown>, exclude: string[] = []): Array<[string, string]> {
+  return Object.entries(value)
+    .filter(([key]) => !exclude.includes(key))
+    .map(([key, item]) => [key, stringifyValue(item)]);
+}
+
+function readJobStages(summary: Record<string, unknown>): JobStageSummary[] {
+  const stages = summary.stages;
+  if (!Array.isArray(stages)) {
+    return [];
+  }
+  return stages
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const stage = item as Record<string, unknown>;
+      return {
+        stage: String(stage.stage || ""),
+        elapsed_ms: Number(stage.elapsed_ms || 0),
+        meta: (stage.meta as Record<string, unknown>) || {},
+      };
+    })
+    .filter((item): item is JobStageSummary => Boolean(item && item.stage));
+}
+
+function summarizeJob(job: JobSummary): string {
+  const summaryEntries = objectEntries(job.summary, ["stages"]).slice(0, 2);
+  if (summaryEntries.length === 0) {
+    return "No summary metrics";
+  }
+  return summaryEntries.map(([key, value]) => `${key}: ${value}`).join(" · ");
+}
+
+function buildArtifactHref(projectId: number, job: JobSummary): string | null {
+  if (!job.artifact_path) {
+    return null;
+  }
+  const artifactName = job.artifact_path.split("/").pop();
+  if (!artifactName) {
+    return null;
+  }
+  return `/api/projects/${projectId}/jobs/${job.job_id}/artifact/${encodeURIComponent(artifactName)}`;
 }
 
 async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {

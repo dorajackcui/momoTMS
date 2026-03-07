@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from openpyxl import load_workbook
@@ -24,8 +25,9 @@ class ImportService:
     ) -> dict[str, Any]:
         base = Path(input_dir)
         if not base.exists() or not base.is_dir():
-            raise FileNotFoundError(f"input directory not found: {input_dir}")
+            raise ValueError(f"input directory not found: {input_dir}")
         files = [path for path in sorted(base.rglob("*.xlsx")) if not path.name.startswith("~$")]
+        parse_started = perf_counter()
         with get_conn() as conn:
             cur = conn.execute(
                 """
@@ -98,12 +100,27 @@ class ImportService:
                         )
                     )
 
+        parse_elapsed_ms = int((perf_counter() - parse_started) * 1000)
+        persist_started = perf_counter()
         self._insert_rows(pending_rows)
+        persist_elapsed_ms = int((perf_counter() - persist_started) * 1000)
 
         summary = self.get_batch_summary(batch_id)
         summary["files_scanned"] = len(files)
         summary["rows_scanned"] = rows_scanned
         summary["issues"] = issues
+        summary["stages"] = [
+            {
+                "stage": "parse",
+                "elapsed_ms": parse_elapsed_ms,
+                "meta": {"files_scanned": len(files), "rows_scanned": rows_scanned},
+            },
+            {
+                "stage": "persist_import",
+                "elapsed_ms": persist_elapsed_ms,
+                "meta": {"rows_inserted": len(pending_rows)},
+            },
+        ]
         return summary
 
     def preview_files(
@@ -233,7 +250,7 @@ class ImportService:
         if not row:
             raise KeyError(f"import batch not found: {import_batch_id}")
         if int(row["project_id"]) != project_id:
-            raise ValueError(f"import batch {import_batch_id} does not belong to project {project_id}")
+            raise KeyError(f"import batch not found: {import_batch_id}")
 
     def _insert_rows(self, rows: list[tuple[Any, ...]]) -> None:
         if not rows:

@@ -28,7 +28,8 @@ body {
 
 button,
 input,
-select {
+select,
+a {
   font: inherit;
 }
 
@@ -56,6 +57,12 @@ select {
   border: 1px solid var(--line);
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.empty-card--inline {
+  width: 100%;
+  padding: 18px;
+  border-radius: 18px;
 }
 
 .sidebar,
@@ -284,6 +291,16 @@ h3 {
   background: var(--accent-soft);
 }
 
+.badge.warning {
+  color: #8a5600;
+  background: rgba(214, 172, 78, 0.18);
+}
+
+.badge.danger {
+  color: var(--danger);
+  background: rgba(151, 61, 52, 0.12);
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid rgba(25, 30, 28, 0.08);
@@ -320,6 +337,26 @@ h3 {
   gap: 12px;
 }
 
+.summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fffdf8;
+  border: 1px solid rgba(25, 30, 28, 0.08);
+}
+
+.summary-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .schema-summary {
   display: grid;
   gap: 10px;
@@ -330,11 +367,16 @@ h3 {
   gap: 18px;
 }
 
+.inspection-grid,
 .imports-actions-grid,
 .imports-jobs-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+}
+
+.inspection-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .imports-jobs-grid {
@@ -404,6 +446,13 @@ code {
   margin-top: 12px;
 }
 
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 260px minmax(0, 1fr);
@@ -427,7 +476,8 @@ code {
   }
 
   .overview-grid,
-  .mapping-grid {
+  .mapping-grid,
+  .inspection-grid {
     grid-template-columns: 1fr;
   }
 

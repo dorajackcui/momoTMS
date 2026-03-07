@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -7,20 +8,32 @@ from typing import Any
 
 from openpyxl import Workbook
 
-from app.db import DB_PATH, init_db
+from app.db import get_db_path, init_db
 from app.demo_fixtures import SAMPLES
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.jobs import JobService
-from app.services.variant.compatibility import StringService
+from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
 
 DEMO_ROOT = Path("data/demo_samples")
+DEMO_ROOT_ENV_VAR = "MOMO_TMS_DEMO_ROOT"
+
+
+def get_demo_root(path: Path | str | None = None) -> Path:
+    if path is not None:
+        return Path(path)
+    override = os.getenv(DEMO_ROOT_ENV_VAR)
+    if override:
+        return Path(override)
+    return DEMO_ROOT
 
 
 class DemoService:
     def __init__(self) -> None:
         self.jobs = JobService()
         self.projects = ProjectService()
-        self.strings = StringService()
+        self.entries = EntryService()
+        self.bindings = ScopeBindingService()
+        self.catalog = VariantCatalogService()
 
     def list_samples(self) -> list[dict[str, Any]]:
         return [self._serialize_sample(spec) for spec in SAMPLES]
@@ -38,11 +51,13 @@ class DemoService:
             self._build_sample_files(spec)
 
     def reset(self) -> dict[str, Any]:
+        demo_root = get_demo_root()
+        db_path = get_db_path()
         self.jobs.clear_storage()
-        if DEMO_ROOT.exists():
-            shutil.rmtree(DEMO_ROOT)
-        if DB_PATH.exists():
-            DB_PATH.unlink()
+        if demo_root.exists():
+            shutil.rmtree(demo_root)
+        if db_path.exists():
+            db_path.unlink()
         init_db()
         self.ensure_sample_files()
         seed_sample = SAMPLES[0]
@@ -55,7 +70,7 @@ class DemoService:
         return {"sample_id": seed_sample["sample_id"]}
 
     def sample_paths(self, sample_id: str) -> dict[str, str]:
-        root = DEMO_ROOT / sample_id
+        root = get_demo_root() / sample_id
         return {
             "root": str(root),
             "import_dir": str(root / "import_bundle"),
@@ -64,19 +79,24 @@ class DemoService:
 
     def _seed_strings(self, sample: dict[str, Any], project_id: int = DEFAULT_PROJECT_ID) -> None:
         for item in sample["seed_strings"]:
-            string_id = self.strings.create_string(
-                business_key=item["business_key"],
+            entry = self.entries.get_or_create_entry(item["business_key"], project_id=project_id)
+            string_id = self.catalog.create_variant(
+                int(entry["entry_id"]),
                 file_name=item.get("file_name"),
                 source=item["source"],
                 translations=item.get("translations", {}),
                 remarks=item.get("remarks", {}),
-                project_id=project_id,
             )
             for membership in item.get("memberships", []):
                 if membership == "rel":
-                    self.strings.ensure_membership(string_id, "rel", "current")
+                    self.bindings.bind_scope(int(entry["entry_id"]), "rel", "current", string_id)
                 elif membership.startswith("dev:"):
-                    self.strings.ensure_membership(string_id, "dev", membership.split(":", 1)[1])
+                    self.bindings.bind_scope(
+                        int(entry["entry_id"]),
+                        "dev",
+                        membership.split(":", 1)[1],
+                        string_id,
+                    )
 
     def _serialize_sample(self, spec: dict[str, Any]) -> dict[str, Any]:
         sample = deepcopy(spec)

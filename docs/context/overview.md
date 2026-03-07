@@ -10,8 +10,10 @@ The current runtime is already project-scoped and variant-oriented. The old flat
 - Variant-oriented write model: `entries`, `variants`, `scope_bindings`, `retained_variants`
 - Read APIs for branch summary, branch compare, translation queue, and master query
 - Product frontend at `/app`
-- Validation pages at `/workbench` and `/variant-workbench`
+- Internal validation page at `/variant-workbench`
 - Folder upload support for import, fill, and QA
+- Project-scoped hotfix and variant-aware trash APIs
+- Read-only inspection APIs for entry variants, retained variants, and orphan variants
 - Job-based execution and report/artifact storage
 
 ## Core Concepts
@@ -48,11 +50,19 @@ The current runtime is already project-scoped and variant-oriented. The old flat
 ## Main Runtime Surfaces
 
 - `/app`: operator-facing React app
-- `/app/imports`: import, fill, QA, promote, jobs
+- `/app/imports`: import, dev import, fill, QA, promote, jobs, reports, and artifacts
+- `/app/inspection`: retained/orphan lifecycle inspection and business-key variant lookup
 - `/app/projects/new`: explicit project creation route
-- `/workbench`: legacy/compat validation page
-- `/variant-workbench`: variant-model validation page
+- `/workbench`: removed; `GET /workbench` returns `410 Gone`
+- `/variant-workbench`: deprecated internal validation page
 - `/docs`: OpenAPI
+
+## Bootstrap Boundary
+
+- `GET /api/projects/{project_id}/state` is the product bootstrap for `/app`.
+- `GET /api/state` is compatibility-only bootstrap for `/variant-workbench` and remaining default-project validation flows.
+- Compatibility bootstrap still includes `trash_count` and `samples`; product bootstrap does not.
+- Project bootstrap contract lives in [../runtime/product-bootstrap.md](../runtime/product-bootstrap.md).
 
 ## Repo Map
 
@@ -66,5 +76,16 @@ The current runtime is already project-scoped and variant-oriented. The old flat
 
 - Product behavior is project-scoped first.
 - Compatibility endpoints still exist for default project `1`.
-- The compatibility layer still exposes `/api/state`, `/api/strings`, `/api/dev-versions`, and similar default-project routes.
+- Compatibility write routes for hotfix and trash are gone; only project-scoped replacements remain.
+- The compatibility layer still exposes `/api/state`, `/api/strings`, `/api/dev-versions`, and similar default-project routes for validation surfaces.
 - New work should prefer explicit domain modules over compatibility facades.
+- `/workbench` is gone and intentionally not redirected.
+- `/variant-workbench` remains available only as a deprecated internal regression page.
+- Schema is fixed when a project is created; there is no schema-edit API.
+- `/app` owns no-project empty state, project-switch reset behavior, imports/jobs cockpit, and read-only lifecycle inspection.
+- Hotfix remains internal-only and is intentionally not exposed in `/app`.
+
+## Next-Step Planning
+
+- Use [../operations/backlog.md](../operations/backlog.md) as the working checklist.
+- Treat that file as the current execution plan for post-refactor cleanup and product convergence.

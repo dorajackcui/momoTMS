@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import shutil
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -16,13 +17,13 @@ from app.services.shared.io import (
     normalize_non_content_value,
 )
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.variant.facade import VariantService
+from app.services.variant.services import ScopeBindingService
 
 
 class FillService:
     def __init__(self) -> None:
         self.projects = ProjectService()
-        self.variants = VariantService()
+        self.bindings = ScopeBindingService()
 
     def fill_and_export(
         self,
@@ -36,9 +37,9 @@ class FillService:
         self.projects.require_language(lang, project_id)
         root = Path(source_dir)
         if not root.exists() or not root.is_dir():
-            raise FileNotFoundError(f"fill source directory not found: {source_dir}")
+            raise ValueError(f"fill source directory not found: {source_dir}")
 
-        rel_entries = self.variants.list_scope_entries("rel", "current", project_id)
+        rel_entries = self.bindings.list_scope_entries("rel", "current", project_id)
         strings_by_key = {
             normalize_non_content_value(item["business_key"]): item for item in rel_entries
         }
@@ -54,6 +55,7 @@ class FillService:
 
         filled = miss = mismatch = kept = skipped_invalid = skipped_blank = 0
         report_rows: list[dict[str, Any]] = []
+        fill_started = perf_counter()
 
         for path in sorted(root.rglob("*.xlsx")):
             if path.name.startswith("~$"):
@@ -144,6 +146,8 @@ class FillService:
                     )
             workbook.save(out_path)
 
+        fill_elapsed_ms = int((perf_counter() - fill_started) * 1000)
+        artifact_started = perf_counter()
         report_path = export_dir / "fill_report.csv"
         with report_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
@@ -164,6 +168,7 @@ class FillService:
             for file_path in sorted(export_dir.rglob("*")):
                 if file_path.is_file():
                     archive.write(file_path, file_path.relative_to(export_dir))
+        artifact_elapsed_ms = int((perf_counter() - artifact_started) * 1000)
 
         return {
             "filled_count": filled,
@@ -175,6 +180,18 @@ class FillService:
             "report_path": str(report_path),
             "report_rows": report_rows,
             "output_zip": output_zip,
+            "stages": [
+                {
+                    "stage": "fill_export",
+                    "elapsed_ms": fill_elapsed_ms,
+                    "meta": {"filled_count": filled, "row_count": len(report_rows)},
+                },
+                {
+                    "stage": "artifact_write",
+                    "elapsed_ms": artifact_elapsed_ms,
+                    "meta": {"artifact_name": Path(output_zip).name},
+                },
+            ],
         }
 
     def _cell_non_content(self, sheet: Any, row_index: int, column_index: int | None) -> str:

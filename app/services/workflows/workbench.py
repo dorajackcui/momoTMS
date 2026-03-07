@@ -12,7 +12,7 @@ from app.services.shared.jobs import JobService
 from app.services.workflows.promote import PromoteService
 from app.services.workflows.qa import QaScanService
 from app.services.workflows.rel import RelService
-from app.services.variant.compatibility import StringService
+from app.services.variant.services import VariantLifecycleService
 from app.services.workflows.trash import TrashService
 
 
@@ -27,7 +27,7 @@ class WorkbenchService:
         self.promote_service = PromoteService()
         self.qa_scan_service = QaScanService()
         self.rel_service = RelService()
-        self.string_service = StringService()
+        self.lifecycle_service = VariantLifecycleService()
         self.trash_service = TrashService()
 
     def get_state(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
@@ -37,7 +37,7 @@ class WorkbenchService:
             "rel_summary": self.rel_service.summary(project_id),
             "candidate_dev_version": self.dev_version_service.get_candidate_release(project_id),
             "dev_versions": self.dev_version_service.list_versions(project_id=project_id, active_only=True),
-            "trash_count": self.string_service.trash_count(project_id),
+            "trash_count": self.lifecycle_service.trash_count(project_id),
             "imports": self.import_service.list_batches(project_id=project_id),
             "jobs": self.job_service.list_jobs(project_id=project_id),
             "samples": self.demo_service.list_samples(),
@@ -163,19 +163,39 @@ class WorkbenchService:
             project_id=project_id,
         )
 
-    def trash_delete(self, business_keys: list[str], project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+    def trash_delete(
+        self,
+        scope_ref: str,
+        business_keys: list[str],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
         return self._run_job(
             "trash_delete",
-            {"business_keys": business_keys, "project_id": project_id},
-            lambda _job_id: self._wrap_report(self.trash_service.delete(business_keys, project_id=project_id)),
+            {"scope_ref": scope_ref, "business_keys": business_keys, "project_id": project_id},
+            lambda _job_id: self._wrap_report(
+                self.trash_service.delete(
+                    scope_ref,
+                    business_keys,
+                    project_id=project_id,
+                )
+            ),
             project_id=project_id,
         )
 
-    def trash_restore(self, business_keys: list[str], project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+    def trash_restore(
+        self,
+        variant_ids: list[int],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
         return self._run_job(
             "trash_restore",
-            {"business_keys": business_keys, "project_id": project_id},
-            lambda _job_id: self._wrap_report(self.trash_service.restore(business_keys, project_id=project_id)),
+            {"variant_ids": variant_ids, "project_id": project_id},
+            lambda _job_id: self._wrap_report(
+                self.trash_service.restore(
+                    variant_ids,
+                    project_id=project_id,
+                )
+            ),
             project_id=project_id,
         )
 
@@ -317,6 +337,7 @@ class WorkbenchService:
             "skipped_invalid_combined_key_count": result["skipped_invalid_combined_key_count"],
             "skipped_blank_content_count": result["skipped_blank_content_count"],
             "output_zip": artifact_path,
+            "stages": result.get("stages", []),
         }
         return {
             "summary": summary,
@@ -330,6 +351,7 @@ class WorkbenchService:
             "scanned_rows": result["scanned_rows"],
             "issue_count": result["issue_count"],
             "rule_counts": result["rule_counts"],
+            "stages": result.get("stages", []),
         }
         return {
             "summary": summary,

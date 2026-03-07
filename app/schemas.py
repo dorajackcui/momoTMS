@@ -117,6 +117,12 @@ class JobDetail(BaseModel):
     report: ReportPayload
 
 
+class JobStageSummary(BaseModel):
+    stage: str
+    elapsed_ms: int
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
 class SampleOption(BaseModel):
     sample_id: str
     label: str
@@ -140,7 +146,7 @@ class PromotePreview(BaseModel):
     report_rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class StateResponse(BaseModel):
+class ProductStateResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     project: ProjectSummary
@@ -148,9 +154,12 @@ class StateResponse(BaseModel):
     rel_summary: dict[str, Any] = Field(default_factory=dict)
     candidate_dev_version: DevVersionSummary | None = None
     dev_versions: list[DevVersionSummary] = Field(default_factory=list)
-    trash_count: int
     imports: list[ImportBatchSummary] = Field(default_factory=list)
     jobs: list[JobSummary] = Field(default_factory=list)
+
+
+class CompatStateResponse(ProductStateResponse):
+    trash_count: int
     samples: list[SampleOption] = Field(default_factory=list)
 
 
@@ -240,6 +249,81 @@ class MasterSearchResult(BaseModel):
     results: list[MasterQueryRow] = Field(default_factory=list)
 
 
+class VariantBindingSummary(BaseModel):
+    scope_type: str
+    scope_value: str
+    created_at: str
+    updated_at: str
+
+
+class LastActiveScopeSummary(BaseModel):
+    scope_type: str
+    scope_value: str
+
+
+class EntryVariantInspection(BaseModel):
+    variant_id: int
+    file_name: str | None = None
+    source: str
+    translations: dict[str, str | None] = Field(default_factory=dict)
+    remarks: dict[str, str | None] = Field(default_factory=dict)
+    bindings: list[VariantBindingSummary] = Field(default_factory=list)
+    is_retained: bool = False
+    is_orphaned: bool = False
+    is_trashed: bool = False
+    orphaned_at: str | None = None
+    trashed_at: str | None = None
+    trash_until: str | None = None
+    restored_at: str | None = None
+    last_active_scope: LastActiveScopeSummary | None = None
+    created_at: str
+    updated_at: str
+
+
+class EntryVariantsResponse(BaseModel):
+    project_id: int
+    entry_id: int
+    business_key: str
+    variants: list[EntryVariantInspection] = Field(default_factory=list)
+
+
+class RetainedVariantSummary(BaseModel):
+    project_id: int
+    entry_id: int
+    business_key: str
+    variant_id: int
+    file_name: str | None = None
+    source: str
+    translations: dict[str, str | None] = Field(default_factory=dict)
+    remarks: dict[str, str | None] = Field(default_factory=dict)
+    last_active_scope: LastActiveScopeSummary
+    retained_at: str
+    updated_at: str
+
+
+class RetainedVariantsResponse(BaseModel):
+    project_id: int
+    results: list[RetainedVariantSummary] = Field(default_factory=list)
+
+
+class OrphanVariantSummary(BaseModel):
+    project_id: int
+    entry_id: int
+    business_key: str
+    variant_id: int
+    file_name: str | None = None
+    source: str
+    translations: dict[str, str | None] = Field(default_factory=dict)
+    remarks: dict[str, str | None] = Field(default_factory=dict)
+    orphaned_at: str
+    updated_at: str
+
+
+class OrphanVariantsResponse(BaseModel):
+    project_id: int
+    results: list[OrphanVariantSummary] = Field(default_factory=list)
+
+
 class ImportDirectoryRequest(BaseModel):
     input_dir: str
 
@@ -264,20 +348,21 @@ class RelHotfixPassiveRequest(BaseModel):
     file_name: str | None = None
 
 
+class ScopedTrashDeleteRequest(BaseModel):
+    scope_ref: str
+    business_keys: list[str]
+
+
+class VariantTrashRestoreRequest(BaseModel):
+    variant_ids: list[int]
+
+
 class PromotePreviewRequest(BaseModel):
     version: str
 
 
 class PromoteExecuteRequest(BaseModel):
     version: str
-
-
-class TrashDeleteRequest(BaseModel):
-    business_keys: list[str]
-
-
-class TrashRestoreRequest(BaseModel):
-    business_keys: list[str]
 
 
 class FillRequest(BaseModel):

@@ -8,8 +8,10 @@ from fastapi import HTTPException, UploadFile
 def handle_errors(fn):
     try:
         return fn()
-    except (KeyError, ValueError, FileNotFoundError) as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def parse_scope_ref(scope_ref: str) -> tuple[str, str]:

@@ -1,5 +1,6 @@
 from app.services.variant.compatibility import StringService
 from app.services.variant.facade import VariantService
+from app.services.variant.inspection import VariantInspectionService
 from app.services.variant.records import (
     BindingRecord,
     EntryRecord,
@@ -29,6 +30,7 @@ __all__ = [
     "EntryService",
     "PreferredEntryView",
     "PreferredEntryViewService",
+    "VariantInspectionService",
     "RetainedVariantRecord",
     "RetainedVariantRepository",
     "ScopeBindingRepository",

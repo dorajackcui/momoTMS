@@ -2,7 +2,7 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from app.db import DB_PATH, get_conn, init_db
+from app.db import get_conn, get_db_path, init_db
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
 from app.services.variant.compatibility import StringService
@@ -11,8 +11,9 @@ from app.services.workflows.qa import QaScanService
 
 
 def reset_db() -> None:
-    if Path(DB_PATH).exists():
-        Path(DB_PATH).unlink()
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
     init_db()
     ProjectService().create_project("IO Test Project", ["fr", "en"], ["context"])
 

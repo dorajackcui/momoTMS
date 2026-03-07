@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.db import DB_PATH
+from app.db import get_db_path
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.variant.compatibility import StringService
@@ -8,8 +8,9 @@ from app.services.workflows.dev_versions import DevVersionService
 
 
 def reset_demo() -> dict:
-    if Path(DB_PATH).exists():
-        Path(DB_PATH).unlink()
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
     demo = DemoService()
     demo.reset()
     return demo.get_sample("core-cycle")

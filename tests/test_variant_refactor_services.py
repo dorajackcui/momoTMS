@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.db import DB_PATH
+from app.db import get_db_path
 from app.services.demo.service import DemoService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.variant.repositories import VariantRepository
@@ -14,8 +14,9 @@ from app.services.variant.services import (
 
 
 def reset_demo() -> None:
-    if Path(DB_PATH).exists():
-        Path(DB_PATH).unlink()
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
     DemoService().reset()
 
 
