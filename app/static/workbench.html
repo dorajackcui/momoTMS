@@ -11,69 +11,108 @@
       <header class="hero">
         <div>
           <p class="eyebrow">Momo TMS</p>
-          <h1>核心功能验证工作台</h1>
-          <p class="hero-copy">围绕 Content Management 与线间流转做可重复验证，所有改动操作都写入 snapshot、report 与 job。</p>
+          <h1>Canonical Strings Workbench</h1>
+          <p class="hero-copy">围绕 canonical strings、rel/dev memberships、trash 与 jobs 做最小可验证闭环。</p>
         </div>
         <div class="hero-actions">
           <label class="field compact">
-            <span>样例</span>
+            <span>Sample</span>
             <select id="sample-select" data-testid="sample-select"></select>
           </label>
           <button id="reset-demo" class="button danger" data-testid="reset-demo">重置演示环境</button>
+          <p id="flash-message" class="flash" data-testid="flash-message">等待加载</p>
         </div>
       </header>
+
+      <section class="panel summary-panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">State</p>
+            <h2>Project Summary</h2>
+          </div>
+        </div>
+        <div id="project-summary" class="kpi-grid" data-testid="project-summary"></div>
+      </section>
 
       <main class="grid">
         <section class="panel span-2">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Environment</p>
-              <h2>样例与三线状态</h2>
+              <p class="panel-kicker">Master</p>
+              <h2>Project Strings</h2>
             </div>
-            <p id="flash-message" class="flash" data-testid="flash-message">等待加载</p>
+            <div class="toolbar">
+              <label class="field compact">
+                <span>Search</span>
+                <input id="string-search" data-testid="string-search">
+              </label>
+              <label class="checkbox">
+                <input id="include-deleted" type="checkbox" data-testid="include-deleted">
+                <span>包含垃圾桶</span>
+              </label>
+              <button id="strings-refresh" class="button" data-testid="strings-refresh">刷新列表</button>
+            </div>
           </div>
-          <div id="sample-summary" class="sample-summary" data-testid="sample-summary"></div>
-          <div class="branch-grid">
-            <article class="branch-card" data-testid="branch-dev">
-              <h3>Dev</h3>
-              <dl id="branch-dev-content"></dl>
-            </article>
-            <article class="branch-card" data-testid="branch-release">
-              <h3>Release</h3>
-              <dl id="branch-release-content"></dl>
-            </article>
-            <article class="branch-card" data-testid="branch-master">
-              <h3>Master</h3>
-              <dl id="branch-master-content"></dl>
-            </article>
+          <div class="split">
+            <div>
+              <div id="string-list" class="string-list scroll-panel" data-testid="string-list"></div>
+            </div>
+            <div class="stack">
+              <div>
+                <p class="panel-kicker">Trash</p>
+                <h3>Delete / Restore</h3>
+              </div>
+              <label class="field">
+                <span>Business Keys</span>
+                <textarea id="trash-keys" rows="8" data-testid="trash-keys"></textarea>
+              </label>
+              <div class="inline-actions">
+                <button id="trash-delete-button" class="button danger" data-testid="trash-delete-button">Delete to Trash</button>
+                <button id="trash-restore-button" class="button" data-testid="trash-restore-button">Restore from Trash</button>
+              </div>
+              <div id="trash-result" class="result-block" data-testid="trash-result"></div>
+            </div>
           </div>
         </section>
 
         <section class="panel">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Content Management</p>
-              <h2>Import / Update Dev</h2>
+              <p class="panel-kicker">Dev</p>
+              <h2>Dev Versions</h2>
             </div>
           </div>
           <div class="stack">
-            <button id="import-button" class="button" data-testid="import-button">导入样例包</button>
-            <button id="update-dev-button" class="button accent" data-testid="update-dev-button">写回 Dev</button>
+            <button id="import-sample-button" class="button" data-testid="import-sample-button">导入 Sample Excel</button>
+            <div id="import-result" class="result-block" data-testid="import-result"></div>
+            <label class="field">
+              <span>Import Batch</span>
+              <select id="import-batch-select" data-testid="import-batch-select"></select>
+            </label>
+            <label class="field">
+              <span>Dev Version</span>
+              <input id="dev-version" data-testid="dev-version">
+            </label>
+            <label class="checkbox">
+              <input id="candidate-release" type="checkbox" checked data-testid="candidate-release">
+              <span>标记为 candidate release</span>
+            </label>
+            <button id="dev-import-button" class="button accent" data-testid="dev-import-button">执行 Dev Import</button>
           </div>
-          <div id="import-result" class="result-block" data-testid="import-result"></div>
-          <div id="imports-list" class="mini-list" data-testid="imports-list"></div>
+          <div id="dev-versions-list" class="mini-list" data-testid="dev-versions-list"></div>
         </section>
 
         <section class="panel">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Release</p>
-              <h2>Hotfix</h2>
+              <p class="panel-kicker">Rel</p>
+              <h2>Rel Operations</h2>
             </div>
           </div>
+          <div id="rel-summary" class="result-block" data-testid="rel-summary"></div>
           <div class="form-grid">
             <label class="field">
-              <span>Active key</span>
+              <span>Active business_key</span>
               <input id="active-key" data-testid="active-key">
             </label>
             <label class="field">
@@ -81,7 +120,7 @@
               <input id="active-lang" data-testid="active-lang">
             </label>
             <label class="field span-all">
-              <span>新 target</span>
+              <span>新译文</span>
               <input id="active-target" data-testid="active-target">
             </label>
           </div>
@@ -89,95 +128,57 @@
           <hr>
           <div class="form-grid">
             <label class="field">
-              <span>Passive key</span>
+              <span>Passive business_key</span>
               <input id="passive-key" data-testid="passive-key">
             </label>
             <label class="field">
-              <span>版本号</span>
-              <input id="passive-version" data-testid="passive-version">
+              <span>文件名</span>
+              <input id="passive-file-name" data-testid="passive-file-name">
             </label>
             <label class="field span-all">
-              <span>新 src</span>
-              <input id="passive-src" data-testid="passive-src">
+              <span>新 source</span>
+              <input id="passive-source" data-testid="passive-source">
             </label>
             <label class="field span-all">
-              <span>targets(JSON)</span>
-              <textarea id="passive-targets" rows="4" data-testid="passive-targets"></textarea>
+              <span>translations_by_lang(JSON)</span>
+              <textarea id="passive-translations" rows="4" data-testid="passive-translations"></textarea>
+            </label>
+            <label class="field span-all">
+              <span>remarks_by_key(JSON)</span>
+              <textarea id="passive-remarks" rows="3" data-testid="passive-remarks"></textarea>
             </label>
           </div>
           <button id="passive-hotfix-button" class="button" data-testid="passive-hotfix-button">执行 Passive Hotfix</button>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Lifecycle</p>
-              <h2>Promote Preview / Execute</h2>
-            </div>
-          </div>
+          <hr>
           <div class="stack">
             <label class="field">
-              <span>Release 版本</span>
-              <input id="promote-release-version" data-testid="promote-release-version">
+              <span>Promote Version</span>
+              <input id="promote-version" data-testid="promote-version">
             </label>
             <div class="inline-actions">
-              <button id="promote-preview-button" class="button" data-testid="promote-preview-button">生成 Promote 预览</button>
-              <button id="promote-execute-button" class="button accent" data-testid="promote-execute-button">确认 Promote</button>
+              <button id="promote-preview-button" class="button" data-testid="promote-preview-button">Promote Preview</button>
+              <button id="promote-execute-button" class="button accent" data-testid="promote-execute-button">Promote Execute</button>
             </div>
           </div>
           <div id="promote-preview" class="result-block" data-testid="promote-preview"></div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Lifecycle</p>
-              <h2>Archive / Delete</h2>
-            </div>
-          </div>
-          <div class="stack">
-            <button id="archive-button" class="button" data-testid="archive-button">归档当前 Release 到 Master</button>
-            <label class="field">
-              <span>Delete branch</span>
-              <select id="delete-branch" data-testid="delete-branch">
-                <option value="release">release</option>
-                <option value="dev">dev</option>
-                <option value="master">master</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Delete keys</span>
-              <textarea id="delete-keys" rows="4" data-testid="delete-keys"></textarea>
-            </label>
-            <button id="delete-button" class="button danger" data-testid="delete-button">执行 Delete Keys</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="panel-kicker">Verification</p>
-              <h2>Fill / QA</h2>
-            </div>
-          </div>
-          <div class="inline-actions">
-            <button id="fill-button" class="button" data-testid="fill-button">运行 Fill 导出</button>
-            <button id="qa-button" class="button" data-testid="qa-button">运行 QA 报告</button>
-          </div>
-          <div id="verification-result" class="result-block" data-testid="verification-result"></div>
-        </section>
-
         <aside class="panel jobs-panel span-2">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Audit</p>
+              <p class="panel-kicker">Jobs</p>
               <h2>Jobs & Reports</h2>
             </div>
+            <div class="inline-actions">
+              <button id="fill-button" class="button" data-testid="fill-button">运行 Fill</button>
+              <button id="qa-button" class="button" data-testid="qa-button">运行 QA</button>
+            </div>
           </div>
+          <div id="verification-result" class="result-block" data-testid="verification-result"></div>
           <div class="jobs-layout">
             <div id="jobs-list" class="jobs-list" data-testid="jobs-list"></div>
             <div id="job-detail" class="job-detail" data-testid="job-detail">
-              <p class="muted">选择一个 job 查看 summary、明细报告和产物链接。</p>
+              <p class="muted">选择一个 job 查看 summary、report rows 和 artifact。</p>
             </div>
           </div>
         </aside>

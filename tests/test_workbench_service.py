@@ -1,34 +1,38 @@
 from pathlib import Path
 
 from app.db import DB_PATH
-from app.services.branch_service import BranchService
 from app.services.demo_service import DemoService
 from app.services.workbench_service import WorkbenchService
 
 
-def test_workbench_update_dev_and_promote_create_jobs_and_move_branch_head() -> None:
+def reset_demo() -> dict:
     if Path(DB_PATH).exists():
         Path(DB_PATH).unlink()
+    demo = DemoService()
+    demo.reset()
+    return demo.get_sample("core-cycle")
 
-    DemoService().reset()
-    branches = BranchService()
+
+def test_workbench_runs_import_dev_fill_and_qa_jobs() -> None:
+    sample = reset_demo()
     workbench = WorkbenchService()
 
-    original_release = branches.get_head("release")
+    state = workbench.get_state()
+    assert state["rel_summary"]["count"] == 5
+    assert state["trash_count"] == 0
 
-    update_job = workbench.update_dev("core-cycle")
-    assert update_job["job"]["status"] == "success"
-    assert update_job["job"]["job_type"] == "update_dev"
-    assert branches.get_head("dev") == update_job["job"]["snapshot_id"]
+    import_job = workbench.import_directory(sample["paths"]["import_dir"])
+    assert import_job["job"]["job_type"] == "import_directory"
+    batch_id = import_job["job"]["summary"]["import_batch_id"]
 
-    preview = workbench.preview_promote("2.4.0")
-    assert preview["added_count"] == 3
-    assert preview["conflict_src_changed_count"] == 1
-    assert preview["carried_over_count"] == 2
-    assert preview["deprecated_count"] == 3
+    dev_job = workbench.dev_import(batch_id, sample["dev_version"])
+    assert dev_job["job"]["job_type"] == "dev_import"
+    assert dev_job["job"]["summary"]["processed_count"] == 4
 
-    promote_job = workbench.execute_promote("2.4.0")
-    assert promote_job["job"]["status"] == "success"
-    assert promote_job["job"]["job_type"] == "promote_execute"
-    assert promote_job["job"]["snapshot_id"] != original_release
-    assert branches.get_head("release") == promote_job["job"]["snapshot_id"]
+    fill_job = workbench.fill(sample["paths"]["fill_dir"], sample["lang"])
+    assert fill_job["job"]["job_type"] == "fill_export"
+    assert fill_job["job"]["artifact_path"].endswith("filled_export.zip")
+
+    qa_job = workbench.qa(sample["paths"]["fill_dir"], sample["lang"])
+    assert qa_job["job"]["job_type"] == "qa_report"
+    assert qa_job["job"]["summary"]["issue_count"] >= 1

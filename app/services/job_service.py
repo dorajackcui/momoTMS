@@ -29,7 +29,6 @@ class JobService:
         self,
         job_id: int,
         summary: dict[str, Any],
-        snapshot_id: int | None = None,
         report_payload: dict[str, Any] | None = None,
         artifact_path: str | None = None,
     ) -> None:
@@ -44,7 +43,6 @@ class JobService:
                     summary_json = ?,
                     report_path = ?,
                     artifact_path = ?,
-                    snapshot_id = ?,
                     finished_at = ?,
                     error_message = NULL
                 WHERE job_id = ?
@@ -53,7 +51,6 @@ class JobService:
                     json_dumps(summary),
                     report_path,
                     artifact_path,
-                    snapshot_id,
                     now_iso(),
                     job_id,
                 ),
@@ -87,10 +84,7 @@ class JobService:
 
     def get_job(self, job_id: int) -> dict[str, Any]:
         with get_conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE job_id = ?",
-                (job_id,),
-            ).fetchone()
+            row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if not row:
             raise KeyError(f"job not found: {job_id}")
         return self._hydrate_job(row)
@@ -128,7 +122,6 @@ class JobService:
             "summary": json_loads(row["summary_json"]),
             "report_path": row["report_path"],
             "artifact_path": row["artifact_path"],
-            "snapshot_id": int(row["snapshot_id"]) if row["snapshot_id"] is not None else None,
             "error_message": row["error_message"],
             "created_at": row["created_at"],
             "finished_at": row["finished_at"],

@@ -2,46 +2,43 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
 from app.schemas import (
-    ActiveSingleRequest,
-    DeleteKeysRequest,
-    FillReport,
+    DevImportRequest,
+    DevVersionDetail,
+    DevVersionSummary,
     FillRequest,
-    ImportRequest,
-    ImportResponse,
+    ImportBatchSummary,
+    ImportDirectoryRequest,
     JobDetail,
     JobSummary,
-    PassiveSingleRequest,
+    PromoteExecuteRequest,
     PromotePreview,
     PromotePreviewRequest,
-    PromoteReport,
-    PromoteRequest,
+    QaRequest,
+    RelHotfixActiveRequest,
+    RelHotfixPassiveRequest,
     ReportPayload,
-    SampleActionRequest,
-    SnapshotCreateRequest,
-    SnapshotResponse,
-    WorkbenchActiveHotfixRequest,
-    WorkbenchPassiveHotfixRequest,
-    WorkbenchState,
+    StateResponse,
+    StringDetail,
+    TrashDeleteRequest,
+    TrashRestoreRequest,
 )
 from app.services.demo_service import DemoService
-from app.services.fill_service import FillService
+from app.services.dev_version_service import DevVersionService
 from app.services.import_service import ImportService
 from app.services.job_service import JobService
-from app.services.promote_service import PromoteService
-from app.services.snapshot_service import SnapshotService
-from app.services.update_service import UpdateService
+from app.services.string_service import StringService
 from app.services.workbench_service import WorkbenchService
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 
-app = FastAPI(title="Momo TMS", version="0.1.0")
+app = FastAPI(title="Momo TMS", version="0.2.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -51,148 +48,148 @@ def on_startup() -> None:
     DemoService().ensure_sample_files()
 
 
-@app.post("/import", response_model=ImportResponse)
-def import_batch(payload: ImportRequest) -> ImportResponse:
-    svc = ImportService()
-    result = svc.import_directory(payload.input_dir, payload.lang, payload.target_col_index)
-    return ImportResponse(**result)
-
-
-@app.get("/import/{import_batch_id}/report")
-def import_report(import_batch_id: int) -> list[dict]:
-    svc = ImportService()
-    return svc.import_report(import_batch_id)
-
-
-@app.post("/snapshot", response_model=SnapshotResponse)
-def create_snapshot(payload: SnapshotCreateRequest) -> SnapshotResponse:
-    svc = SnapshotService()
-    snapshot_id = svc.create_snapshot(payload.branch, payload.action_type, payload.parent_snapshot_id, payload.meta)
-    return SnapshotResponse(snapshot_id=snapshot_id, branch=payload.branch, action_type=payload.action_type)
-
-
-@app.post("/update/dev")
-def update_dev(source_dir: str, lang: str, version_tag: str, parent_snapshot_id: int | None = None, target_col_index: int = 3) -> dict:
-    svc = UpdateService()
-    snapshot_id = svc.update_dev_from_directory(source_dir, lang, version_tag, parent_snapshot_id, target_col_index)
-    return {"snapshot_id": snapshot_id}
-
-
-@app.post("/update/release/active_single")
-def active_single(payload: ActiveSingleRequest) -> dict:
-    svc = UpdateService()
-    snapshot_id = svc.update_release_active_single(payload.release_snapshot_id, payload.key, payload.lang, payload.target_text)
-    return {"snapshot_id": snapshot_id}
-
-
-@app.post("/update/release/passive_single")
-def passive_single(payload: PassiveSingleRequest) -> dict:
-    svc = UpdateService()
-    snapshot_id = svc.update_release_passive_single(
-        payload.release_snapshot_id,
-        payload.key,
-        payload.src,
-        payload.targets_by_lang,
-        payload.version_tag,
-    )
-    return {"snapshot_id": snapshot_id}
-
-
-@app.post("/promote", response_model=PromoteReport)
-def promote(payload: PromoteRequest) -> PromoteReport:
-    svc = PromoteService()
-    report = svc.promote(payload.dev_last_snapshot_id, payload.current_release_snapshot_id, payload.release_version)
-    return PromoteReport(**report)
-
-
-@app.post("/fill", response_model=FillReport)
-def fill(payload: FillRequest) -> FillReport:
-    svc = FillService()
-    report = svc.fill_and_export(
-        payload.source_dir,
-        payload.output_zip,
-        payload.lang,
-        payload.release_snapshot_id,
-        payload.master_snapshot_id,
-        payload.target_col_index,
-    )
-    return FillReport(**report)
-
-
 @app.get("/workbench")
 def workbench() -> FileResponse:
     return FileResponse(STATIC_DIR / "workbench.html")
 
 
-@app.get("/api/workbench/state", response_model=WorkbenchState)
-def workbench_state() -> WorkbenchState:
-    return _handle(lambda: WorkbenchState(**WorkbenchService().get_state()))
+@app.get("/api/state", response_model=StateResponse)
+def state() -> StateResponse:
+    return _handle(lambda: StateResponse(**WorkbenchService().get_state()))
 
 
-@app.post("/api/demo/reset", response_model=WorkbenchState)
-def demo_reset() -> WorkbenchState:
-    def run() -> WorkbenchState:
-        demo = DemoService()
-        demo.reset()
-        return WorkbenchState(**WorkbenchService().get_state())
+@app.post("/api/demo/reset", response_model=StateResponse)
+def demo_reset() -> StateResponse:
+    def run() -> StateResponse:
+        DemoService().reset()
+        return StateResponse(**WorkbenchService().get_state())
 
     return _handle(run)
 
 
-@app.post("/api/workbench/import")
-def workbench_import(payload: SampleActionRequest) -> dict:
-    return _handle(lambda: WorkbenchService().import_sample(payload.sample_id))
+@app.get("/api/strings", response_model=list[StringDetail])
+def list_strings(
+    search: str | None = Query(default=None),
+    include_deleted: bool = Query(default=False),
+) -> list[StringDetail]:
+    strings = StringService().list_strings(search=search, include_deleted=include_deleted)
+    return [StringDetail(**item) for item in strings]
 
 
-@app.post("/api/workbench/update-dev", response_model=JobDetail)
-def workbench_update_dev(payload: SampleActionRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().update_dev(payload.sample_id)))
+@app.get("/api/strings/{business_key}", response_model=StringDetail)
+def get_string(business_key: str) -> StringDetail:
+    def run() -> StringDetail:
+        item = StringService().get_string(business_key, include_deleted=True)
+        if not item:
+            raise KeyError(f"string not found: {business_key}")
+        return StringDetail(**item)
+
+    return _handle(run)
 
 
-@app.post("/api/workbench/hotfix/active", response_model=JobDetail)
-def workbench_active_hotfix(payload: WorkbenchActiveHotfixRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().active_hotfix(payload.model_dump())))
+@app.post("/api/imports/directory", response_model=JobDetail)
+def import_directory(payload: ImportDirectoryRequest) -> JobDetail:
+    return _handle(lambda: JobDetail(**WorkbenchService().import_directory(payload.input_dir)))
 
 
-@app.post("/api/workbench/hotfix/passive", response_model=JobDetail)
-def workbench_passive_hotfix(payload: WorkbenchPassiveHotfixRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().passive_hotfix(payload.model_dump())))
+@app.get("/api/imports", response_model=list[ImportBatchSummary])
+def list_imports() -> list[ImportBatchSummary]:
+    return [ImportBatchSummary(**item) for item in ImportService().list_batches()]
 
 
-@app.post("/api/workbench/promote/preview", response_model=PromotePreview)
-def workbench_promote_preview(payload: PromotePreviewRequest) -> PromotePreview:
-    return _handle(lambda: PromotePreview(**WorkbenchService().preview_promote(payload.release_version)))
+@app.get("/api/imports/{import_batch_id}/report", response_model=ReportPayload)
+def import_report(import_batch_id: int) -> ReportPayload:
+    return _handle(lambda: ReportPayload(**ImportService().import_report(import_batch_id, issues_only=False)))
 
 
-@app.post("/api/workbench/promote/execute", response_model=JobDetail)
-def workbench_promote_execute(payload: PromotePreviewRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().execute_promote(payload.release_version)))
+@app.post("/api/dev-versions/import", response_model=JobDetail)
+def dev_import(payload: DevImportRequest) -> JobDetail:
+    service = WorkbenchService()
+    return _handle(
+        lambda: JobDetail(
+            **service.dev_import(
+                payload.import_batch_id,
+                payload.version,
+                payload.mark_as_candidate,
+            )
+        )
+    )
 
 
-@app.post("/api/workbench/archive", response_model=JobDetail)
-def workbench_archive() -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().archive_release()))
+@app.get("/api/dev-versions", response_model=list[DevVersionSummary])
+def list_dev_versions() -> list[DevVersionSummary]:
+    return [DevVersionSummary(**item) for item in DevVersionService().list_versions(active_only=True)]
 
 
-@app.post("/api/workbench/delete", response_model=JobDetail)
-def workbench_delete(payload: DeleteKeysRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().delete_keys(payload.branch, payload.keys)))
+@app.get("/api/dev-versions/{version}", response_model=DevVersionDetail)
+def get_dev_version(version: str) -> DevVersionDetail:
+    return _handle(lambda: DevVersionDetail(**DevVersionService().get_version(version)))
 
 
-@app.post("/api/workbench/fill", response_model=JobDetail)
-def workbench_fill(payload: SampleActionRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().fill_sample(payload.sample_id)))
+@app.post("/api/rel/hotfix/active", response_model=JobDetail)
+def rel_hotfix_active(payload: RelHotfixActiveRequest) -> JobDetail:
+    service = WorkbenchService()
+    return _handle(
+        lambda: JobDetail(
+            **service.active_hotfix(
+                payload.business_key,
+                payload.lang,
+                payload.target_text,
+            )
+        )
+    )
 
 
-@app.post("/api/workbench/qa", response_model=JobDetail)
-def workbench_qa(payload: SampleActionRequest) -> JobDetail:
-    return _handle(lambda: JobDetail(**WorkbenchService().qa_sample(payload.sample_id)))
+@app.post("/api/rel/hotfix/passive", response_model=JobDetail)
+def rel_hotfix_passive(payload: RelHotfixPassiveRequest) -> JobDetail:
+    service = WorkbenchService()
+    return _handle(
+        lambda: JobDetail(
+            **service.passive_hotfix(
+                payload.business_key,
+                payload.source,
+                payload.translations_by_lang,
+                payload.remarks_by_key,
+                payload.file_name,
+            )
+        )
+    )
+
+
+@app.post("/api/promote/preview", response_model=PromotePreview)
+def promote_preview(payload: PromotePreviewRequest) -> PromotePreview:
+    return _handle(lambda: PromotePreview(**WorkbenchService().preview_promote(payload.version)))
+
+
+@app.post("/api/promote/execute", response_model=JobDetail)
+def promote_execute(payload: PromoteExecuteRequest) -> JobDetail:
+    return _handle(lambda: JobDetail(**WorkbenchService().execute_promote(payload.version)))
+
+
+@app.post("/api/trash/delete", response_model=JobDetail)
+def trash_delete(payload: TrashDeleteRequest) -> JobDetail:
+    return _handle(lambda: JobDetail(**WorkbenchService().trash_delete(payload.business_keys)))
+
+
+@app.post("/api/trash/restore", response_model=JobDetail)
+def trash_restore(payload: TrashRestoreRequest) -> JobDetail:
+    return _handle(lambda: JobDetail(**WorkbenchService().trash_restore(payload.business_keys)))
+
+
+@app.post("/api/fill", response_model=JobDetail)
+def fill(payload: FillRequest) -> JobDetail:
+    service = WorkbenchService()
+    return _handle(lambda: JobDetail(**service.fill(payload.source_dir, payload.lang, payload.output_name)))
+
+
+@app.post("/api/qa", response_model=JobDetail)
+def qa(payload: QaRequest) -> JobDetail:
+    return _handle(lambda: JobDetail(**WorkbenchService().qa(payload.source_dir, payload.lang)))
 
 
 @app.get("/api/jobs", response_model=list[JobSummary])
 def list_jobs() -> list[JobSummary]:
-    jobs = JobService().list_jobs()
-    return [JobSummary(**job) for job in jobs]
+    return [JobSummary(**item) for item in JobService().list_jobs()]
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobDetail)

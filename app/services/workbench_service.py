@@ -1,408 +1,238 @@
 from __future__ import annotations
 
-import inspect
 from typing import Any, Callable
 
-from app.services.archive_service import ArchiveService
-from app.services.branch_service import BranchService
-from app.services.delete_service import DeleteService
 from app.services.demo_service import DemoService
+from app.services.dev_version_service import DevVersionService
 from app.services.fill_service import FillService
 from app.services.import_service import ImportService
 from app.services.job_service import JobService
+from app.services.project_service import ProjectService
 from app.services.promote_service import PromoteService
 from app.services.qa_scan_service import QaScanService
-from app.services.snapshot_service import SnapshotService
-from app.services.update_service import UpdateService
+from app.services.rel_service import RelService
+from app.services.string_service import StringService
+from app.services.trash_service import TrashService
 
 
 class WorkbenchService:
     def __init__(self) -> None:
-        self.archive = ArchiveService()
-        self.branches = BranchService()
-        self.delete = DeleteService()
-        self.demo = DemoService()
-        self.fill = FillService()
-        self.imports = ImportService()
-        self.jobs = JobService()
-        self.promote = PromoteService()
-        self.qa = QaScanService()
-        self.snapshots = SnapshotService()
-        self.updates = UpdateService()
+        self.demo_service = DemoService()
+        self.dev_version_service = DevVersionService()
+        self.fill_service = FillService()
+        self.import_service = ImportService()
+        self.job_service = JobService()
+        self.project_service = ProjectService()
+        self.promote_service = PromoteService()
+        self.qa_scan_service = QaScanService()
+        self.rel_service = RelService()
+        self.string_service = StringService()
+        self.trash_service = TrashService()
 
     def get_state(self) -> dict[str, Any]:
         return {
-            "branches": {
-                branch: self._branch_state(branch)
-                for branch in ("dev", "release", "master")
-            },
-            "samples": self.demo.list_samples(),
-            "imports": self.imports.list_batches(),
-            "jobs": self.jobs.list_jobs(),
+            "project": self.project_service.get_default_project(),
+            "schema": self.project_service.get_schema(),
+            "rel_summary": self.rel_service.summary(),
+            "candidate_dev_version": self.dev_version_service.get_candidate_release(),
+            "dev_versions": self.dev_version_service.list_versions(active_only=True),
+            "trash_count": self.string_service.trash_count(),
+            "imports": self.import_service.list_batches(),
+            "jobs": self.job_service.list_jobs(),
+            "samples": self.demo_service.list_samples(),
         }
 
-    def import_sample(self, sample_id: str) -> dict[str, Any]:
-        sample = self.demo.get_sample(sample_id)
-        result = self.imports.import_directory(
-            sample["paths"]["import_dir"],
-            sample["lang"],
-            sample["target_col_index"],
-        )
-        result["issues_list"] = self.imports.import_report(result["import_batch_id"])
-        result["imports"] = self.imports.list_batches()
-        return result
-
-    def update_dev(self, sample_id: str) -> dict[str, Any]:
-        sample = self.demo.get_sample(sample_id)
-        parent_snapshot_id = self.branches.get_head("dev")
-
-        def action() -> dict[str, Any]:
-            snapshot_id = self.updates.update_dev_from_directory(
-                sample["paths"]["import_dir"],
-                sample["lang"],
-                sample["update_dev_version"],
-                parent_snapshot_id,
-                sample["target_col_index"],
-            )
-            self.branches.set_head("dev", snapshot_id)
-            summary = self._snapshot_delta_summary(parent_snapshot_id, snapshot_id)
-            report_rows = summary.pop("report_rows")
-            return {
-                "snapshot_id": snapshot_id,
-                "summary": summary,
-                "report": {"summary": summary, "rows": report_rows},
-            }
-
+    def import_directory(self, input_dir: str) -> dict[str, Any]:
         return self._run_job(
-            "update_dev",
-            {
-                "sample_id": sample_id,
-                "parent_snapshot_id": parent_snapshot_id,
-                "version_tag": sample["update_dev_version"],
-            },
-            action,
+            "import_directory",
+            {"input_dir": input_dir},
+            lambda _job_id: self._import_action(input_dir),
         )
 
-    def active_hotfix(self, payload: dict[str, Any]) -> dict[str, Any]:
-        release_snapshot_id = self._require_head("release")
-
-        def action() -> dict[str, Any]:
-            snapshot_id = self.updates.update_release_active_single(
-                release_snapshot_id,
-                payload["key"],
-                payload["lang"],
-                payload["target_text"],
-            )
-            self.branches.set_head("release", snapshot_id)
-            summary = {
-                "key": payload["key"],
-                "lang": payload["lang"],
-                "snapshot_id": snapshot_id,
-            }
-            report = {
-                "summary": summary,
-                "rows": [
-                    {
-                        "key": payload["key"],
-                        "lang": payload["lang"],
-                        "status": "UPDATED_TARGET",
-                    }
-                ],
-            }
-            return {"snapshot_id": snapshot_id, "summary": summary, "report": report}
-
+    def dev_import(
+        self,
+        import_batch_id: int,
+        version: str,
+        mark_as_candidate: bool = True,
+    ) -> dict[str, Any]:
         return self._run_job(
-            "active_hotfix",
+            "dev_import",
             {
-                "release_snapshot_id": release_snapshot_id,
-                **payload,
+                "import_batch_id": import_batch_id,
+                "version": version,
+                "mark_as_candidate": mark_as_candidate,
             },
-            action,
+            lambda _job_id: self._dev_import_action(import_batch_id, version, mark_as_candidate),
         )
 
-    def passive_hotfix(self, payload: dict[str, Any]) -> dict[str, Any]:
-        release_snapshot_id = self._require_head("release")
-
-        def action() -> dict[str, Any]:
-            snapshot_id = self.updates.update_release_passive_single(
-                release_snapshot_id,
-                payload["key"],
-                payload["src"],
-                payload["targets_by_lang"],
-                payload["version_tag"],
-            )
-            self.branches.set_head("release", snapshot_id)
-            summary = {
-                "key": payload["key"],
-                "snapshot_id": snapshot_id,
-                "updated_languages": sorted(payload["targets_by_lang"]),
-            }
-            report = {
-                "summary": summary,
-                "rows": [
-                    {
-                        "key": payload["key"],
-                        "lang": lang,
-                        "status": "UPSERTED_TARGET",
-                    }
-                    for lang in sorted(payload["targets_by_lang"])
-                ],
-            }
-            return {"snapshot_id": snapshot_id, "summary": summary, "report": report}
-
+    def active_hotfix(self, business_key: str, lang: str, target_text: str) -> dict[str, Any]:
         return self._run_job(
-            "passive_hotfix",
+            "rel_hotfix_active",
             {
-                "release_snapshot_id": release_snapshot_id,
-                **payload,
+                "business_key": business_key,
+                "lang": lang,
+                "target_text": target_text,
             },
-            action,
+            lambda _job_id: self._wrap_report(
+                self.rel_service.active_hotfix(business_key, lang, target_text)
+            ),
         )
 
-    def preview_promote(self, release_version: str) -> dict[str, Any]:
-        dev_last = self._require_head("dev")
-        current_release = self._require_head("release")
-        preview = self.promote.preview(dev_last, current_release)
-        preview["dev_last_snapshot_id"] = dev_last
-        preview["current_release_snapshot_id"] = current_release
-        preview["release_version"] = release_version
-        return preview
+    def passive_hotfix(
+        self,
+        business_key: str,
+        source: str,
+        translations_by_lang: dict[str, str],
+        remarks_by_key: dict[str, str],
+        file_name: str | None = None,
+    ) -> dict[str, Any]:
+        return self._run_job(
+            "rel_hotfix_passive",
+            {
+                "business_key": business_key,
+                "source": source,
+                "translations_by_lang": translations_by_lang,
+                "remarks_by_key": remarks_by_key,
+                "file_name": file_name,
+            },
+            lambda _job_id: self._wrap_report(
+                self.rel_service.passive_hotfix(
+                    business_key,
+                    source,
+                    translations_by_lang,
+                    remarks_by_key,
+                    file_name=file_name,
+                )
+            ),
+        )
 
-    def execute_promote(self, release_version: str) -> dict[str, Any]:
-        dev_last = self._require_head("dev")
-        current_release = self._require_head("release")
+    def preview_promote(self, version: str) -> dict[str, Any]:
+        return self.promote_service.preview(version)
 
-        def action() -> dict[str, Any]:
-            preview = self.promote.preview(dev_last, current_release)
-            result = self.promote.promote(dev_last, current_release, release_version)
-            snapshot_id = int(result["snapshot_id"])
-            self.branches.set_head("release", snapshot_id)
-            summary = {
-                "target_key_count": result["target_key_count"],
-                "added_count": result["added_count"],
-                "conflict_src_changed_count": result["conflict_src_changed_count"],
-                "carried_over_count": result["carried_over_count"],
-                "deprecated_count": result["deprecated_count"],
-                "release_version": release_version,
-            }
-            report = {"summary": summary, "rows": preview["report_rows"]}
-            return {"snapshot_id": snapshot_id, "summary": summary, "report": report}
-
+    def execute_promote(self, version: str) -> dict[str, Any]:
         return self._run_job(
             "promote_execute",
-            {
-                "dev_last_snapshot_id": dev_last,
-                "current_release_snapshot_id": current_release,
-                "release_version": release_version,
-            },
-            action,
+            {"version": version},
+            lambda _job_id: self._wrap_report(self.promote_service.execute(version)),
         )
 
-    def archive_release(self) -> dict[str, Any]:
-        release_snapshot_id = self._require_head("release")
-        master_snapshot_id = self._require_head("master")
-
-        def action() -> dict[str, Any]:
-            result = self.archive.archive(release_snapshot_id, master_snapshot_id)
-            snapshot_id = int(result["snapshot_id"])
-            self.branches.set_head("master", snapshot_id)
-            summary = {
-                "archived_key_count": result["archived_key_count"],
-                "added_count": result["added_count"],
-                "overwritten_count": result["overwritten_count"],
-                "kept_master_only_count": result["kept_master_only_count"],
-                "total_key_count": result["total_key_count"],
-            }
-            report = {"summary": summary, "rows": result["report_rows"]}
-            return {"snapshot_id": snapshot_id, "summary": summary, "report": report}
-
+    def trash_delete(self, business_keys: list[str]) -> dict[str, Any]:
         return self._run_job(
-            "archive_release",
-            {
-                "release_snapshot_id": release_snapshot_id,
-                "master_snapshot_id": master_snapshot_id,
-            },
-            action,
+            "trash_delete",
+            {"business_keys": business_keys},
+            lambda _job_id: self._wrap_report(self.trash_service.delete(business_keys)),
         )
 
-    def delete_keys(self, branch: str, keys: list[str]) -> dict[str, Any]:
-        base_snapshot_id = self._require_head(branch)
-
-        def action() -> dict[str, Any]:
-            result = self.delete.delete_keys(branch, base_snapshot_id, keys)
-            snapshot_id = int(result["snapshot_id"])
-            self.branches.set_head(branch, snapshot_id)
-            summary = {
-                "deleted_count": result["deleted_count"],
-                "missing_count": result["missing_count"],
-                "remaining_count": result["remaining_count"],
-            }
-            report = {"summary": summary, "rows": result["report_rows"]}
-            return {"snapshot_id": snapshot_id, "summary": summary, "report": report}
-
+    def trash_restore(self, business_keys: list[str]) -> dict[str, Any]:
         return self._run_job(
-            "delete_keys",
-            {
-                "branch": branch,
-                "base_snapshot_id": base_snapshot_id,
-                "keys": keys,
-            },
-            action,
+            "trash_restore",
+            {"business_keys": business_keys},
+            lambda _job_id: self._wrap_report(self.trash_service.restore(business_keys)),
         )
 
-    def fill_sample(self, sample_id: str) -> dict[str, Any]:
-        sample = self.demo.get_sample(sample_id)
-        release_snapshot_id = self._require_head("release")
-        master_snapshot_id = self._require_head("master")
-
-        def action(job_id: int) -> dict[str, Any]:
-            output_zip = str(self.jobs.artifact_path(job_id, "filled_export.zip"))
-            work_dir = str(self.jobs.job_dir(job_id) / "fill_output")
-            result = self.fill.fill_and_export(
-                sample["paths"]["fill_dir"],
-                output_zip,
-                sample["lang"],
-                release_snapshot_id,
-                master_snapshot_id,
-                sample["target_col_index"],
-                work_dir=work_dir,
-            )
-            summary = {
-                "filled_count": result["filled_count"],
-                "miss_key_count": result["miss_key_count"],
-                "src_mismatch_count": result["src_mismatch_count"],
-                "kept_original_count": result["kept_original_count"],
-            }
-            report = {"summary": summary, "rows": result["report_rows"]}
-            return {
-                "snapshot_id": None,
-                "summary": summary,
-                "report": report,
-                "artifact_path": output_zip,
-            }
-
+    def fill(self, source_dir: str, lang: str, output_name: str | None = None) -> dict[str, Any]:
         return self._run_job(
             "fill_export",
             {
-                "sample_id": sample_id,
-                "release_snapshot_id": release_snapshot_id,
-                "master_snapshot_id": master_snapshot_id,
+                "source_dir": source_dir,
+                "lang": lang,
+                "output_name": output_name,
             },
-            action,
+            lambda job_id: self._fill_action(job_id, source_dir, lang, output_name),
         )
 
-    def qa_sample(self, sample_id: str) -> dict[str, Any]:
-        sample = self.demo.get_sample(sample_id)
-
-        def action() -> dict[str, Any]:
-            result = self.qa.scan_directory(
-                sample["paths"]["fill_dir"],
-                sample["lang"],
-                sample["target_col_index"],
-            )
-            summary = {
-                "scanned_rows": result["scanned_rows"],
-                "issue_count": result["issue_count"],
-                "rule_counts": result["rule_counts"],
-            }
-            report = {"summary": summary, "rows": result["report_rows"]}
-            return {"snapshot_id": None, "summary": summary, "report": report}
-
+    def qa(self, source_dir: str, lang: str) -> dict[str, Any]:
         return self._run_job(
             "qa_report",
             {
-                "sample_id": sample_id,
+                "source_dir": source_dir,
+                "lang": lang,
             },
-            action,
+            lambda _job_id: self._qa_action(source_dir, lang),
         )
 
     def get_job_detail(self, job_id: int) -> dict[str, Any]:
         return {
-            "job": self.jobs.get_job(job_id),
-            "report": self.jobs.get_report(job_id),
+            "job": self.job_service.get_job(job_id),
+            "report": self.job_service.get_report(job_id),
         }
 
-    def _require_head(self, branch: str) -> int:
-        snapshot_id = self.branches.get_head(branch)
-        if snapshot_id is None:
-            raise ValueError(f"branch head not set: {branch}")
-        return snapshot_id
+    def _import_action(self, input_dir: str) -> dict[str, Any]:
+        summary = self.import_service.import_directory(input_dir)
+        report = self.import_service.import_report(summary["import_batch_id"], issues_only=False)
+        return {"summary": summary, "report": report}
 
-    def _branch_state(self, branch: str) -> dict[str, Any]:
-        snapshot_id = self.branches.get_head(branch)
-        if snapshot_id is None:
-            return {
-                "branch": branch,
-                "snapshot_id": None,
-                "action_type": None,
-                "created_at": None,
-                "parent_snapshot_id": None,
-                "key_count": 0,
-                "meta": {},
-            }
-        snapshot = self.snapshots.get_snapshot(snapshot_id)
-        if not snapshot:
-            raise ValueError(f"branch head points to missing snapshot: {branch} -> {snapshot_id}")
+    def _dev_import_action(
+        self,
+        import_batch_id: int,
+        version: str,
+        mark_as_candidate: bool,
+    ) -> dict[str, Any]:
+        result = self.dev_version_service.import_batch(import_batch_id, version, mark_as_candidate)
+        return self._wrap_report(result)
+
+    def _fill_action(
+        self,
+        job_id: int,
+        source_dir: str,
+        lang: str,
+        output_name: str | None,
+    ) -> dict[str, Any]:
+        artifact_name = output_name or "filled_export.zip"
+        artifact_path = str(self.job_service.artifact_path(job_id, artifact_name))
+        work_dir = str(self.job_service.job_dir(job_id) / "fill_output")
+        result = self.fill_service.fill_and_export(source_dir, artifact_path, lang, work_dir=work_dir)
+        summary = {
+            "filled_count": result["filled_count"],
+            "miss_key_count": result["miss_key_count"],
+            "src_mismatch_count": result["src_mismatch_count"],
+            "kept_original_count": result["kept_original_count"],
+            "output_zip": artifact_path,
+        }
         return {
-            "branch": branch,
-            "snapshot_id": snapshot["snapshot_id"],
-            "action_type": snapshot["action_type"],
-            "created_at": snapshot["created_at"],
-            "parent_snapshot_id": snapshot["parent_snapshot_id"],
-            "key_count": snapshot["key_count"],
-            "meta": snapshot["meta"],
+            "summary": summary,
+            "report": {"summary": summary, "rows": result["report_rows"]},
+            "artifact_path": artifact_path,
         }
 
-    def _snapshot_delta_summary(self, previous_snapshot_id: int | None, current_snapshot_id: int) -> dict[str, Any]:
-        previous = self.snapshots.get_snapshot_items(previous_snapshot_id) if previous_snapshot_id else {}
-        current = self.snapshots.get_snapshot_items(current_snapshot_id)
-
-        added_keys = sorted(set(current) - set(previous))
-        changed_keys = sorted(
-            key
-            for key in set(current) & set(previous)
-            if current[key]["src_hash"] != previous[key]["src_hash"]
-        )
-        carried_keys = sorted(
-            key
-            for key in set(current) & set(previous)
-            if current[key]["src_hash"] == previous[key]["src_hash"]
-        )
-        report_rows = [
-            {"key": key, "status": "ADDED"} for key in added_keys
-        ] + [
-            {"key": key, "status": "SRC_CHANGED"} for key in changed_keys
-        ] + [
-            {"key": key, "status": "CARRIED"} for key in carried_keys
-        ]
+    def _qa_action(self, source_dir: str, lang: str) -> dict[str, Any]:
+        result = self.qa_scan_service.scan_directory(source_dir, lang)
+        summary = {
+            "scanned_rows": result["scanned_rows"],
+            "issue_count": result["issue_count"],
+            "rule_counts": result["rule_counts"],
+        }
         return {
-            "total_key_count": len(current),
-            "added_count": len(added_keys),
-            "src_changed_count": len(changed_keys),
-            "carried_count": len(carried_keys),
-            "report_rows": report_rows,
+            "summary": summary,
+            "report": {"summary": summary, "rows": result["report_rows"]},
+        }
+
+    def _wrap_report(self, result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "summary": result["summary"],
+            "report": {
+                "summary": result["summary"],
+                "rows": result.get("report_rows", []),
+            },
+            "artifact_path": result.get("artifact_path"),
         }
 
     def _run_job(
         self,
         job_type: str,
         input_payload: dict[str, Any],
-        action: Callable[..., dict[str, Any]],
+        action: Callable[[int], dict[str, Any]],
     ) -> dict[str, Any]:
-        job_id = self.jobs.create_job(job_type, input_payload)
+        job_id = self.job_service.create_job(job_type, input_payload)
         try:
-            if inspect.signature(action).parameters:
-                result = action(job_id)
-            else:
-                result = action()
-            self.jobs.complete_job(
+            result = action(job_id)
+            self.job_service.complete_job(
                 job_id,
                 summary=result["summary"],
-                snapshot_id=result.get("snapshot_id"),
                 report_payload=result.get("report"),
                 artifact_path=result.get("artifact_path"),
             )
         except Exception as exc:
-            self.jobs.fail_job(job_id, str(exc))
+            self.job_service.fail_job(job_id, str(exc))
             raise
         return self.get_job_detail(job_id)

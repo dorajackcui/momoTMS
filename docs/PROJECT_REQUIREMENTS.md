@@ -1,181 +1,189 @@
 # Momo TMS 产品需求说明
 
-> 当前文档口径：同时描述“目标产品能力”和“当前实现现状”，用于对齐 `dev / release / master` 三线生命周期、Excel 业务表结构与 API 能力。
+> 本文档定义当前产品范围和业务规则。
+> 当前代码已经按 `canonical strings + memberships + trash` 模型运行，以下内容以现实现状为准。
 
-## 1. 产品目标
+## 1. 产品定位
 
-Momo TMS 面向 Windows Excel 本地化流程。当前阶段的核心目标不是做通用 SaaS TMS，而是把 Excel 导入、三线流转、受控更新、回填导出和质检报告串成可追溯的版本链路。
+Momo TMS 是一个面向 Excel 本地化流程的 strings management 系统。
 
-当前文档重点回答三个问题：
-- 三线分别承担什么职责，允许什么动作，如何流转。
-- 项目的 `master` 业务表到底长什么样，哪些列是业务列，哪些字段应由系统维护。
-- 我们期望拥有的能力，与当前 API / 实现是否对得上，缺口在哪里。
+当前版本解决的问题：
+- 用 `business_key` 作为唯一键管理 project 内 strings
+- 通过本地目录中的 Excel 批量导入 strings
+- 用 `rel` 和 `dev_version` memberships 管理开发与发布集合
+- 对上线内容提供受控 hotfix
+- 提供 soft delete、trash、fill、qa、jobs 和报告
 
-## 2. 三线模型
+当前范围：
+- 单默认 project
+- 本地目录导入 `.xlsx`
+- 单页 workbench 作为操作和验收入口
+- 破坏式重构版本，不兼容旧 `snapshot / branch_heads` 模型
 
-| 线 | 产品职责 | 当前有效状态 | 允许的核心动作 | 不允许或默认不开 |
-| --- | --- | --- | --- | --- |
-| `dev` | 接收入库、批量更新、形成 `dev_last` | 由 `branch_heads.dev` 指向当前快照 | import、update from files、fill、qa、report | 直接归档到 master、直接面向发布 |
-| `release` | 面向发布版本，承接 promote，允许受控 hotfix | 由 `branch_heads.release` 指向当前快照 | active hotfix、passive hotfix、promote execute、archive 源、delete keys、fill、qa | 批量自由写回、自动删除 |
-| `master` | 历史沉淀与归档线，用于回填兜底 | 由 `branch_heads.master` 指向当前快照 | archive 落地、fill、qa、受控 delete | hotfix、promote 目标线 |
+## 2. 核心实体
 
-补充约束：
-- `snapshot` 是版本节点，不等于“当前线头”。
-- `branch_heads` 才定义当前 `dev / release / master` 的有效状态。
-- 所有变更型动作都应产出 `snapshot + report + job`，并更新对应 branch head。
+### 2.1 Project
 
-## 3. Project 级表结构契约
+`Project` 是 strings 的管理边界。
 
-### 3.1 Business Sheet Contract
+当前实现：
+- 只有一个默认 project
+- schema 已持久化
+- project 级 schema 定义以下内容：
+  - 固定列：`file_name`、`business_key`、`source`
+  - 翻译列：`translation_columns[]`
+  - 备注列：`remark_columns[]`
 
-`master` 表结构应理解为 `project-level sheet contract`，而不是全局固定列模板。
+当前默认 schema：
+- `translation_columns[] = [fr, en]`
+- `remark_columns[] = [context]`
 
-固定业务列：
+### 2.2 Canonical String
 
-| 列名 | 是否必填 | 说明 |
+`String` 是系统中的最小业务对象，也是唯一的 canonical 实体。
+
+当前字段契约：
+
+| 字段 | 是否必填 | 说明 |
 | --- | --- | --- |
-| `文件名` | 是 | 业务来源文件名；用于定位条目所属文件与回填目标。 |
-| `key` | 是 | 业务 key。 |
-| `source` | 是 | 源文，当前默认是中文。 |
+| `file_name` | 否 | 来源文件名，可空 |
+| `business_key` | 是 | project 内唯一标识 |
+| `source` | 是 | 原文 |
+| `translations[]` | 是 | 按 project schema 定义 |
+| `remarks[]` | 是 | 按 project schema 定义 |
 
-标准可选列：
+关键约束：
+- 唯一键是 `business_key`
+- `file_name` 不是身份字段
+- 同一个 `business_key` 在 project 中只对应一个 canonical string
+- 同一 string 在不同 memberships 中共享同一份 canonical 内容
 
-| 列名 | 默认状态 | 说明 |
-| --- | --- | --- |
-| `版本号` | 默认启用 | 是否启用、是否必填由 project schema 决定。 |
+### 2.3 Memberships
 
-可配置列：
-- `翻译语言列`：在创建 project 时定义，列数量、顺序、列名可变。
-- `备注列`：在创建 project 时定义，列数量、顺序、字段名可变。
+当前模型不是三条对称 branch，而是 canonical strings 加 memberships：
 
-创建 project 的两种方式：
-- `从模板创建`：使用固定语言列和备注列模板。
-- `自定义创建`：自行定义语言列、备注列及顺序。
-
-推荐业务主键与冲突语义：
-- 推荐业务主键：`文件名 + key`
-- `source` 不属于主键，但参与语义冲突判断。
-- 对同一 `文件名 + key`，若 `source` 不同，则视为语义冲突。
-
-### 3.2 System Metadata Contract
-
-以下字段必须由系统定义，但不应作为业务同学维护的 Excel 列：
-
-| 字段 | 含义 |
+| 概念 | 当前语义 |
 | --- | --- |
-| `project_id` | 所属项目 |
-| `schema_id` | 所属 schema 版本 |
-| `import_batch_id` | 导入批次 |
-| `snapshot_id` | 当前条目所在快照 |
-| `branch` | 当前快照所属线：`dev/release/master` |
-| `uploaded_at` | 首次导入时间 |
-| `updated_at` | 最近一次系统修改时间 |
-| `source_file_path` | 原始文件路径 |
-| `sheet_name` | 原始 sheet 名 |
-| `row_index` | 原始行号 |
-| `job_id` | 最近一次变更 job |
+| `master` | 所有未删除 strings 的隐式全集 |
+| `rel` | 当前上线集合 |
+| `dev_version` | 开发候选集合，例如 `2.2.3` |
 
-关键原则：
-- `当前所属 dev/release/master` 必须被系统管理，但它是 snapshot 上下文，不是 Excel 业务列。
-- `上传时间` 和 `最近修改时间` 应在数据库/API 中维护，不要求业务同学回填 Excel。
-- 业务字段和系统字段必须严格分层。
+规则：
+- `master` 不是显式 tag
+- `rel` 通过 membership `rel/current` 表达
+- `dev_version` 通过 membership `dev/<version>` 表达
+- 一个 string 可以同时属于 `rel` 和某个 `dev_version`
 
-详细定义见 [PROJECT_SCHEMA_CONTRACT.md](./PROJECT_SCHEMA_CONTRACT.md)。
+## 3. Excel 契约
 
-## 4. 生命周期主链路
+Excel 业务表当前按 schema 解析，不依赖固定列号。
 
-当前推荐主链路：
+### 3.1 固定列
 
-`import -> update dev -> promote preview -> promote execute -> release hotfix -> archive -> fill/export -> qa`
+- `file_name`
+- `business_key`
+- `source`
 
-### 4.1 生命周期动作定义
+### 3.2 可配置列
 
-| 动作 | 输入 | 作用线 | 是否改变系统内容 | 是否产出 `snapshot / report / job` | 关键规则 |
-| --- | --- | --- | --- | --- | --- |
-| Import files | Excel 文件集合、语言、target 列 | `dev` 前置动作 | 否，仅记录导入批次 | `import batch`，无 snapshot/job | 负责解析与定位，不直接写入三线 |
-| Update Dev from files | 导入文件集合、语言、版本号、父快照 | `dev` | 是 | 是 | LWW 语义，生成新的 dev snapshot 并更新 `dev_last` |
-| Promote Preview | `dev_last` + current release | `release` 评估 | 否 | report，当前不单独落 job | 统计 added / conflict / carried / deprecated |
-| Promote Execute | `dev_last` + current release + release version | `release` | 是 | 是 | 目标 key 集合固定为 `Keys(dev_last)`；同 key 但 `source` 不同则保留旧 release |
-| Release Active Hotfix | `key + lang + new target` | `release` | 是 | 是 | 仅改 target，`source` 不变 |
-| Release Passive Hotfix | `key + new source + all language targets` | `release` | 是 | 是 | 允许新增 key；`source` 变化触发整条语义更新 |
-| Archive Release -> Master | current release + current master | `master` | 是 | 是 | 以 master 为底叠加 release；同 key 冲突时以 release 归档版本覆盖 |
-| Delete Keys | key 清单 + 目标线 | `dev / release / master` | 是 | 是 | 仅手动触发；未命中 key 进入 report，不静默吞掉 |
-| Fill from base | 文件集合 + release/master snapshot + 语言 | 导出动作 | 否 | report + artifact；当前走 job | `release > master`；`key + src_hash` 都命中才回填 |
-| QA report | 文件集合 + 语言 | 验证动作 | 否 | report；当前走 job | 校验 `{}`、`|`、`<tag>` 等结构 |
+- `translation_columns[]`
+- `remark_columns[]`
 
-## 5. 产品能力与当前实现对照
+### 3.3 当前导入约束
 
-### 5.1 三线管理与生命周期
+- 只读取本地目录中的 `.xlsx`
+- 跳过临时文件 `~$*.xlsx`
+- 缺失 `business_key` 的行标记为 `missing_business_key`
+- 缺失 `source` 的行标记为 `missing_source`
+- 缺失 schema 所需表头的 sheet 标记为 `sheet_error`
 
-| 目标能力 | 当前实现 / API 状态 | 缺口 / 备注 |
-| --- | --- | --- |
-| 三线都有明确 current head | 已实现 `branch_heads` 持久化；`GET /api/workbench/state` 返回三线状态 | 基础 API 还没有单独的 branch heads 查询接口 |
-| Promote 拆分 preview / execute | 已实现 `/api/workbench/promote/preview` 与 `/api/workbench/promote/execute` | 旧基础 API 仍保留单步 `/promote` |
-| Release 归档到 Master | 已实现 `/api/workbench/archive` | 未暴露为基础 API |
-| Delete keys 作为受控生命周期动作 | 已实现 `/api/workbench/delete` | 未实现 delete preview；master 权限控制仍是文档约束，不是权限系统 |
-| 所有变更动作都有审计 / 结果追踪 | 已实现 `jobs`、report、artifact 路径、snapshot_id 记录 | 仍缺角色权限、操作人、trace id 等完整审计字段 |
+## 4. 业务规则
 
-### 5.2 Content Management
+### 4.1 Dev Import
 
-| 目标能力 | 当前实现 / API 状态 | 缺口 / 备注 |
-| --- | --- | --- |
-| Dev 批量写回形成 `dev_last` | 已实现 `/update/dev` 与 `/api/workbench/update-dev` | 基础 `/update/dev` 仍是 query 参数风格，不够统一 |
-| Release active single hotfix | 已实现 `/update/release/active_single` 与 `/api/workbench/hotfix/active` | 基础 API 只返回 `snapshot_id`，report 在 workbench API |
-| Release passive single hotfix | 已实现 `/update/release/passive_single` 与 `/api/workbench/hotfix/passive` | 同上 |
-| Master 仅允许 archive 与受控 delete | 当前实现符合这个边界 | 约束主要体现在 API 暴露层，还没有权限系统硬限制 |
+`dev import` 是当前批量工作流主入口。
 
-### 5.3 验证、导出与报告
+按 `business_key` 执行以下规则：
+- 新 key：创建 canonical string，并打上目标 `dev_version` tag
+- 已存在且不在 `rel`：更新 canonical 内容，并打上目标 `dev_version` tag
+- 已存在且已在 `rel`：只加 `dev_version` tag，不覆盖 canonical 内容
 
-| 目标能力 | 当前实现 / API 状态 | 缺口 / 备注 |
-| --- | --- | --- |
-| Fill 导出保持原结构，仅写 target 列 | 已实现 `/fill` 与 `/api/workbench/fill` | 当前更偏样例驱动验证，不是通用上传流程 |
-| QA 报告定位到 file/sheet/row/key/lang | 已实现 workbench QA job | 基础 API 尚未暴露 QA endpoint |
-| Jobs & Reports 统一查看 | 已实现 `/api/jobs/*` 与单页 workbench | 仍是验证层体验，不是最终产品信息架构 |
+当前 report 状态：
+- `CREATED`
+- `UPDATED_CANONICAL`
+- `TAGGED_ONLY`
+- `PROTECTED_SKIPPED`
 
-### 5.4 Project Schema 与表结构契约
+### 4.2 Rel Hotfix
 
-| 目标能力 | 当前实现 / API 状态 | 缺口 / 备注 |
-| --- | --- | --- |
-| 每个 project 拥有独立的 sheet schema | 当前仅在文档中明确，代码层尚未持久化 `project/schema/template` | 需要正式引入 project schema 数据模型 |
-| 翻译语言列可在建项时自定义 | 当前样例与实现仍偏固定列假设 | 需要导入、fill、qa 统一改为按 schema 解析 |
-| 备注列可在建项时自定义 | 当前仅支持样例场景中的固定列集合 | 需要 schema 驱动的列定义和回填规则 |
-| 模板创建与自定义创建并存 | 当前未实现 | 需要模板配置与 project 创建流程 |
-| Excel 业务列与系统字段分离 | 当前概念上已分离，`jobs/import/snapshot` 已承担部分系统字段 | 仍需正式文档和 API 模型收口 |
+`rel` 只允许受控修改。
 
-### 5.5 尚未实现或未正式开放
+当前支持两类操作：
+- `active hotfix`：只改某个翻译列
+- `passive hotfix`：改 `source`、翻译列和备注列
 
-以下能力仍属于目标能力，不应在文档里误写成“已完成”：
-- untranslated report
-- diff / delta report
-- conflict report
-- package validation
-- delete preview
-- 通用文件上传流程与权限模型
-- project / schema / template 持久化能力
+规则：
+- hotfix 修改的是 canonical string
+- 如果 string 同时属于 `rel` 和 `dev_version`，变更会被两边同时看到
 
-## 6. 非目标
+### 4.3 Promote
 
-当前阶段不承诺以下内容：
-- 复杂 RBAC、审批流、操作人体系
-- 在线协作与任务分发
-- 大规模性能优化
-- 通用 SaaS 化项目 / 语言 / 供应商模型
+当前发布语义固定为：
 
-## 7. 当前验收标准
+`rel = target dev_version`
 
-### 7.1 已验证链路
-- 后端自动化测试已覆盖 promote preview / execute、archive、delete、QA 基础规则、workbench 核心链路。
-- 前端 E2E 已覆盖：
-  - workbench 首屏加载
-  - import + update dev
-  - active / passive hotfix
-  - promote preview / execute
-  - archive + delete
-  - fill + qa
+执行结果：
+- 目标 `dev_version` 集合切换为新的 `rel`
+- 当前版本线的所有 `dev` tags 被清理，例如 `2.2.x`
+- 被 promote 的版本线在运行时不再视为活跃 dev versions
+- 历史追溯依赖 jobs 和 reports，而不是保留旧 dev tags
 
-### 7.2 文档更新后的校验要求
-- 三线职责在 `PROJECT_REQUIREMENTS`、`capability matrix`、`ARCHITECTURE_DESIGN` 三份文档中表述一致。
-- 生命周期动作名称、输入、输出、约束保持一致。
-- `master` 表结构必须被表述为 `project-level sheet contract`，不能再写成全局固定列。
-- `当前所属线`、`上传时间`、`最近修改时间` 等系统字段必须明确存在，但不能误写成 Excel 业务列。
-- “目标能力”与“当前实现”必须显式区分，不能混写。
+### 4.4 Delete / Trash
+
+删除统一作用于 canonical string。
+
+当前规则：
+- 删除是 `master soft delete`
+- 删除后从运行时 strings、rel、dev 查询中隐藏
+- 删除后进入 30 天垃圾桶
+- 恢复时恢复 canonical string 本身
+- 现实现状下 memberships 不被物理删除，因此 restore 后原 memberships 仍然生效
+
+### 4.5 Fill / QA
+
+`fill`：
+- 从 canonical strings 回填 Excel 目标语言列
+- 命中优先级：当前 `rel` 集合优先；其他 key 仍可从 `master` 补齐
+- `source` 不一致时标记 `SRC_MISMATCH`
+
+`qa`：
+- 按 schema 读取指定语言列
+- 当前检查规则来自 `qa_service`
+- 输出行级问题报告
+
+## 5. 当前能力范围
+
+| 能力 | 当前状态 |
+| --- | --- |
+| 默认 project 和 schema | 已实现 |
+| canonical strings 查询 | 已实现 |
+| import batch | 已实现 |
+| dev import | 已实现 |
+| candidate release | 已实现 |
+| rel active hotfix | 已实现 |
+| rel passive hotfix | 已实现 |
+| promote preview / execute | 已实现 |
+| soft delete / restore | 已实现 |
+| fill | 已实现 |
+| qa | 已实现 |
+| jobs / reports / artifact | 已实现 |
+
+## 6. 当前限制
+
+以下属于当前版本的明确边界：
+- 只有一个默认 project，没有 project CRUD
+- 没有 schema 编辑 API，schema 由初始化数据提供
+- 导入入口是本地目录，不是上传流
+- 没有独立的 `GET /api/rel/strings` endpoint；当前通过 `GET /api/state` 看摘要，通过 `GET /api/strings` 看全量 memberships
+- 没有垃圾桶自动 purge 调度和独立 purge API
+- workbench 是单页验证台，不是正式多页面产品

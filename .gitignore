@@ -11,3 +11,4 @@ data/demo_samples/
 node_modules/
 playwright-report/
 test-results/
+.playwright/

@@ -1,101 +1,86 @@
-# Momo TMS 能力与 API 对齐总表
+# Momo TMS 能力与 API 总表
 
-> 用途：作为三线生命周期、project schema、当前 API、实现状态与缺口的单点索引。
-> 口径：`目标能力 -> 当前 endpoint -> 当前状态 -> 差距/备注`
+> 本文档汇总当前已实现能力、对应 endpoint 和已知缺口。
+> 口径：`能力 -> endpoint -> 当前状态 -> 备注`
 
 状态说明：
-- `已对齐`：目标能力与当前 API/实现基本一致
-- `部分对齐`：已有能力，但接口层次、返回形态或开放方式还不完整
-- `未对齐`：目标能力已定义，但当前没有可用 API/实现
-- `验证层`：当前可用，但主要通过 workbench API 提供，不等于正式公共 API
 
-## 1. 三线状态与生命周期总览
+- `已实现`：能力和接口都已可用
+- `部分实现`：主能力可用，但仍缺少专门 endpoint 或管理能力
+- `未实现`：当前代码中没有该能力
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| 查看当前 `dev / release / master` 线头 | 获取三线当前有效状态，而不是仅看某个 snapshot | `GET /api/workbench/state` | 已对齐（验证层） | 当前缺少正式公共 branch heads API |
-| 重置演示环境 | 恢复固定样例与三线初始状态 | `POST /api/demo/reset` | 已对齐（验证层） | 只服务当前 workbench 验证，不属于正式产品 API |
-| 查看 jobs 列表与详情 | 统一查看生命周期动作 summary/report/artifact | `GET /api/jobs` `GET /api/jobs/{job_id}` `GET /api/jobs/{job_id}/report` `GET /api/jobs/{job_id}/artifact/{name}` | 已对齐（验证层） | 审计字段仍不完整，缺操作人、trace id |
+## 1. Project 与 Schema
 
-## 2. Project Schema 与表结构
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| 定义 project 级 sheet schema | 每个 project 拥有自己的固定列、语言列、备注列与版本列配置 | 无 | 未对齐 | 当前只有文档契约，无数据模型/API |
-| 模板创建 project | 通过预置模板生成 schema | 无 | 未对齐 | 当前未实现 |
-| 自定义语言列 | 建项时自定义翻译语言列数量、顺序、列名 | 无 | 未对齐 | 当前实现仍偏固定列假设 |
-| 自定义备注列 | 建项时自定义备注列数量、顺序、字段名 | 无 | 未对齐 | 当前实现仍偏样例驱动 |
-| 业务列与系统字段分层 | `文件名/key/source` 属于业务列；`uploaded_at/branch/snapshot_id` 属于系统字段 | 无统一 endpoint | 部分对齐 | 当前概念上已分层，但没有正式 project schema / metadata API |
+| 能力                   | Endpoint         | 当前状态 | 备注                                  |
+| -------------------- | ---------------- | ---- | ----------------------------------- |
+| 默认 project 状态摘要      | `GET /api/state` | 已实现  | 返回默认 project 摘要                     |
+| 读取 project schema 摘要 | `GET /api/state` | 已实现  | 返回 fixed/translation/remark columns |
+| project CRUD         | 无                | 未实现  | 当前只有单默认 project                     |
+| schema 编辑            | 无                | 未实现  | 当前 schema 由初始化数据提供                  |
 
-## 3. Dev 线能力
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| Import files | 接收 Excel 文件集合并形成 import batch | `POST /import` `POST /api/workbench/import` | 部分对齐 | 基础 API 只做导入；workbench 版本是样例驱动 |
-| 查询导入异常报告 | 查看 `missing_key` / `missing_source` 等问题 | `GET /import/{import_batch_id}/report` | 已对齐 | 当前是基础问题定位接口 |
-| Update Dev from files | 将导入内容写回 dev，形成新的 `dev_last` | `POST /update/dev` `POST /api/workbench/update-dev` | 部分对齐 | workbench 已有 job/report；基础 API 仍是轻量接口 |
-| Dev 直接单条编辑 | 可选能力，不是当前主线 | 无 | 未对齐 | 当前未实现，也未纳入本轮主链路 |
+## 2. Strings 与 Memberships
 
-## 4. Release 线能力
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| Active hotfix | `source` 不变，仅更新指定语言 target | `POST /update/release/active_single` `POST /api/workbench/hotfix/active` | 部分对齐 | workbench 已满足验证；基础 API 无 report/job |
-| Passive hotfix | 更新 `source` 与多语言 target，可新增 key | `POST /update/release/passive_single` `POST /api/workbench/hotfix/passive` | 部分对齐 | 同上 |
-| Promote preview | 在不修改 release 的前提下计算 added/conflict/carried/deprecated | `POST /api/workbench/promote/preview` | 已对齐（验证层） | 基础 API 未提供 preview |
-| Promote execute | 从 `dev_last` 生成新的 release | `POST /promote` `POST /api/workbench/promote/execute` | 部分对齐 | 基础 `/promote` 仍是单步接口；workbench 才是 preview+execute 闭环 |
+| 能力                     | Endpoint                          | 当前状态 | 备注                                     |
+| ---------------------- | --------------------------------- | ---- | -------------------------------------- |
+| 查询全部 canonical strings | `GET /api/strings`                | 已实现  | 支持搜索和 `include_deleted`                |
+| 查询单条 string            | `GET /api/strings/{business_key}` | 已实现  | 返回 translations、remarks、memberships    |
+| 查看 `rel` 摘要            | `GET /api/state`                  | 已实现  | 返回数量和 sample keys                      |
+| 查看 `rel` 成员完整列表        | 无独立 endpoint                      | 部分实现 | 当前通过 `GET /api/strings` 查看 memberships |
+| 查看 dev versions 列表     | `GET /api/dev-versions`           | 已实现  | 只返回活跃 dev versions                     |
+| 查看某个 dev version 成员    | `GET /api/dev-versions/{version}` | 已实现  | 返回 members                             |
 
-## 5. Master 线能力
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| Archive release -> master | 将当前 release 沉淀为新的 master 快照 | `POST /api/workbench/archive` | 已对齐（验证层） | 当前未暴露基础公共 API |
-| Delete keys on master | 允许受控删除 | `POST /api/workbench/delete` | 部分对齐 | 目前通过统一 delete endpoint 支持；权限控制仍是文档约束 |
-| Master 作为 fill fallback 基线 | 在 release 不命中时作为兜底 | `POST /fill` `POST /api/workbench/fill` | 已对齐 | 当前 fill 行为已按 `release > master` 执行 |
+## 3. Import 与 Dev Workflow
 
-## 6. 跨线动作与受控变更
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| Delete keys | 手动提供 key 清单，从目标线删除并产出报告 | `POST /api/workbench/delete` | 已对齐（验证层） | 当前无 delete preview；正式权限模型未落地 |
-| Snapshot 底层创建 | 提供快照创建基础能力 | `POST /snapshot` | 已对齐（底层能力） | 偏底层接口，不是业务动作入口 |
-| 统一 job/report 产物 | 所有关键变更动作可回查 | `GET /api/jobs*` + workbench 变更动作 | 已对齐（验证层） | 基础 API 层尚未完全统一到 job 模型 |
-| 系统元数据回查 | 可查看 `snapshot_id/branch/uploaded_at/updated_at` 等上下文 | 无统一 endpoint | 部分对齐 | 当前只有 jobs/import/snapshot 分散承载，未形成统一 contract API |
+| 能力                             | Endpoint                                    | 当前状态 | 备注                                            |
+| ------------------------------ | ------------------------------------------- | ---- | --------------------------------------------- |
+| 本地目录导入为 job                    | `POST /api/imports/directory`               | 已实现  | 输入目录路径，结果写入 jobs                              |
+| 查看 import batches              | `GET /api/imports`                          | 已实现  | 返回批次摘要                                        |
+| 查看 import report               | `GET /api/imports/{import_batch_id}/report` | 已实现  | 返回全量行级 report                                 |
+| 执行 dev import                  | `POST /api/dev-versions/import`             | 已实现  | 支持 candidate release 标记                       |
+| dev import 新增 string           | `POST /api/dev-versions/import`             | 已实现  | report 状态 `CREATED`                           |
+| dev import 更新非 rel string      | `POST /api/dev-versions/import`             | 已实现  | report 状态 `UPDATED_CANONICAL`                 |
+| dev import 对 rel string 只打 tag | `POST /api/dev-versions/import`             | 已实现  | report 状态 `TAGGED_ONLY` / `PROTECTED_SKIPPED` |
 
-## 7. 导出与验证能力
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| Fill from base | 使用 `release > master` 回填译文并导出 zip | `POST /fill` `POST /api/workbench/fill` | 部分对齐 | workbench 当前是样例驱动；正式上传流程未做 |
-| QA report | 校验 `{}`、`|`、`<tag>` 等结构规则 | `POST /api/workbench/qa` | 已对齐（验证层） | 基础 API 未暴露 QA endpoint |
-| 下载导出 artifact | 获取 fill 导出包等结果 | `GET /api/jobs/{job_id}/artifact/{name}` | 已对齐（验证层） | 依赖 jobs 体系 |
+## 4. Rel 与 Promote
 
-## 8. 目标能力但当前未对齐
 
-| 能力 | 目标说明 | 当前 endpoint | 当前状态 | 差距 / 备注 |
-| --- | --- | --- | --- | --- |
-| Untranslated report | 统计未翻译项并定位到文件/行 | 无 | 未对齐 | 目标已定义，尚未实现 |
-| Diff / Delta report | 比较 snapshot 或 batch 差异 | 无 | 未对齐 | 尚未实现 |
-| Conflict report | 独立输出 `same key + different source` 冲突清单 | 无 | 未对齐 | 当前只有 promote/archive 内部冲突规则 |
-| Package validation | 检查列缺失、target 列不可写、表头异常 | 无 | 未对齐 | 尚未实现 |
-| Delete preview | 删除前先做影响预览 | 无 | 未对齐 | 尚未实现 |
-| Project / Schema / Template API | 项目、schema、模板的正式管理接口 | 无 | 未对齐 | 目前只有文档契约 |
+| 能力                   | Endpoint                       | 当前状态 | 备注                             |
+| -------------------- | ------------------------------ | ---- | ------------------------------ |
+| rel active hotfix    | `POST /api/rel/hotfix/active`  | 已实现  | 修改单个翻译列                        |
+| rel passive hotfix   | `POST /api/rel/hotfix/passive` | 已实现  | 修改 source、translations、remarks |
+| promote preview      | `POST /api/promote/preview`    | 已实现  | 返回 rel 集合变化和清理统计               |
+| promote execute      | `POST /api/promote/execute`    | 已实现  | 切换 rel 并清理当前版本线 dev tags       |
+| candidate release 摘要 | `GET /api/state`               | 已实现  | 返回当前 candidate dev version     |
 
-## 9. 当前对齐结论
 
-### 9.1 已基本打通的主链路
-当前代码与 API 已支持以下闭环：
+## 5. Trash、Fill、QA、Jobs
 
-`import -> update dev -> promote preview -> promote execute -> release hotfix -> archive -> delete -> fill -> qa -> jobs/report`
 
-### 9.2 仍需继续收敛的点
-- 正式公共 API 与 workbench API 仍是双轨
-- branch heads 仍缺单独公共查询接口
-- project schema / system metadata 还没有持久化模型和 API
-- 预处理 / 报告类扩展能力还没有实现
-- 权限、审计主体、错误码、trace id 仍缺失
+| 能力                | Endpoint                                 | 当前状态 | 备注                                 |
+| ----------------- | ---------------------------------------- | ---- | ---------------------------------- |
+| soft delete 到垃圾桶  | `POST /api/trash/delete`                 | 已实现  | 作用于 canonical string               |
+| 从垃圾桶恢复            | `POST /api/trash/restore`                | 已实现  | restore 后原 memberships 仍生效         |
+| trash 数量摘要        | `GET /api/state`                         | 已实现  | 返回 `trash_count`                   |
+| fill 并导出 artifact | `POST /api/fill`                         | 已实现  | 产出 zip artifact                    |
+| qa 扫描             | `POST /api/qa`                           | 已实现  | 返回 rule counts 和行级报告               |
+| jobs 列表           | `GET /api/jobs`                          | 已实现  | 统一查看 import、hotfix、promote、fill、qa |
+| job 详情            | `GET /api/jobs/{job_id}`                 | 已实现  | 含 summary 和 report                 |
+| job report        | `GET /api/jobs/{job_id}/report`          | 已实现  | report 单独读取                        |
+| artifact 下载       | `GET /api/jobs/{job_id}/artifact/{name}` | 已实现  | 主要用于 fill 产物                       |
 
-### 9.3 建议用法
-- 讨论产品边界时，看 `PROJECT_REQUIREMENTS.md`
-- 讨论数据模型和系统分层时，看 `PROJECT_SCHEMA_CONTRACT.md` 与 `ARCHITECTURE_DESIGN.md`
-- 快速检查能力是否已经对上 API，就看本表
+
+## 6. 当前缺口
+
+- 没有多 project API
+- 没有 schema 编辑和模板管理 API
+- 没有文件上传型 import API，当前只支持目录路径
+- 没有独立 `rel strings` 列表 endpoint
+- 没有垃圾桶 purge API 或调度
+- 没有正式的权限与审计模型
+

@@ -7,21 +7,19 @@ from typing import Any
 
 from openpyxl import Workbook
 
-from app.db import DB_PATH, get_conn, init_db
+from app.db import DB_PATH, init_db
 from app.demo_fixtures import SAMPLES
-from app.services.branch_service import BranchService
 from app.services.job_service import JobService
-from app.services.snapshot_service import SnapshotService
-from app.services.utils import src_hash
+from app.services.project_service import DEFAULT_PROJECT_ID
+from app.services.string_service import StringService
 
 DEMO_ROOT = Path("data/demo_samples")
 
 
 class DemoService:
     def __init__(self) -> None:
-        self.branches = BranchService()
         self.jobs = JobService()
-        self.snapshots = SnapshotService()
+        self.strings = StringService()
 
     def list_samples(self) -> list[dict[str, Any]]:
         return [self._serialize_sample(spec) for spec in SAMPLES]
@@ -46,37 +44,9 @@ class DemoService:
             DB_PATH.unlink()
         init_db()
         self.ensure_sample_files()
-
         seed_sample = SAMPLES[0]
-        dev_snapshot = self.snapshots.create_snapshot(
-            "dev",
-            "demo_seed",
-            meta={"sample_id": seed_sample["sample_id"], "label": "Initial dev head"},
-        )
-        release_snapshot = self._seed_snapshot(
-            branch="release",
-            action_type="demo_seed",
-            items=seed_sample["release_seed"],
-            meta={"sample_id": seed_sample["sample_id"], "version": "2.3.0"},
-        )
-        master_snapshot = self._seed_snapshot(
-            branch="master",
-            action_type="demo_seed",
-            items=seed_sample["master_seed"],
-            meta={"sample_id": seed_sample["sample_id"], "version": "master-2026.01"},
-        )
-        self.branches.set_head("dev", dev_snapshot)
-        self.branches.set_head("release", release_snapshot)
-        self.branches.set_head("master", master_snapshot)
-
-        return {
-            "sample_id": seed_sample["sample_id"],
-            "branch_heads": {
-                "dev": dev_snapshot,
-                "release": release_snapshot,
-                "master": master_snapshot,
-            },
-        }
+        self._seed_strings(seed_sample)
+        return {"sample_id": seed_sample["sample_id"]}
 
     def sample_paths(self, sample_id: str) -> dict[str, str]:
         root = DEMO_ROOT / sample_id
@@ -86,49 +56,28 @@ class DemoService:
             "fill_dir": str(root / "fill_source"),
         }
 
-    def _seed_snapshot(
-        self,
-        branch: str,
-        action_type: str,
-        items: list[dict[str, Any]],
-        meta: dict[str, Any],
-    ) -> int:
-        snapshot_id = self.snapshots.create_snapshot(
-            branch=branch,
-            action_type=action_type,
-            meta=meta,
-        )
-        for item in items:
-            entry_id = self._insert_entry(item["key"], item["src"], item.get("version_tag"), item.get("targets", {}))
-            self.snapshots.set_item(snapshot_id, item["key"], entry_id, src_hash(item["src"]))
-        return snapshot_id
-
-    def _insert_entry(self, key: str, src: str, version_tag: str | None, targets: dict[str, str]) -> int:
-        with get_conn() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO entries(key, src, src_hash, version_tag, meta_json)
-                VALUES (?, ?, ?, ?, '{}')
-                """,
-                (key, src, src_hash(src), version_tag),
+    def _seed_strings(self, sample: dict[str, Any]) -> None:
+        for item in sample["seed_strings"]:
+            string_id = self.strings.create_string(
+                business_key=item["business_key"],
+                file_name=item.get("file_name"),
+                source=item["source"],
+                translations=item.get("translations", {}),
+                remarks=item.get("remarks", {}),
+                project_id=DEFAULT_PROJECT_ID,
             )
-            entry_id = int(cur.lastrowid)
-            for lang, target_text in targets.items():
-                conn.execute(
-                    """
-                    INSERT INTO translations(entry_id, lang, target_text, updated_at)
-                    VALUES (?, ?, ?, datetime('now'))
-                    """,
-                    (entry_id, lang, target_text),
-                )
-        return entry_id
+            for membership in item.get("memberships", []):
+                if membership == "rel":
+                    self.strings.ensure_membership(string_id, "rel", "current")
+                elif membership.startswith("dev:"):
+                    self.strings.ensure_membership(string_id, "dev", membership.split(":", 1)[1])
 
     def _serialize_sample(self, spec: dict[str, Any]) -> dict[str, Any]:
         sample = deepcopy(spec)
-        sample.pop("release_seed", None)
-        sample.pop("master_seed", None)
+        sample.pop("seed_strings", None)
         sample.pop("import_workbooks", None)
         sample.pop("fill_workbooks", None)
+        sample["paths"] = self.sample_paths(spec["sample_id"])
         return sample
 
     def _build_sample_files(self, spec: dict[str, Any]) -> None:
