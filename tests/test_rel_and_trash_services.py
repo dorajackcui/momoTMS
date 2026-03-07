@@ -1,10 +1,10 @@
 from pathlib import Path
 
 from app.db import DB_PATH
-from app.services.demo_service import DemoService
-from app.services.rel_service import RelService
-from app.services.string_service import StringService
-from app.services.trash_service import TrashService
+from app.services.demo.service import DemoService
+from app.services.variant.compatibility import StringService
+from app.services.workflows.rel import RelService
+from app.services.workflows.trash import TrashService
 
 
 def reset_demo() -> dict:
@@ -20,28 +20,40 @@ def test_rel_hotfix_updates_canonical_content_and_trash_restore_roundtrip() -> N
     rel = RelService()
     strings = StringService()
     trash = TrashService()
+    active_target_text = "  Bienvenue hotfix {0}  "
+    passive_source = "  Passive hotfix source updated  "
+    passive_translations = {
+        "fr": "  Correctif passif  ",
+        "en": "",
+    }
+    passive_remarks = {
+        "context": "  Passive hotfix updated from rel  ",
+    }
+    passive_file_name = "  release/common.xlsx  "
 
     rel.active_hotfix(
         sample["active_hotfix"]["business_key"],
         sample["active_hotfix"]["lang"],
-        sample["active_hotfix"]["target_text"],
+        active_target_text,
     )
     active_target = strings.get_string(sample["active_hotfix"]["business_key"], include_deleted=False)
     assert active_target is not None
-    assert active_target["translations"]["fr"] == sample["active_hotfix"]["target_text"]
+    assert active_target["translations"]["fr"] == active_target_text
 
     rel.passive_hotfix(
         sample["passive_hotfix"]["business_key"],
-        sample["passive_hotfix"]["source"],
-        sample["passive_hotfix"]["translations_by_lang"],
-        sample["passive_hotfix"]["remarks_by_key"],
-        file_name=sample["passive_hotfix"]["file_name"],
+        passive_source,
+        passive_translations,
+        passive_remarks,
+        file_name=passive_file_name,
     )
     passive_target = strings.get_string(sample["passive_hotfix"]["business_key"], include_deleted=False)
     assert passive_target is not None
-    assert passive_target["source"] == sample["passive_hotfix"]["source"]
-    assert passive_target["translations"]["fr"] == sample["passive_hotfix"]["translations_by_lang"]["fr"]
-    assert passive_target["remarks"]["context"] == sample["passive_hotfix"]["remarks_by_key"]["context"]
+    assert passive_target["file_name"] == "release/common.xlsx"
+    assert passive_target["source"] == "Passive hotfix source updated"
+    assert passive_target["translations"]["fr"] == "  Correctif passif  "
+    assert passive_target["translations"]["en"] == ""
+    assert passive_target["remarks"]["context"] == "Passive hotfix updated from rel"
 
     delete_result = trash.delete(sample["trash_keys"])
     assert delete_result["summary"]["deleted_count"] == 1

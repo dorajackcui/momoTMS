@@ -1,4 +1,4 @@
-from app.services.qa_service import validate_pair
+from app.services.workflows.qa_rules import validate_pair
 
 
 def test_qa_happy_path() -> None:

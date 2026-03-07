@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from app.db import DB_PATH
-from app.services.demo_service import DemoService
-from app.services.workbench_service import WorkbenchService
+from app.services.demo.service import DemoService
+from app.services.workflows.workbench import WorkbenchService
 
 
 def reset_demo() -> dict:

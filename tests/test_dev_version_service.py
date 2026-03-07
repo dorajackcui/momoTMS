@@ -1,10 +1,10 @@
 from pathlib import Path
 
 from app.db import DB_PATH
-from app.services.demo_service import DemoService
-from app.services.dev_version_service import DevVersionService
-from app.services.import_service import ImportService
-from app.services.string_service import StringService
+from app.services.demo.service import DemoService
+from app.services.imports.service import ImportService
+from app.services.variant.compatibility import StringService
+from app.services.workflows.dev_versions import DevVersionService
 
 
 def reset_demo() -> dict:
@@ -21,16 +21,16 @@ def test_dev_import_creates_updates_tags_and_protects_rel_strings() -> None:
 
     result = DevVersionService().import_batch(batch["import_batch_id"], sample["dev_version"])
 
-    assert result["summary"]["created_count"] == 1
-    assert result["summary"]["updated_canonical_count"] == 1
-    assert result["summary"]["tagged_only_count"] == 1
-    assert result["summary"]["protected_skipped_count"] == 1
+    assert result["summary"]["created_entry_count"] == 1
+    assert result["summary"]["created_variant_count"] == 4
+    assert result["summary"]["reused_rel_variant_count"] == 0
+    assert result["summary"]["processed_count"] == 4
 
     statuses = {row["business_key"]: row["status"] for row in result["report_rows"]}
-    assert statuses["rel.locked.same"] == "TAGGED_ONLY"
-    assert statuses["rel.locked.changed"] == "PROTECTED_SKIPPED"
-    assert statuses["dev.mutable"] == "UPDATED_CANONICAL"
-    assert statuses["dev.new.entry"] == "CREATED"
+    assert statuses["rel.locked.same"] == "CREATED_VARIANT"
+    assert statuses["rel.locked.changed"] == "CREATED_VARIANT"
+    assert statuses["dev.mutable"] == "CREATED_VARIANT"
+    assert statuses["dev.new.entry"] == "CREATED_VARIANT"
 
     strings = StringService()
     mutable = strings.get_string("dev.mutable", include_deleted=False)
@@ -44,6 +44,8 @@ def test_dev_import_creates_updates_tags_and_protects_rel_strings() -> None:
     assert protected is not None
     assert protected["source"] == "Release protected source"
     assert any(item["membership_type"] == "dev" and item["membership_value"] == sample["dev_version"] for item in protected["memberships"])
+    rel_members = strings.get_membership_strings("rel", "current")
+    assert any(item["business_key"] == "rel.locked.changed" for item in rel_members)
 
     assert created is not None
     assert created["source"] == "New source from dev"

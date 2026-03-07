@@ -141,7 +141,7 @@ async function runActiveHotfix() {
   await runJobAction("/api/rel/hotfix/active", {
     business_key: nodes.activeKey.value.trim(),
     lang: nodes.activeLang.value.trim(),
-    target_text: nodes.activeTarget.value.trim(),
+    target_text: nodes.activeTarget.value,
   });
 }
 

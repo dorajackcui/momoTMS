@@ -9,7 +9,7 @@ test("loads the new workbench state", async ({ page }) => {
   await page.goto("/workbench");
 
   await expect(page.getByTestId("sample-select")).toBeVisible();
-  await expect(page.getByTestId("project-summary")).toContainText("Default Project");
+  await expect(page.getByTestId("project-summary")).toContainText("Demo Project");
   await expect(page.getByTestId("string-list")).toContainText("common.welcome");
   await expect(page.getByTestId("jobs-list")).toContainText("No jobs yet.");
 });
@@ -32,11 +32,16 @@ test("imports sample excel, runs dev import, previews and executes promote", asy
   await expect(page.getByTestId("jobs-list")).toContainText("promote_execute");
 });
 
-test("runs hotfix, trash, fill and qa", async ({ page }) => {
+test("runs hotfix, trash, fill and qa", async ({ page, request }) => {
   await page.goto("/workbench");
 
+  await page.getByTestId("active-target").fill("  Bienvenue UI  ");
   await page.getByTestId("active-hotfix-button").click();
   await expect(page.getByTestId("jobs-list")).toContainText("rel_hotfix_active");
+  const activeHotfixResponse = await request.get("/api/strings/common.welcome");
+  expect(activeHotfixResponse.ok()).toBeTruthy();
+  const activeHotfixPayload = await activeHotfixResponse.json();
+  expect(activeHotfixPayload.translations.fr).toBe("  Bienvenue UI  ");
 
   await page.getByTestId("passive-hotfix-button").click();
   await expect(page.getByTestId("jobs-list")).toContainText("rel_hotfix_passive");

@@ -1,11 +1,11 @@
 from pathlib import Path
 
 from app.db import DB_PATH
-from app.services.demo_service import DemoService
-from app.services.dev_version_service import DevVersionService
-from app.services.import_service import ImportService
-from app.services.promote_service import PromoteService
-from app.services.string_service import StringService
+from app.services.demo.service import DemoService
+from app.services.imports.service import ImportService
+from app.services.variant.compatibility import StringService
+from app.services.workflows.dev_versions import DevVersionService
+from app.services.workflows.promote import PromoteService
 
 
 def reset_demo() -> dict:
@@ -43,3 +43,16 @@ def test_promote_switches_rel_memberships_and_cleans_dev_line_tags() -> None:
 
     assert DevVersionService().list_versions(active_only=True) == []
     assert strings.membership_count("dev", sample["dev_version"]) == 0
+
+    retained_members = strings.get_membership_strings("retained", "retained")
+    retained_keys = {item["business_key"] for item in retained_members}
+    assert "common.welcome" in retained_keys
+    assert "fill.rel" in retained_keys
+    assert "hotfix.passive" in retained_keys
+
+    retained_string = strings.get_string("common.welcome", include_deleted=False)
+    assert retained_string is not None
+    assert any(
+        item["membership_type"] == "retained" and item["membership_value"] == "retained"
+        for item in retained_string["memberships"]
+    )

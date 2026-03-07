@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
-SCHEMA_VERSION = "canonical-v2"
+SCHEMA_VERSION = "variant-v3"
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
@@ -50,10 +50,12 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         """
         PRAGMA foreign_keys = OFF;
         DROP TABLE IF EXISTS app_meta;
-        DROP TABLE IF EXISTS string_memberships;
-        DROP TABLE IF EXISTS string_remarks;
-        DROP TABLE IF EXISTS string_translations;
-        DROP TABLE IF EXISTS strings;
+        DROP TABLE IF EXISTS scope_bindings;
+        DROP TABLE IF EXISTS retained_variants;
+        DROP TABLE IF EXISTS variant_remarks;
+        DROP TABLE IF EXISTS variant_translations;
+        DROP TABLE IF EXISTS variants;
+        DROP TABLE IF EXISTS entries;
         DROP TABLE IF EXISTS dev_versions;
         DROP TABLE IF EXISTS project_schemas;
         DROP TABLE IF EXISTS projects;
@@ -65,7 +67,10 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS snapshot_items;
         DROP TABLE IF EXISTS snapshots;
         DROP TABLE IF EXISTS translations;
-        DROP TABLE IF EXISTS entries;
+        DROP TABLE IF EXISTS strings;
+        DROP TABLE IF EXISTS string_memberships;
+        DROP TABLE IF EXISTS string_remarks;
+        DROP TABLE IF EXISTS string_translations;
         PRAGMA foreign_keys = ON;
         """
     )
@@ -77,11 +82,13 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE projects (
-            project_id INTEGER PRIMARY KEY,
+            project_id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             is_default INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
+
+        CREATE UNIQUE INDEX idx_projects_name ON projects(name);
 
         CREATE TABLE project_schemas (
             schema_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,40 +100,52 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (project_id) REFERENCES projects(project_id)
         );
 
-        CREATE TABLE strings (
-            string_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE entries (
+            entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL,
             business_key TEXT NOT NULL,
-            file_name TEXT,
-            source TEXT NOT NULL,
-            deleted_at TEXT,
-            trash_until TEXT,
-            restored_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(project_id, business_key),
             FOREIGN KEY (project_id) REFERENCES projects(project_id)
         );
 
-        CREATE INDEX idx_strings_project_key ON strings(project_id, business_key);
-        CREATE INDEX idx_strings_deleted_at ON strings(project_id, deleted_at);
+        CREATE INDEX idx_entries_project_key ON entries(project_id, business_key);
 
-        CREATE TABLE string_translations (
-            string_id INTEGER NOT NULL,
+        CREATE TABLE variants (
+            variant_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            file_name TEXT,
+            source TEXT NOT NULL,
+            orphaned_at TEXT,
+            trashed_at TEXT,
+            trash_until TEXT,
+            restored_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (entry_id) REFERENCES entries(entry_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX idx_variants_entry ON variants(entry_id);
+        CREATE INDEX idx_variants_trashed ON variants(trashed_at);
+        CREATE INDEX idx_variants_orphaned ON variants(orphaned_at);
+
+        CREATE TABLE variant_translations (
+            variant_id INTEGER NOT NULL,
             lang TEXT NOT NULL,
             target_text TEXT,
             updated_at TEXT NOT NULL,
-            PRIMARY KEY (string_id, lang),
-            FOREIGN KEY (string_id) REFERENCES strings(string_id) ON DELETE CASCADE
+            PRIMARY KEY (variant_id, lang),
+            FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
         );
 
-        CREATE TABLE string_remarks (
-            string_id INTEGER NOT NULL,
+        CREATE TABLE variant_remarks (
+            variant_id INTEGER NOT NULL,
             remark_key TEXT NOT NULL,
             remark_value TEXT,
             updated_at TEXT NOT NULL,
-            PRIMARY KEY (string_id, remark_key),
-            FOREIGN KEY (string_id) REFERENCES strings(string_id) ON DELETE CASCADE
+            PRIMARY KEY (variant_id, remark_key),
+            FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
         );
 
         CREATE TABLE dev_versions (
@@ -140,17 +159,35 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (project_id) REFERENCES projects(project_id)
         );
 
-        CREATE TABLE string_memberships (
-            string_id INTEGER NOT NULL,
-            membership_type TEXT NOT NULL CHECK (membership_type IN ('rel', 'dev')),
-            membership_value TEXT NOT NULL,
+        CREATE TABLE scope_bindings (
+            scope_type TEXT NOT NULL CHECK (scope_type IN ('rel', 'dev')),
+            scope_value TEXT NOT NULL,
+            entry_id INTEGER NOT NULL,
+            variant_id INTEGER NOT NULL,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (string_id, membership_type, membership_value),
-            FOREIGN KEY (string_id) REFERENCES strings(string_id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (scope_type, scope_value, entry_id),
+            FOREIGN KEY (entry_id) REFERENCES entries(entry_id) ON DELETE CASCADE,
+            FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
         );
 
-        CREATE INDEX idx_memberships_type_value
-        ON string_memberships(membership_type, membership_value);
+        CREATE INDEX idx_scope_bindings_scope
+        ON scope_bindings(scope_type, scope_value);
+        CREATE INDEX idx_scope_bindings_variant
+        ON scope_bindings(variant_id);
+
+        CREATE TABLE retained_variants (
+            variant_id INTEGER PRIMARY KEY,
+            entry_id INTEGER NOT NULL,
+            last_active_scope_type TEXT NOT NULL,
+            last_active_scope_value TEXT NOT NULL,
+            retained_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (entry_id) REFERENCES entries(entry_id) ON DELETE CASCADE,
+            FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX idx_retained_variants_entry ON retained_variants(entry_id);
 
         CREATE TABLE imports (
             import_batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,6 +215,7 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
             job_type TEXT NOT NULL,
             status TEXT NOT NULL,
             input_json TEXT NOT NULL DEFAULT '{}',
@@ -186,50 +224,18 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             artifact_path TEXT,
             error_message TEXT,
             created_at TEXT NOT NULL,
-            finished_at TEXT
+            finished_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(project_id)
         );
 
         CREATE INDEX idx_jobs_created_at ON jobs(created_at DESC);
+        CREATE INDEX idx_jobs_project_created_at ON jobs(project_id, job_id DESC);
         """
     )
 
-    created_at = _now_iso()
     conn.execute(
         "INSERT INTO app_meta(key, value) VALUES ('schema_version', ?)",
         (SCHEMA_VERSION,),
-    )
-    conn.execute(
-        """
-        INSERT INTO projects(project_id, name, is_default, created_at)
-        VALUES (1, 'Default Project', 1, ?)
-        """,
-        (created_at,),
-    )
-    conn.execute(
-        """
-        INSERT INTO project_schemas(
-            project_id,
-            fixed_columns_json,
-            translation_columns_json,
-            remark_columns_json,
-            created_at
-        )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            1,
-            json.dumps(
-                {
-                    "file_name": "file_name",
-                    "business_key": "business_key",
-                    "source": "source",
-                },
-                ensure_ascii=False,
-            ),
-            json.dumps(["fr", "en"], ensure_ascii=False),
-            json.dumps(["context"], ensure_ascii=False),
-            created_at,
-        ),
     )
     conn.commit()
 
