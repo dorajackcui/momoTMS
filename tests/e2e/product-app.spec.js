@@ -83,7 +83,6 @@ test("loads the product app, resets project-scoped UI on switch, and exercises j
 
   await page.getByTestId("nav-inspection").click();
   await expect(page).toHaveURL(/\/app\/inspection$/);
-  await expect(page.getByTestId("app-retained-list")).toBeVisible();
   await expect(page.getByTestId("app-orphan-list")).toBeVisible();
   await page.getByTestId("app-inspection-key").fill("rel.locked.same");
   await page.getByTestId("app-inspection-lookup").click();

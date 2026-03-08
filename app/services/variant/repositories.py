@@ -11,7 +11,6 @@ from app.services.shared.io import (
 from app.services.variant.records import (
     BindingRecord,
     EntryRecord,
-    RetainedVariantRecord,
     ScopeEntryRecord,
     VariantRecord,
 )
@@ -210,6 +209,36 @@ class VariantRepository:
                     DO UPDATE SET
                         remark_value = excluded.remark_value,
                         updated_at = excluded.updated_at
+                    """,
+                    (variant_id, remark_key, remark_value, timestamp),
+                )
+
+    def overwrite_translations(self, variant_id: int, translations: dict[str, str], timestamp: str) -> None:
+        with get_conn() as conn:
+            conn.execute(
+                "DELETE FROM variant_translations WHERE variant_id = ?",
+                (variant_id,),
+            )
+            for lang, target_text in translations.items():
+                conn.execute(
+                    """
+                    INSERT INTO variant_translations(variant_id, lang, target_text, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (variant_id, lang, target_text, timestamp),
+                )
+
+    def overwrite_remarks(self, variant_id: int, remarks: dict[str, str], timestamp: str) -> None:
+        with get_conn() as conn:
+            conn.execute(
+                "DELETE FROM variant_remarks WHERE variant_id = ?",
+                (variant_id,),
+            )
+            for remark_key, remark_value in remarks.items():
+                conn.execute(
+                    """
+                    INSERT INTO variant_remarks(variant_id, remark_key, remark_value, updated_at)
+                    VALUES (?, ?, ?, ?)
                     """,
                     (variant_id, remark_key, remark_value, timestamp),
                 )
@@ -889,133 +918,3 @@ class ScopeBindingRepository:
             )
         return hydrated
 
-
-class RetainedVariantRepository:
-    def list_for_entry(self, entry_id: int) -> list[RetainedVariantRecord]:
-        with get_conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM retained_variants
-                WHERE entry_id = ?
-                ORDER BY retained_at DESC, variant_id DESC
-                """,
-                (entry_id,),
-            ).fetchall()
-        return self._hydrate_rows(rows)
-
-    def upsert(
-        self,
-        variant_id: int,
-        entry_id: int,
-        last_active_scope_type: str,
-        last_active_scope_value: str,
-        timestamp: str,
-    ) -> None:
-        with get_conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO retained_variants(
-                    variant_id,
-                    entry_id,
-                    last_active_scope_type,
-                    last_active_scope_value,
-                    retained_at,
-                    updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(variant_id)
-                DO UPDATE SET
-                    last_active_scope_type = excluded.last_active_scope_type,
-                    last_active_scope_value = excluded.last_active_scope_value,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    variant_id,
-                    entry_id,
-                    last_active_scope_type,
-                    last_active_scope_value,
-                    timestamp,
-                    timestamp,
-                ),
-            )
-
-    def delete_by_variant(self, variant_id: int) -> None:
-        with get_conn() as conn:
-            conn.execute(
-                "DELETE FROM retained_variants WHERE variant_id = ?",
-                (variant_id,),
-            )
-
-    def delete_by_entry(self, entry_id: int) -> None:
-        with get_conn() as conn:
-            conn.execute(
-                "DELETE FROM retained_variants WHERE entry_id = ?",
-                (entry_id,),
-            )
-
-    def exists(self, variant_id: int) -> bool:
-        with get_conn() as conn:
-            row = conn.execute(
-                """
-                SELECT 1
-                FROM retained_variants
-                WHERE variant_id = ?
-                LIMIT 1
-                """,
-                (variant_id,),
-            ).fetchone()
-        return row is not None
-
-    def retained_variant_ids_for_entry(self, entry_id: int) -> set[int]:
-        with get_conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT variant_id
-                FROM retained_variants
-                WHERE entry_id = ?
-                """,
-                (entry_id,),
-            ).fetchall()
-        return {int(row["variant_id"]) for row in rows}
-
-    def list_entries(self, project_id: int, variant_repo: VariantRepository) -> list[ScopeEntryRecord]:
-        with get_conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT e.entry_id, e.project_id, e.business_key, e.created_at AS entry_created_at, e.updated_at AS entry_updated_at,
-                       v.variant_id, v.file_name, v.source, v.orphaned_at, v.trashed_at, v.trash_until, v.restored_at, v.created_at AS variant_created_at, v.updated_at AS variant_updated_at,
-                       'retained' AS scope_type, 'retained' AS scope_value,
-                       r.last_active_scope_type, r.last_active_scope_value, r.retained_at, r.updated_at AS retained_updated_at
-                FROM retained_variants r
-                JOIN entries e ON e.entry_id = r.entry_id
-                JOIN variants v ON v.variant_id = r.variant_id
-                WHERE e.project_id = ?
-                  AND v.trashed_at IS NULL
-                ORDER BY e.business_key, r.retained_at DESC
-                """,
-                (project_id,),
-            ).fetchall()
-        hydrated = ScopeBindingRepository()._hydrate_bound_rows(rows, variant_repo)
-        for item, row in zip(hydrated, rows, strict=True):
-            item["scope_type"] = "retained"
-            item["scope_value"] = "retained"
-            item["last_active_scope_type"] = row["last_active_scope_type"]
-            item["last_active_scope_value"] = row["last_active_scope_value"]
-            item["retained_at"] = row["retained_at"]
-        return hydrated
-
-    def _hydrate_rows(self, rows: list[dict[str, Any]]) -> list[RetainedVariantRecord]:
-        return [
-            {
-                "variant_id": int(row["variant_id"]),
-                "entry_id": int(row["entry_id"]),
-                "membership_type": "retained",
-                "membership_value": "retained",
-                "last_active_scope_type": row["last_active_scope_type"],
-                "last_active_scope_value": row["last_active_scope_value"],
-                "retained_at": row["retained_at"],
-                "updated_at": row["updated_at"],
-            }
-            for row in rows
-        ]

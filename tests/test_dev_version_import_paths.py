@@ -5,6 +5,7 @@ from app.services.demo.service import DemoService
 from app.services.shared.utils import now_iso
 from app.services.variant.compatibility import StringService
 from app.services.variant.facade import VariantService
+from app.services.variant.inspection import VariantInspectionService
 from app.services.workflows.dev_versions import DevVersionService
 
 
@@ -75,14 +76,13 @@ def test_dev_import_covers_reuse_update_rebind_and_noop_paths() -> None:
     entry = variants.get_or_create_entry("status.bound.existing")
     rel_variant_id = strings.create_string("status.bound.existing", None, "Rel source", {"fr": "Rel"}, {})
     strings.ensure_membership(rel_variant_id, "rel", "current")
-    retained_variant_id = variants.create_variant(
+    orphan_variant_id = variants.create_variant(
         int(entry["entry_id"]),
         None,
         "Retained source",
         {"fr": "Keep"},
         {},
     )
-    variants._retain_variant_if_inactive(retained_variant_id, int(entry["entry_id"]), "dev", "1.1.0")
     variants._refresh_orphan_states(int(entry["entry_id"]))
 
     batch_id = make_import_batch(
@@ -136,17 +136,23 @@ def test_dev_import_covers_reuse_update_rebind_and_noop_paths() -> None:
     statuses = {row["business_key"]: row["status"] for row in result["report_rows"]}
 
     assert statuses == {
-        "status.created.new": "CREATED_VARIANT",
-        "status.reused.rel": "REUSED_REL_VARIANT",
-        "status.updated.dev": "UPDATED_BOUND_VARIANT",
-        "status.rebound.shared": "REBOUND_FROM_REL_VARIANT",
-        "status.bound.existing": "BOUND_EXISTING_VARIANT",
+        "status.created.new": "CREATED_SOURCE_VARIANT",
+        "status.reused.rel": "BOUND_REL_OWNED_SOURCE_VARIANT",
+        "status.updated.dev": "CREATED_SOURCE_VARIANT",
+        "status.rebound.shared": "CREATED_SOURCE_VARIANT",
+        "status.bound.existing": "REVIVED_ORPHAN_SOURCE_VARIANT",
         "status.noop.dev": "NOOP_ALREADY_MATCHED",
     }
     assert result["summary"]["created_entry_count"] == 1
-    assert result["summary"]["created_variant_count"] == 2
-    assert result["summary"]["updated_bound_variant_count"] == 1
-    assert result["summary"]["reused_rel_variant_count"] == 1
-    assert result["summary"]["rebound_variant_count"] == 2
+    assert result["summary"]["created_source_variant_count"] == 3
+    assert result["summary"]["bound_rel_owned_source_variant_count"] == 1
+    assert result["summary"]["updated_reused_source_variant_count"] == 0
+    assert result["summary"]["revived_orphan_source_variant_count"] == 1
     assert result["summary"]["noop_count"] == 1
     assert result["summary"]["processed_count"] == 6
+
+    variants_payload = VariantInspectionService().entry_variants("status.bound.existing")
+    variants_by_id = {variant["variant_id"]: variant for variant in variants_payload["variants"]}
+    assert {(binding["scope_type"], binding["scope_value"]) for binding in variants_by_id[orphan_variant_id]["bindings"]} == {
+        ("dev", "1.2.3")
+    }

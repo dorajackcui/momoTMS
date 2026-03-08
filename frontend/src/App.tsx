@@ -164,14 +164,12 @@ type EntryVariantInspection = {
   translations: Record<string, string>;
   remarks: Record<string, string>;
   bindings: VariantBindingSummary[];
-  is_retained: boolean;
   is_orphaned: boolean;
   is_trashed: boolean;
   orphaned_at: string | null;
   trashed_at: string | null;
   trash_until: string | null;
   restored_at: string | null;
-  last_active_scope: { scope_type: string; scope_value: string } | null;
   created_at: string;
   updated_at: string;
 };
@@ -181,25 +179,6 @@ type EntryVariantsResponse = {
   entry_id: number;
   business_key: string;
   variants: EntryVariantInspection[];
-};
-
-type RetainedVariantSummary = {
-  project_id: number;
-  entry_id: number;
-  business_key: string;
-  variant_id: number;
-  file_name: string | null;
-  source: string;
-  translations: Record<string, string>;
-  remarks: Record<string, string>;
-  last_active_scope: { scope_type: string; scope_value: string };
-  retained_at: string;
-  updated_at: string;
-};
-
-type RetainedVariantsResponse = {
-  project_id: number;
-  results: RetainedVariantSummary[];
 };
 
 type OrphanVariantSummary = {
@@ -272,7 +251,6 @@ export function App() {
   const [candidateRelease, setCandidateRelease] = useState(true);
   const [inspectionLookupKey, setInspectionLookupKey] = useState("");
   const [inspectionEntry, setInspectionEntry] = useState<EntryVariantsResponse | null>(null);
-  const [retainedVariants, setRetainedVariants] = useState<RetainedVariantSummary[]>([]);
   const [orphanVariants, setOrphanVariants] = useState<OrphanVariantSummary[]>([]);
   const [createProjectName, setCreateProjectName] = useState("");
   const [createTranslationColumns, setCreateTranslationColumns] = useState("fr, en");
@@ -330,7 +308,6 @@ export function App() {
     setSelectedImportBatch("");
     setInspectionLookupKey("");
     setInspectionEntry(null);
-    setRetainedVariants([]);
     setOrphanVariants([]);
     clearFolderInputs();
   }
@@ -501,11 +478,7 @@ export function App() {
 
   async function loadInspectionLists(projectId: number) {
     try {
-      const [retained, orphaned] = await Promise.all([
-        fetchJson<RetainedVariantsResponse>(`/api/projects/${projectId}/retained-variants`),
-        fetchJson<OrphanVariantsResponse>(`/api/projects/${projectId}/orphan-variants`),
-      ]);
-      setRetainedVariants(retained.results);
+      const orphaned = await fetchJson<OrphanVariantsResponse>(`/api/projects/${projectId}/orphan-variants`);
       setOrphanVariants(orphaned.results);
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -1356,32 +1329,6 @@ export function App() {
                 <div className="panel-head">
                   <div>
                     <p className="panel-kicker">Lifecycle</p>
-                    <h3>Retained Variants</h3>
-                  </div>
-                </div>
-                <div className="job-list" data-testid="app-retained-list">
-                  {retainedVariants.length > 0 ? (
-                    retainedVariants.map((item) => (
-                      <button
-                        key={`retained-${item.variant_id}`}
-                        className={`job-card ${inspectionEntry?.business_key === item.business_key ? "active" : ""}`}
-                        onClick={() => void loadInspectionEntry(item.business_key)}
-                      >
-                        <strong>{item.business_key}</strong>
-                        <span className="muted">{item.last_active_scope.scope_type}/{item.last_active_scope.scope_value}</span>
-                        <span className="muted">{formatTimestamp(item.retained_at)}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <PanelEmptyState message="No retained variants in this project." />
-                  )}
-                </div>
-              </section>
-
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="panel-kicker">Lifecycle</p>
                     <h3>Orphan Variants</h3>
                   </div>
                 </div>
@@ -1419,7 +1366,6 @@ export function App() {
                       <div className="scope-card__top">
                         <strong>variant #{variant.variant_id}</strong>
                         <div className="toolbar">
-                          {variant.is_retained ? <span className="badge accent">retained</span> : null}
                           {variant.is_orphaned ? <span className="badge warning">orphan</span> : null}
                           {variant.is_trashed ? <span className="badge danger">trashed</span> : null}
                         </div>
@@ -1428,7 +1374,6 @@ export function App() {
                         items={[
                           ["file_name", variant.file_name || "-"],
                           ["source", variant.source],
-                          ["last_active_scope", variant.last_active_scope ? `${variant.last_active_scope.scope_type}/${variant.last_active_scope.scope_value}` : "-"],
                           ["orphaned_at", variant.orphaned_at || "-"],
                           ["updated_at", formatTimestamp(variant.updated_at)],
                         ]}
@@ -1450,7 +1395,7 @@ export function App() {
                   ))}
                 </div>
               ) : (
-                <PanelEmptyState message="Look up a business key or pick a retained/orphan row to inspect bindings and lifecycle flags." />
+                <PanelEmptyState message="Look up a business key or pick an orphan row to inspect bindings and lifecycle flags." />
               )}
             </section>
           </section>

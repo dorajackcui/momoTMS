@@ -35,17 +35,6 @@ class BindingRecord(TypedDict):
     updated_at: str
 
 
-class RetainedVariantRecord(TypedDict):
-    variant_id: int
-    entry_id: int
-    membership_type: str
-    membership_value: str
-    last_active_scope_type: str
-    last_active_scope_value: str
-    retained_at: str
-    updated_at: str
-
-
 class ScopeEntryRecord(TypedDict):
     entry_id: int
     project_id: int

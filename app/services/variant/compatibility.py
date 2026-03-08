@@ -52,6 +52,13 @@ class StringService:
             remarks=remarks,
         )
         if reusable:
+            self.variants.update_variant(
+                variant_id=int(reusable["variant_id"]),
+                file_name=file_name,
+                source=source,
+                translations=translations,
+                remarks=remarks,
+            )
             return int(reusable["variant_id"])
         return self.variants.create_variant(
             int(entry["entry_id"]),
@@ -109,10 +116,7 @@ class StringService:
         membership_value: str,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> list[dict[str, Any]]:
-        if membership_type == "retained":
-            results = self.variants.list_retained_entries(project_id)
-        else:
-            results = self.variants.list_scope_entries(membership_type, membership_value, project_id)
+        results = self.variants.list_scope_entries(membership_type, membership_value, project_id)
         return [
             {
                 "string_id": int(item["variant"]["variant_id"]),
@@ -129,12 +133,7 @@ class StringService:
                         "membership_value": binding["scope_value"],
                     }
                     for binding in self.variants.list_bindings_for_entry(int(item["entry_id"]))
-                ]
-                + (
-                    [{"membership_type": "retained", "membership_value": "retained"}]
-                    if item["scope_type"] == "retained"
-                    else []
-                ),
+                ],
                 "deleted_at": item["variant"]["trashed_at"],
                 "trash_until": item["variant"]["trash_until"],
                 "restored_at": item["variant"]["restored_at"],
@@ -150,8 +149,6 @@ class StringService:
         membership_value: str,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> int:
-        if membership_type == "retained":
-            return len(self.variants.list_retained_entries(project_id))
         return self.variants.count_scope(membership_type, membership_value, project_id)
 
     def clear_rel_memberships(self, project_id: int = DEFAULT_PROJECT_ID) -> None:

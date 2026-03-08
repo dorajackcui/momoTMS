@@ -23,15 +23,17 @@ def test_dev_import_creates_updates_tags_and_protects_rel_strings() -> None:
     result = DevVersionService().import_batch(batch["import_batch_id"], sample["dev_version"])
 
     assert result["summary"]["created_entry_count"] == 1
-    assert result["summary"]["created_variant_count"] == 4
-    assert result["summary"]["reused_rel_variant_count"] == 0
+    assert result["summary"]["created_source_variant_count"] == 3
+    assert result["summary"]["bound_rel_owned_source_variant_count"] == 1
+    assert result["summary"]["updated_reused_source_variant_count"] == 0
+    assert result["summary"]["revived_orphan_source_variant_count"] == 0
     assert result["summary"]["processed_count"] == 4
 
     statuses = {row["business_key"]: row["status"] for row in result["report_rows"]}
-    assert statuses["rel.locked.same"] == "CREATED_VARIANT"
-    assert statuses["rel.locked.changed"] == "CREATED_VARIANT"
-    assert statuses["dev.mutable"] == "CREATED_VARIANT"
-    assert statuses["dev.new.entry"] == "CREATED_VARIANT"
+    assert statuses["rel.locked.same"] == "BOUND_REL_OWNED_SOURCE_VARIANT"
+    assert statuses["rel.locked.changed"] == "CREATED_SOURCE_VARIANT"
+    assert statuses["dev.mutable"] == "CREATED_SOURCE_VARIANT"
+    assert statuses["dev.new.entry"] == "CREATED_SOURCE_VARIANT"
 
     strings = StringService()
     mutable = strings.get_string("dev.mutable", include_deleted=False)

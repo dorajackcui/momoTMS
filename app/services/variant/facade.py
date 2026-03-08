@@ -12,7 +12,6 @@ from app.services.variant.services import (
 )
 from app.services.variant.repositories import (
     EntryRepository,
-    RetainedVariantRepository,
     ScopeBindingRepository,
     VariantRepository,
 )
@@ -25,12 +24,11 @@ class VariantService:
         entry_repo = EntryRepository()
         variant_repo = VariantRepository()
         binding_repo = ScopeBindingRepository()
-        retained_repo = RetainedVariantRepository()
 
         self.entries = EntryService(entry_repo)
         self.catalog = VariantCatalogService(variant_repo)
-        self.lifecycle = VariantLifecycleService(variant_repo, binding_repo, retained_repo)
-        self.bindings = ScopeBindingService(variant_repo, binding_repo, retained_repo, self.lifecycle)
+        self.lifecycle = VariantLifecycleService(variant_repo, binding_repo)
+        self.bindings = ScopeBindingService(variant_repo, binding_repo, self.lifecycle)
         self.views = PreferredEntryViewService(self.entries, self.catalog, self.bindings, self.lifecycle)
 
     def get_or_create_entry(
@@ -157,9 +155,6 @@ class VariantService:
     def list_bindings_for_entry(self, entry_id: int) -> list[dict[str, Any]]:
         return self.bindings.list_bindings_for_entry(entry_id)
 
-    def list_retained_for_entry(self, entry_id: int) -> list[dict[str, Any]]:
-        return self.lifecycle.list_retained_for_entry(entry_id)
-
     def list_scope_entries(
         self,
         scope_type: str,
@@ -232,26 +227,3 @@ class VariantService:
 
     def _refresh_orphan_states(self, entry_id: int) -> None:
         self.lifecycle.refresh_orphan_states(entry_id)
-
-    def _retain_variant_if_inactive(
-        self,
-        variant_id: int,
-        entry_id: int,
-        last_active_scope_type: str,
-        last_active_scope_value: str,
-    ) -> None:
-        self.lifecycle.retain_variant_if_inactive(
-            variant_id,
-            entry_id,
-            last_active_scope_type,
-            last_active_scope_value,
-        )
-
-    def _is_retained_variant(self, variant_id: int) -> bool:
-        return self.lifecycle.is_retained_variant(variant_id)
-
-    def list_retained_entries(
-        self,
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> list[dict[str, Any]]:
-        return self.lifecycle.list_retained_entries(project_id)

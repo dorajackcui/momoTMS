@@ -256,11 +256,6 @@ class VariantBindingSummary(BaseModel):
     updated_at: str
 
 
-class LastActiveScopeSummary(BaseModel):
-    scope_type: str
-    scope_value: str
-
-
 class EntryVariantInspection(BaseModel):
     variant_id: int
     file_name: str | None = None
@@ -268,14 +263,12 @@ class EntryVariantInspection(BaseModel):
     translations: dict[str, str | None] = Field(default_factory=dict)
     remarks: dict[str, str | None] = Field(default_factory=dict)
     bindings: list[VariantBindingSummary] = Field(default_factory=list)
-    is_retained: bool = False
     is_orphaned: bool = False
     is_trashed: bool = False
     orphaned_at: str | None = None
     trashed_at: str | None = None
     trash_until: str | None = None
     restored_at: str | None = None
-    last_active_scope: LastActiveScopeSummary | None = None
     created_at: str
     updated_at: str
 
@@ -285,25 +278,6 @@ class EntryVariantsResponse(BaseModel):
     entry_id: int
     business_key: str
     variants: list[EntryVariantInspection] = Field(default_factory=list)
-
-
-class RetainedVariantSummary(BaseModel):
-    project_id: int
-    entry_id: int
-    business_key: str
-    variant_id: int
-    file_name: str | None = None
-    source: str
-    translations: dict[str, str | None] = Field(default_factory=dict)
-    remarks: dict[str, str | None] = Field(default_factory=dict)
-    last_active_scope: LastActiveScopeSummary
-    retained_at: str
-    updated_at: str
-
-
-class RetainedVariantsResponse(BaseModel):
-    project_id: int
-    results: list[RetainedVariantSummary] = Field(default_factory=list)
 
 
 class OrphanVariantSummary(BaseModel):

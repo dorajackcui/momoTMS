@@ -3,7 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService, VariantLifecycleService
+from app.services.variant.services import (
+    CanonicalVariantService,
+    EntryService,
+    ScopeBindingService,
+    VariantCatalogService,
+    VariantLifecycleService,
+)
 
 
 class VariantInspectionService:
@@ -13,6 +19,7 @@ class VariantInspectionService:
         self.bindings = ScopeBindingService()
         self.catalog = VariantCatalogService()
         self.lifecycle = VariantLifecycleService()
+        self.canonical = CanonicalVariantService(self.catalog, self.bindings.bindings)
 
     def entry_variants(
         self,
@@ -36,13 +43,8 @@ class VariantInspectionService:
                 }
             )
 
-        retained_by_variant = {
-            int(item["variant_id"]): item
-            for item in self.lifecycle.list_retained_for_entry(int(entry["entry_id"]))
-        }
         variants = []
-        for variant in self.catalog.list_variants(int(entry["entry_id"]), include_trashed=True):
-            retained = retained_by_variant.get(int(variant["variant_id"]))
+        for variant in self.canonical.list_canonical_variants(int(entry["entry_id"]), include_trashed=True):
             variants.append(
                 {
                     "variant_id": int(variant["variant_id"]),
@@ -54,21 +56,12 @@ class VariantInspectionService:
                         bindings_by_variant.get(int(variant["variant_id"]), []),
                         key=lambda item: (item["scope_type"], item["scope_value"]),
                     ),
-                    "is_retained": retained is not None,
                     "is_orphaned": variant["orphaned_at"] is not None,
                     "is_trashed": variant["trashed_at"] is not None,
                     "orphaned_at": variant["orphaned_at"],
                     "trashed_at": variant["trashed_at"],
                     "trash_until": variant["trash_until"],
                     "restored_at": variant["restored_at"],
-                    "last_active_scope": (
-                        {
-                            "scope_type": retained["last_active_scope_type"],
-                            "scope_value": retained["last_active_scope_value"],
-                        }
-                        if retained is not None
-                        else None
-                    ),
                     "created_at": variant["created_at"],
                     "updated_at": variant["updated_at"],
                 }
@@ -80,31 +73,6 @@ class VariantInspectionService:
             "business_key": entry["business_key"],
             "variants": sorted(variants, key=lambda item: item["variant_id"]),
         }
-
-    def retained_variants(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
-        self.projects.require_project(project_id)
-        results = []
-        for item in self.lifecycle.list_retained_entries(project_id):
-            variant = item["variant"]
-            results.append(
-                {
-                    "project_id": int(item["project_id"]),
-                    "entry_id": int(item["entry_id"]),
-                    "business_key": item["business_key"],
-                    "variant_id": int(variant["variant_id"]),
-                    "file_name": variant["file_name"],
-                    "source": variant["source"],
-                    "translations": variant["translations"],
-                    "remarks": variant["remarks"],
-                    "last_active_scope": {
-                        "scope_type": item["last_active_scope_type"],
-                        "scope_value": item["last_active_scope_value"],
-                    },
-                    "retained_at": item["retained_at"],
-                    "updated_at": item["updated_at"],
-                }
-            )
-        return {"project_id": project_id, "results": results}
 
     def orphan_variants(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.projects.require_project(project_id)

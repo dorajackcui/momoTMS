@@ -6,6 +6,7 @@ from time import perf_counter
 from app.db import get_conn, json_loads
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID
+from app.services.shared.io import normalize_content_map, normalize_non_content_map, normalize_non_content_value
 from app.services.shared.utils import now_iso
 from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
 
@@ -98,16 +99,18 @@ class DevVersionService:
         entries_by_key = self.entries.ensure_entries(business_keys, project_id=project_id)
 
         entry_ids = [int(entry["entry_id"]) for entry in entries_by_key.values()]
-        current_dev_by_entry = self.bindings.get_bindings_for_entries(entry_ids, "dev", version)
-        current_rel_by_entry = self.bindings.get_bindings_for_entries(entry_ids, "rel", "current")
         variants_by_entry = self.catalog.list_variants_for_entries(entry_ids, include_trashed=False)
+        binding_rows_by_entry = {
+            entry_id: self.bindings.list_bindings_for_entry(entry_id)
+            for entry_id in entry_ids
+        }
 
         counts = {
             "created_entry_count": len(set(missing_entry_keys)),
-            "created_variant_count": 0,
-            "updated_bound_variant_count": 0,
-            "reused_rel_variant_count": 0,
-            "rebound_variant_count": 0,
+            "created_source_variant_count": 0,
+            "bound_rel_owned_source_variant_count": 0,
+            "updated_reused_source_variant_count": 0,
+            "revived_orphan_source_variant_count": 0,
             "noop_count": 0,
         }
         report_rows: list[dict[str, Any]] = []
@@ -122,8 +125,7 @@ class DevVersionService:
                 payload,
                 version,
                 counts,
-                current_dev_by_entry,
-                current_rel_by_entry,
+                binding_rows_by_entry,
                 variants_by_entry,
             )
             report_rows.append(
@@ -244,154 +246,142 @@ class DevVersionService:
         payload: dict[str, Any],
         version: str,
         counts: dict[str, int],
-        current_dev_by_entry: dict[int, dict[str, Any]],
-        current_rel_by_entry: dict[int, dict[str, Any]],
+        binding_rows_by_entry: dict[int, list[dict[str, Any]]],
         variants_by_entry: dict[int, list[dict[str, Any]]],
     ) -> str:
-        current_dev = current_dev_by_entry.get(entry_id)
-        current_rel = current_rel_by_entry.get(entry_id)
-        desired = self._find_reusable_variant_in_cache(
-            variants_by_entry.get(entry_id, []),
-            payload,
-        )
+        bindings = binding_rows_by_entry.get(entry_id, [])
+        variants = variants_by_entry.get(entry_id, [])
+        current_dev = self._find_binding(bindings, "dev", version)
+        source_variant = self._find_source_variant_in_cache(variants, bindings, payload["source"])
 
-        if current_dev is not None:
-            current_variant = self._variant_from_cache(variants_by_entry.get(entry_id, []), int(current_dev["variant_id"]))
-            if desired is not None and int(desired["variant_id"]) == int(current_variant["variant_id"]):
-                counts["noop_count"] += 1
-                return "NOOP_ALREADY_MATCHED"
-            if current_rel is not None and int(current_rel["variant_id"]) == int(current_dev["variant_id"]):
-                target_variant_id = self._ensure_payload_variant_cached(
-                    entry_id,
-                    payload,
-                    desired,
-                    counts,
-                    variants_by_entry,
-                )
-                self.bindings.bind_scope(entry_id, "dev", version, target_variant_id)
-                current_dev_by_entry[entry_id] = {
-                    "scope_type": "dev",
-                    "scope_value": version,
-                    "entry_id": entry_id,
-                    "variant_id": target_variant_id,
-                }
-                counts["rebound_variant_count"] += 1
-                return "REBOUND_FROM_REL_VARIANT"
-            self.catalog.update_variant(
-                int(current_dev["variant_id"]),
+        if source_variant is None:
+            variant_id = self.catalog.create_variant(
+                entry_id,
                 file_name=payload.get("file_name"),
                 source=payload["source"],
                 translations=payload.get("translations", {}),
                 remarks=payload.get("remarks", {}),
             )
-            refreshed_variant = self.catalog.get_variant(int(current_dev["variant_id"]))
-            variants_by_entry[entry_id] = self._replace_cached_variant(
-                variants_by_entry.get(entry_id, []),
-                refreshed_variant,
+            self.bindings.bind_scope(entry_id, "dev", version, variant_id)
+            counts["created_source_variant_count"] += 1
+            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+            return "CREATED_SOURCE_VARIANT"
+
+        variant_id = int(source_variant["variant_id"])
+        rel_bound = self._is_rel_bound(bindings, variant_id)
+        binding_count = self._binding_count(bindings, variant_id)
+        payload_matches = self._payload_matches_variant(source_variant, payload)
+
+        if rel_bound:
+            if current_dev is not None and int(current_dev["variant_id"]) == variant_id:
+                counts["noop_count"] += 1
+                return "NOOP_ALREADY_MATCHED"
+            self.bindings.bind_scope(entry_id, "dev", version, variant_id)
+            counts["bound_rel_owned_source_variant_count"] += 1
+            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+            return "BOUND_REL_OWNED_SOURCE_VARIANT"
+
+        if binding_count > 0:
+            if payload_matches and current_dev is not None and int(current_dev["variant_id"]) == variant_id:
+                counts["noop_count"] += 1
+                return "NOOP_ALREADY_MATCHED"
+            self.catalog.update_variant(
+                variant_id,
+                file_name=payload.get("file_name"),
+                source=payload["source"],
+                translations=payload.get("translations", {}),
+                remarks=payload.get("remarks", {}),
             )
-            counts["updated_bound_variant_count"] += 1
-            return "UPDATED_BOUND_VARIANT"
+            self.bindings.bind_scope(entry_id, "dev", version, variant_id)
+            counts["updated_reused_source_variant_count"] += 1
+            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+            return "UPDATED_REUSED_SOURCE_VARIANT"
 
-        if current_rel is not None:
-            rel_variant = self._variant_from_cache(variants_by_entry.get(entry_id, []), int(current_rel["variant_id"]))
-            if desired is not None and int(desired["variant_id"]) == int(rel_variant["variant_id"]):
-                self.bindings.bind_scope(entry_id, "dev", version, int(rel_variant["variant_id"]))
-                current_dev_by_entry[entry_id] = {
-                    "scope_type": "dev",
-                    "scope_value": version,
-                    "entry_id": entry_id,
-                    "variant_id": int(rel_variant["variant_id"]),
-                }
-                counts["reused_rel_variant_count"] += 1
-                return "REUSED_REL_VARIANT"
-
-        target_variant_id = self._ensure_payload_variant_cached(
-            entry_id,
-            payload,
-            desired,
-            counts,
-            variants_by_entry,
-        )
-        self.bindings.bind_scope(entry_id, "dev", version, target_variant_id)
-        current_dev_by_entry[entry_id] = {
-            "scope_type": "dev",
-            "scope_value": version,
-            "entry_id": entry_id,
-            "variant_id": target_variant_id,
-        }
-        if desired is not None:
-            counts["rebound_variant_count"] += 1
-            return "BOUND_EXISTING_VARIANT"
-        return "CREATED_VARIANT"
-
-    def _ensure_payload_variant_cached(
-        self,
-        entry_id: int,
-        payload: dict[str, Any],
-        desired: dict[str, Any] | None,
-        counts: dict[str, int],
-        variants_by_entry: dict[int, list[dict[str, Any]]],
-    ) -> int:
-        if desired is not None:
-            return int(desired["variant_id"])
-        variant_id = self.catalog.create_variant(
-            entry_id,
+        self.catalog.update_variant(
+            variant_id,
             file_name=payload.get("file_name"),
             source=payload["source"],
             translations=payload.get("translations", {}),
             remarks=payload.get("remarks", {}),
         )
-        counts["created_variant_count"] += 1
-        variants_by_entry.setdefault(entry_id, []).append(self.catalog.get_variant(variant_id))
-        return variant_id
+        self.bindings.bind_scope(entry_id, "dev", version, variant_id)
+        counts["revived_orphan_source_variant_count"] += 1
+        self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+        return "REVIVED_ORPHAN_SOURCE_VARIANT"
 
-    def _find_reusable_variant_in_cache(
+    def _refresh_entry_cache(
         self,
-        variants: list[dict[str, Any]],
-        payload: dict[str, Any],
+        entry_id: int,
+        binding_rows_by_entry: dict[int, list[dict[str, Any]]],
+        variants_by_entry: dict[int, list[dict[str, Any]]],
+    ) -> None:
+        binding_rows_by_entry[entry_id] = self.bindings.list_bindings_for_entry(entry_id)
+        variants_by_entry[entry_id] = self.catalog.list_variants(entry_id, include_trashed=False)
+
+    def _find_binding(
+        self,
+        bindings: list[dict[str, Any]],
+        scope_type: str,
+        scope_value: str,
     ) -> dict[str, Any] | None:
-        normalized_file_name = payload.get("file_name") or ""
-        normalized_source = payload["source"]
-        normalized_translations = payload.get("translations", {})
-        normalized_remarks = payload.get("remarks", {})
-        for variant in variants:
-            if variant["file_name"] != normalized_file_name:
-                continue
-            if variant["source"] != normalized_source:
-                continue
-            if dict(variant["translations"]) != dict(normalized_translations):
-                continue
-            if dict(variant["remarks"]) != dict(normalized_remarks):
-                continue
-            return variant
+        for binding in bindings:
+            if binding["scope_type"] == scope_type and binding["scope_value"] == scope_value:
+                return binding
         return None
 
-    def _variant_from_cache(
+    def _find_source_variant_in_cache(
         self,
         variants: list[dict[str, Any]],
-        variant_id: int,
-    ) -> dict[str, Any]:
-        for variant in variants:
-            if int(variant["variant_id"]) == variant_id:
-                return variant
-        return self.catalog.get_variant(variant_id)
+        bindings: list[dict[str, Any]],
+        source: str,
+    ) -> dict[str, Any] | None:
+        normalized_source = normalize_non_content_value(source)
+        candidates = [variant for variant in variants if variant["source"] == normalized_source]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: self._variant_rank(item, bindings))
 
-    def _replace_cached_variant(
+    def _variant_rank(
         self,
-        variants: list[dict[str, Any]],
-        updated_variant: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        replaced = False
-        next_variants: list[dict[str, Any]] = []
-        for variant in variants:
-            if int(variant["variant_id"]) == int(updated_variant["variant_id"]):
-                next_variants.append(updated_variant)
-                replaced = True
-            else:
-                next_variants.append(variant)
-        if not replaced:
-            next_variants.append(updated_variant)
-        return next_variants
+        variant: dict[str, Any],
+        bindings: list[dict[str, Any]],
+    ) -> tuple[int, int, int, int, str, int]:
+        variant_id = int(variant["variant_id"])
+        variant_bindings = [binding for binding in bindings if int(binding["variant_id"]) == variant_id]
+        rel_bound = self._is_rel_bound(bindings, variant_id)
+        active = bool(variant_bindings)
+        orphan_like = variant["trashed_at"] is None and not active and variant["orphaned_at"] is not None
+        return (
+            1 if variant["trashed_at"] is None else 0,
+            1 if rel_bound else 0,
+            1 if active else 0,
+            1 if orphan_like else 0,
+            variant["updated_at"],
+            variant_id,
+        )
+
+    def _is_rel_bound(self, bindings: list[dict[str, Any]], variant_id: int) -> bool:
+        return any(
+            int(binding["variant_id"]) == variant_id
+            and binding["scope_type"] == "rel"
+            and binding["scope_value"] == "current"
+            for binding in bindings
+        )
+
+    def _binding_count(self, bindings: list[dict[str, Any]], variant_id: int) -> int:
+        return sum(1 for binding in bindings if int(binding["variant_id"]) == variant_id)
+
+    def _payload_matches_variant(
+        self,
+        variant: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> bool:
+        return (
+            variant["file_name"] == normalize_non_content_value(payload.get("file_name"))
+            and variant["source"] == normalize_non_content_value(payload["source"])
+            and dict(variant["translations"]) == normalize_content_map(payload.get("translations", {}))
+            and dict(variant["remarks"]) == normalize_non_content_map(payload.get("remarks", {}))
+        )
 
     def _version_line(self, version: str) -> str:
         parts = version.split(".")

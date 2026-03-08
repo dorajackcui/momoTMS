@@ -33,6 +33,12 @@ An `Entry` is the stable business slot.
 
 A `Variant` is the mutable content object under one entry.
 
+Current identity rules:
+
+- identity: `(project_id, business_key, source)` through the parent entry plus canonical `source`
+- the runtime keeps one canonical non-trashed variant per `source` under an entry
+- `file_name`, `translations`, and `remarks` are content, not identity
+
 It stores:
 
 - `file_name`
@@ -41,7 +47,7 @@ It stores:
 - `remarks`
 - lifecycle timestamps such as `orphaned_at`, `trashed_at`, `restored_at`
 
-Multiple variants may exist under the same entry so different scopes can point at different content.
+Multiple variants may still exist under the same entry, but duplicate same-source rows are collapsed to one canonical variant during runtime migration and future writes.
 
 ## Scope Binding
 
@@ -60,17 +66,20 @@ Rules:
 
 ## Variant Lifecycle
 
-The runtime distinguishes four useful states:
+The runtime distinguishes three live states:
 
 - `active`: referenced by at least one scope binding
-- `retained`: no active binding, but intentionally preserved for reuse
-- `orphan`: no active binding and not retained
+- `orphan`: no active binding but still reusable for future same-source hits
 - `trashed`: explicitly deleted from normal runtime usage
+
+Implementation note:
+
+- `retained` no longer exists as a lifecycle state, table, API, or UI surface
 
 Default read behavior:
 
 - overview, compare, queue, master query, fill, and QA use `active` variants only
-- retained, orphan, and trashed variants are excluded from normal product reads
+- orphan and trashed variants are excluded from normal product reads
 
 ## Read Models
 
@@ -109,26 +118,34 @@ Priority statuses used by compare/queue:
 ### Dev Import
 
 - creates missing entries
-- updates the currently bound dev variant in place when the target scope already owns the entry
-- otherwise creates or reuses a compatible variant and rebinds the target dev scope
+- looks up canonical variants by `same business_key + same source` across all non-trashed variants under the entry
+- if the hit is rel-bound, it only binds the target `dev/<version>` scope and keeps canonical content unchanged
+- if the hit is non-rel active or orphan, it updates canonical content in place and binds the target `dev/<version>` scope
+- if no same-source variant exists, it creates a new canonical variant and binds the target `dev/<version>` scope
 - can mark the imported version as candidate release
 
 ### Release Hotfix
 
 - operates on the variant bound to `rel/current`
 - active hotfix changes one translation field
-- passive hotfix can update source, translations, remarks, and file metadata
+- passive hotfix with unchanged `source` updates the current rel canonical variant in place
+- passive hotfix with changed `source` looks up or creates the target same-source canonical variant, updates its content, and rebinds `rel/current`
+- when rel moves away from a variant and no other scope still uses it, that old variant becomes `orphan`
 
 ### Promote
 
 - previews and executes binding changes from one `dev/<version>` into `rel/current`
 - moves release bindings to the variants currently bound by the target dev scope
+- does not copy content or create variants
 - may clear old dev bindings inside the same version line
 
 ### Trash / Restore
 
-- current compatibility flow still targets entries by `business_key`
-- underlying lifecycle work happens at the variant/binding level
+- delete is project-scoped and takes `scope_ref` plus `business_keys[]`
+- delete removes the active binding in the selected scope
+- if the affected variant no longer has any active bindings, lifecycle state refreshes it into `orphan` unless it is trashed
+- restore is project-scoped and takes `variant_ids[]`
+- restore clears trashed state for the selected variants only; it does not rebind scopes automatically
 
 ### Fill
 

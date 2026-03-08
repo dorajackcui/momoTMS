@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,13 +15,11 @@ from app.services.variant.records import (
     BindingRecord,
     EntryRecord,
     PreferredEntryView,
-    RetainedVariantRecord,
     ScopeEntryRecord,
     VariantRecord,
 )
 from app.services.variant.repositories import (
     EntryRepository,
-    RetainedVariantRepository,
     ScopeBindingRepository,
     VariantRepository,
 )
@@ -113,8 +112,8 @@ class VariantCatalogService:
         normalized_remarks = normalize_non_content_map(remarks)
         timestamp = now_iso()
         variant_id = self.variants.create(entry_id, normalized_file_name, normalized_source, timestamp)
-        self.variants.replace_translations(variant_id, normalized_translations, timestamp)
-        self.variants.replace_remarks(variant_id, normalized_remarks, timestamp)
+        self.variants.overwrite_translations(variant_id, normalized_translations, timestamp)
+        self.variants.overwrite_remarks(variant_id, normalized_remarks, timestamp)
         return variant_id
 
     def update_variant(
@@ -136,8 +135,8 @@ class VariantCatalogService:
             timestamp,
             restore_if_trashed=restore_if_trashed,
         )
-        self.variants.replace_translations(variant_id, normalize_content_map(translations), timestamp)
-        self.variants.replace_remarks(variant_id, normalize_non_content_map(remarks), timestamp)
+        self.variants.overwrite_translations(variant_id, normalize_content_map(translations), timestamp)
+        self.variants.overwrite_remarks(variant_id, normalize_non_content_map(remarks), timestamp)
 
     def replace_translations(self, variant_id: int, translations: dict[str, str | None]) -> None:
         self.variants.replace_translations(variant_id, normalize_content_map(translations), now_iso())
@@ -159,20 +158,10 @@ class VariantCatalogService:
         translations: dict[str, str | None],
         remarks: dict[str, str | None],
     ) -> VariantRecord | None:
-        normalized_file_name = normalize_non_content_value(file_name)
         normalized_source = self._require_non_content("source", source)
-        normalized_translations = normalize_content_map(translations)
-        normalized_remarks = normalize_non_content_map(remarks)
         for variant in self.list_variants(entry_id, include_trashed=False):
-            if variant["file_name"] != normalized_file_name:
-                continue
-            if variant["source"] != normalized_source:
-                continue
-            if dict(variant["translations"]) != dict(normalized_translations):
-                continue
-            if dict(variant["remarks"]) != dict(normalized_remarks):
-                continue
-            return variant
+            if variant["source"] == normalized_source:
+                return variant
         return None
 
     def list_variants(self, entry_id: int, include_trashed: bool = True) -> list[VariantRecord]:
@@ -192,52 +181,122 @@ class VariantCatalogService:
         return normalized
 
 
+class CanonicalVariantService:
+    def __init__(
+        self,
+        variants: VariantCatalogService | None = None,
+        bindings: ScopeBindingRepository | None = None,
+    ) -> None:
+        self.variants = variants or VariantCatalogService()
+        self.bindings = bindings or ScopeBindingRepository()
+
+    def list_canonical_variants(
+        self,
+        entry_id: int,
+        include_trashed: bool = True,
+    ) -> list[VariantRecord]:
+        variants = self.variants.list_variants(entry_id, include_trashed=include_trashed)
+        if not variants:
+            return []
+        bindings_by_variant = self._bindings_by_variant(entry_id)
+        variants_by_source: dict[str, list[VariantRecord]] = defaultdict(list)
+        for variant in variants:
+            variants_by_source[variant["source"]].append(variant)
+        canonical_variants = [
+            self._choose_canonical_variant(group, bindings_by_variant)
+            for group in variants_by_source.values()
+        ]
+        return sorted(canonical_variants, key=lambda item: int(item["variant_id"]))
+
+    def find_canonical_variant_by_source(
+        self,
+        entry_id: int,
+        source: str,
+        include_trashed: bool = False,
+    ) -> VariantRecord | None:
+        normalized_source = normalize_non_content_value(source)
+        if not normalized_source:
+            raise ValueError("source is required")
+        variants = [
+            item
+            for item in self.list_canonical_variants(entry_id, include_trashed=include_trashed)
+            if item["source"] == normalized_source
+        ]
+        if not variants:
+            return None
+        return variants[0]
+
+    def is_rel_bound(self, entry_id: int, variant_id: int) -> bool:
+        return any(
+            binding["scope_type"] == "rel" and binding["scope_value"] == "current"
+            for binding in self._bindings_by_variant(entry_id).get(variant_id, [])
+        )
+
+    def binding_count(self, entry_id: int, variant_id: int) -> int:
+        return len(self._bindings_by_variant(entry_id).get(variant_id, []))
+
+    def _bindings_by_variant(self, entry_id: int) -> dict[int, list[BindingRecord]]:
+        grouped: dict[int, list[BindingRecord]] = defaultdict(list)
+        for binding in self.bindings.list_for_entry(entry_id):
+            grouped[int(binding["variant_id"])].append(binding)
+        return grouped
+
+    def _choose_canonical_variant(
+        self,
+        variants: list[VariantRecord],
+        bindings_by_variant: dict[int, list[BindingRecord]],
+    ) -> VariantRecord:
+        return max(
+            variants,
+            key=lambda item: self._variant_rank(item, bindings_by_variant),
+        )
+
+    def _variant_rank(
+        self,
+        variant: VariantRecord,
+        bindings_by_variant: dict[int, list[BindingRecord]],
+    ) -> tuple[int, int, int, int, str, int]:
+        variant_id = int(variant["variant_id"])
+        bindings = bindings_by_variant.get(variant_id, [])
+        rel_bound = any(
+            binding["scope_type"] == "rel" and binding["scope_value"] == "current"
+            for binding in bindings
+        )
+        active = bool(bindings)
+        non_trashed = variant["trashed_at"] is None
+        orphan_like = non_trashed and not active and variant["orphaned_at"] is not None
+        return (
+            1 if non_trashed else 0,
+            1 if rel_bound else 0,
+            1 if active else 0,
+            1 if orphan_like else 0,
+            variant["updated_at"],
+            variant_id,
+        )
+
+
 class VariantLifecycleService:
     def __init__(
         self,
         variants: VariantRepository | None = None,
         bindings: ScopeBindingRepository | None = None,
-        retained: RetainedVariantRepository | None = None,
     ) -> None:
         self.variants = variants or VariantRepository()
         self.bindings = bindings or ScopeBindingRepository()
-        self.retained = retained or RetainedVariantRepository()
 
     def refresh_orphan_states(self, entry_id: int) -> None:
         variant_rows = self.variants.list_by_entry(entry_id, include_trashed=True)
         binding_counts = self.bindings.binding_counts_for_entry(entry_id)
-        retained_ids = self.retained.retained_variant_ids_for_entry(entry_id)
+        timestamp = now_iso()
         for variant in variant_rows:
             variant_id = int(variant["variant_id"])
             if variant["trashed_at"] is not None:
                 orphaned_at = None
-            elif binding_counts.get(variant_id, 0) == 0 and variant_id not in retained_ids:
-                orphaned_at = now_iso()
+            elif binding_counts.get(variant_id, 0) == 0:
+                orphaned_at = variant["orphaned_at"] or timestamp
             else:
                 orphaned_at = None
             self.variants.set_orphaned_at(variant_id, orphaned_at)
-
-    def retain_variant_if_inactive(
-        self,
-        variant_id: int,
-        entry_id: int,
-        last_active_scope_type: str,
-        last_active_scope_value: str,
-    ) -> None:
-        variant = self.variants.get(variant_id)
-        if variant is None or variant["trashed_at"] is not None:
-            self.retained.delete_by_variant(variant_id)
-            return
-        if self.bindings.count_for_variant(variant_id) > 0:
-            self.retained.delete_by_variant(variant_id)
-            return
-        self.retained.upsert(
-            variant_id,
-            entry_id,
-            last_active_scope_type,
-            last_active_scope_value,
-            now_iso(),
-        )
 
     def trash_entries(
         self,
@@ -261,7 +320,6 @@ class VariantLifecycleService:
                 already_deleted.append(key)
                 continue
             self.variants.trash_entry_variants(project_id, key, timestamp, trash_until)
-            self.retained.delete_by_entry(int(row["entry_id"]))
             deleted.append(key)
         missing = sorted(set(normalized_keys) - set(counts))
         return {
@@ -305,15 +363,6 @@ class VariantLifecycleService:
     def trash_count(self, project_id: int = DEFAULT_PROJECT_ID) -> int:
         return self.variants.count_trashed_entries(project_id)
 
-    def is_retained_variant(self, variant_id: int) -> bool:
-        return self.retained.exists(variant_id)
-
-    def list_retained_for_entry(self, entry_id: int) -> list[RetainedVariantRecord]:
-        return self.retained.list_for_entry(entry_id)
-
-    def list_retained_entries(self, project_id: int = DEFAULT_PROJECT_ID) -> list[ScopeEntryRecord]:
-        return self.retained.list_entries(project_id, self.variants)
-
     def list_orphaned_entries(self, project_id: int = DEFAULT_PROJECT_ID) -> list[dict[str, Any]]:
         return self.variants.list_orphaned_entries(project_id)
 
@@ -325,7 +374,6 @@ class VariantLifecycleService:
     ) -> None:
         timestamp = now_iso()
         self.variants.trash_variant(variant_id, timestamp, self._trash_until(trash_days))
-        self.retained.delete_by_variant(variant_id)
         self.refresh_orphan_states(entry_id)
 
     def restore_variant(self, variant_id: int, entry_id: int) -> None:
@@ -354,13 +402,11 @@ class ScopeBindingService:
         self,
         variants: VariantRepository | None = None,
         bindings: ScopeBindingRepository | None = None,
-        retained: RetainedVariantRepository | None = None,
         lifecycle: VariantLifecycleService | None = None,
     ) -> None:
         self.variants = variants or VariantRepository()
         self.bindings = bindings or ScopeBindingRepository()
-        self.retained = retained or RetainedVariantRepository()
-        self.lifecycle = lifecycle or VariantLifecycleService(self.variants, self.bindings, self.retained)
+        self.lifecycle = lifecycle or VariantLifecycleService(self.variants, self.bindings)
 
     def bind_scope(
         self,
@@ -371,7 +417,7 @@ class ScopeBindingService:
     ) -> None:
         normalized_scope_value = self._require_non_content("scope_value", scope_value)
         timestamp = now_iso()
-        previous_variant_id = self.bindings.upsert(
+        self.bindings.upsert(
             entry_id,
             scope_type,
             normalized_scope_value,
@@ -379,14 +425,6 @@ class ScopeBindingService:
             timestamp,
         )
         self.variants.clear_orphaned_at(variant_id, timestamp)
-        self.retained.delete_by_variant(variant_id)
-        if previous_variant_id is not None and previous_variant_id != variant_id:
-            self.lifecycle.retain_variant_if_inactive(
-                previous_variant_id,
-                entry_id,
-                scope_type,
-                normalized_scope_value,
-            )
         self.lifecycle.refresh_orphan_states(entry_id)
 
     def get_binding(self, entry_id: int, scope_type: str, scope_value: str) -> BindingRecord | None:
@@ -441,12 +479,6 @@ class ScopeBindingService:
         normalized_scope_value = self._require_non_content("scope_value", scope_value)
         removed = self.bindings.clear_scope(project_id, scope_type, normalized_scope_value)
         for row in removed:
-            self.lifecycle.retain_variant_if_inactive(
-                int(row["variant_id"]),
-                int(row["entry_id"]),
-                scope_type,
-                normalized_scope_value,
-            )
             self.lifecycle.refresh_orphan_states(int(row["entry_id"]))
 
     def remove_scope_bindings(
@@ -458,12 +490,6 @@ class ScopeBindingService:
         normalized_scope_values = [self._require_non_content("scope_value", value) for value in scope_values]
         removed = self.bindings.remove_scope_bindings(project_id, scope_type, normalized_scope_values)
         for row in removed:
-            self.lifecycle.retain_variant_if_inactive(
-                int(row["variant_id"]),
-                int(row["entry_id"]),
-                scope_type,
-                row["scope_value"],
-            )
             self.lifecycle.refresh_orphan_states(int(row["entry_id"]))
         return len(removed)
 
@@ -477,12 +503,6 @@ class ScopeBindingService:
         removed = self.bindings.delete(entry_id, scope_type, normalized_scope_value)
         if removed is None:
             return None
-        self.lifecycle.retain_variant_if_inactive(
-            int(removed["variant_id"]),
-            int(removed["entry_id"]),
-            scope_type,
-            normalized_scope_value,
-        )
         self.lifecycle.refresh_orphan_states(int(removed["entry_id"]))
         return removed
 
@@ -505,6 +525,7 @@ class PreferredEntryViewService:
         self.variants = variants or VariantCatalogService()
         self.bindings = bindings or ScopeBindingService()
         self.lifecycle = lifecycle or VariantLifecycleService()
+        self.canonical = CanonicalVariantService(self.variants, self.bindings.bindings)
 
     def get_preferred_entry_view(
         self,
@@ -533,8 +554,6 @@ class PreferredEntryViewService:
             }
             for binding in bindings
         ]
-        if preferred_variant is not None and self.lifecycle.is_retained_variant(int(preferred_variant["variant_id"])):
-            memberships.append({"membership_type": "retained", "membership_value": "retained"})
         if preferred_variant is None:
             return {
                 "string_id": 0,
@@ -583,13 +602,10 @@ class PreferredEntryViewService:
             )[0]
         if preferred_binding is not None:
             return self.variants.get_variant(int(preferred_binding["variant_id"]))
-        retained = self.lifecycle.list_retained_for_entry(int(entry["entry_id"]))
-        if retained:
-            return self.variants.get_variant(int(retained[0]["variant_id"]))
-        variants = self.variants.list_variants(int(entry["entry_id"]), include_trashed=True)
-        active = [variant for variant in variants if variant["trashed_at"] is None]
-        if active:
-            return active[-1]
+        variants = self.canonical.list_canonical_variants(int(entry["entry_id"]), include_trashed=True)
+        non_trashed = [variant for variant in variants if variant["trashed_at"] is None]
+        if non_trashed:
+            return non_trashed[-1]
         if variants:
             return variants[-1]
         return None

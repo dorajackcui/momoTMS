@@ -48,6 +48,6 @@ def test_app_still_registers_main_routes_after_service_cleanup() -> None:
     assert "/api/projects/{project_id}/scopes/compare" in paths
     assert "/api/projects/{project_id}/jobs/{job_id}" in paths
     assert "/api/projects/{project_id}/entries/{business_key}/variants" in paths
-    assert "/api/projects/{project_id}/retained-variants" in paths
     assert "/api/projects/{project_id}/orphan-variants" in paths
+    assert "/api/projects/{project_id}/retained-variants" not in paths
     assert "/workbench" in paths

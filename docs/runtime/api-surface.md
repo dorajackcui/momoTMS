@@ -73,7 +73,6 @@ Preferred:
 - `GET /api/projects/{project_id}/master/entries/{business_key}`
 - `GET /api/projects/{project_id}/master/search`
 - `GET /api/projects/{project_id}/entries/{business_key}/variants`
-- `GET /api/projects/{project_id}/retained-variants`
 - `GET /api/projects/{project_id}/orphan-variants`
 
 Compatibility-only:
@@ -89,6 +88,9 @@ Query conventions:
 - compare supports `base`, `target`, `lang`, `search`, filters, `page`, and `page_size`
 - queue supports `target`, `lang`, `search`, priority filters, `page`, and `page_size`
 - variant inspection is read-only and intended for debugging and operator support, not product writes
+- `GET /api/projects/{project_id}/entries/{business_key}/variants` returns canonical variants grouped by source plus current bindings/orphan state
+- `GET /api/projects/{project_id}/orphan-variants` returns reusable canonical variants with no active bindings
+- there is no retained inspection endpoint
 
 ## Workflow Actions
 
@@ -114,10 +116,10 @@ Compatibility-only:
 
 Product policy:
 
-- hotfix remains API-only and internal-only in P2
+- hotfix remains API-only and internal-only
 - `/app` does not expose a hotfix workflow
 
-Removed in P0:
+No longer part of the live API:
 
 - `POST /api/rel/hotfix/active`
 - `POST /api/rel/hotfix/passive`
@@ -129,6 +131,7 @@ Trash contract:
 - delete request: `scope_ref` plus `business_keys[]`
 - restore request: `variant_ids[]`
 - delete removes the active binding in the selected scope and only trashes the affected variant when it no longer has active bindings
+- variants that lose their last active binding without being trashed become `orphan`
 - restore only clears the trashed state for the specified variants; it does not rebind scopes
 
 Compatibility Route Audit

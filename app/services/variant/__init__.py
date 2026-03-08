@@ -5,13 +5,11 @@ from app.services.variant.records import (
     BindingRecord,
     EntryRecord,
     PreferredEntryView,
-    RetainedVariantRecord,
     ScopeEntryRecord,
     VariantRecord,
 )
 from app.services.variant.repositories import (
     EntryRepository,
-    RetainedVariantRepository,
     ScopeBindingRepository,
     VariantRepository,
 )
@@ -31,8 +29,6 @@ __all__ = [
     "PreferredEntryView",
     "PreferredEntryViewService",
     "VariantInspectionService",
-    "RetainedVariantRecord",
-    "RetainedVariantRepository",
     "ScopeBindingRepository",
     "ScopeBindingService",
     "ScopeEntryRecord",

@@ -65,10 +65,9 @@ def test_preferred_entry_view_selection_order() -> None:
     bindings.bind_scope(int(dev_entry["entry_id"]), "dev", "2.0.0", newer_dev_variant_id)
     bindings.bind_scope(int(dev_entry["entry_id"]), "dev", "1.0.0", older_dev_variant_id)
 
-    retained_entry = entries.get_or_create_entry("preferred.retained", project_id=DEFAULT_PROJECT_ID)
-    retained_variant_id = catalog.create_variant(int(retained_entry["entry_id"]), None, "Retained", {"fr": "Keep"}, {})
-    lifecycle.retain_variant_if_inactive(retained_variant_id, int(retained_entry["entry_id"]), "dev", "0.9.0")
-    lifecycle.refresh_orphan_states(int(retained_entry["entry_id"]))
+    orphan_entry = entries.get_or_create_entry("preferred.orphan", project_id=DEFAULT_PROJECT_ID)
+    orphan_variant_id = catalog.create_variant(int(orphan_entry["entry_id"]), None, "Orphan", {"fr": "Keep"}, {})
+    lifecycle.refresh_orphan_states(int(orphan_entry["entry_id"]))
 
     latest_entry = entries.get_or_create_entry("preferred.latest", project_id=DEFAULT_PROJECT_ID)
     older_variant_id = catalog.create_variant(int(latest_entry["entry_id"]), None, "Older", {"fr": "Older"}, {})
@@ -77,12 +76,12 @@ def test_preferred_entry_view_selection_order() -> None:
 
     assert views.get_preferred_entry_view("preferred.rel", DEFAULT_PROJECT_ID)["string_id"] == rel_variant_id
     assert views.get_preferred_entry_view("preferred.dev", DEFAULT_PROJECT_ID)["string_id"] == older_dev_variant_id
-    assert views.get_preferred_entry_view("preferred.retained", DEFAULT_PROJECT_ID)["string_id"] == retained_variant_id
+    assert views.get_preferred_entry_view("preferred.orphan", DEFAULT_PROJECT_ID)["string_id"] == orphan_variant_id
     assert views.get_preferred_entry_view("preferred.latest", DEFAULT_PROJECT_ID)["string_id"] == latest_variant_id
     assert older_variant_id != latest_variant_id
 
 
-def test_scope_rebind_retains_previous_variant_and_trash_restore_round_trip() -> None:
+def test_scope_rebind_orphans_previous_variant_and_trash_restore_round_trip() -> None:
     reset_demo()
     entries = EntryService()
     catalog = VariantCatalogService()
@@ -97,9 +96,7 @@ def test_scope_rebind_retains_previous_variant_and_trash_restore_round_trip() ->
     bindings.bind_scope(int(entry["entry_id"]), "rel", "current", first_variant_id)
     bindings.bind_scope(int(entry["entry_id"]), "rel", "current", second_variant_id)
 
-    retained = lifecycle.list_retained_for_entry(int(entry["entry_id"]))
-    assert [item["variant_id"] for item in retained] == [first_variant_id]
-    assert catalog.get_variant(first_variant_id)["orphaned_at"] is None
+    assert catalog.get_variant(first_variant_id)["orphaned_at"] is not None
 
     delete_result = lifecycle.trash_entries(["lifecycle.roundtrip"], project_id=DEFAULT_PROJECT_ID, trash_days=30)
     assert delete_result["deleted"] == ["lifecycle.roundtrip"]

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
+from app.services.shared.io import normalize_non_content_value
+from app.services.variant.services import CanonicalVariantService, EntryService, ScopeBindingService, VariantCatalogService
 
 
 class RelService:
@@ -12,6 +13,7 @@ class RelService:
         self.entries = EntryService()
         self.bindings = ScopeBindingService()
         self.catalog = VariantCatalogService()
+        self.canonical = CanonicalVariantService(self.catalog, self.bindings.bindings)
 
     def summary(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         members = self.bindings.list_scope_entries("rel", "current", project_id)
@@ -63,25 +65,53 @@ class RelService:
         merged_translations.update(translations_by_lang)
         merged_remarks = dict(variant["remarks"])
         merged_remarks.update(remarks_by_key)
-        self.catalog.update_variant(
-            variant_id=int(variant["variant_id"]),
-            file_name=file_name if file_name is not None else variant["file_name"],
-            source=source,
-            translations=merged_translations,
-            remarks=merged_remarks,
-        )
+        target_file_name = file_name if file_name is not None else variant["file_name"]
+        normalized_source = normalize_non_content_value(source)
+
+        if normalized_source == variant["source"]:
+            self.catalog.update_variant(
+                variant_id=int(variant["variant_id"]),
+                file_name=target_file_name,
+                source=normalized_source,
+                translations=merged_translations,
+                remarks=merged_remarks,
+            )
+            status = "UPDATED_CANONICAL"
+        else:
+            entry_id = int(rel_item["entry"]["entry_id"])
+            target_variant = self.canonical.find_canonical_variant_by_source(entry_id, normalized_source, include_trashed=False)
+            if target_variant is None:
+                target_variant_id = self.catalog.create_variant(
+                    entry_id,
+                    file_name=target_file_name,
+                    source=normalized_source,
+                    translations=merged_translations,
+                    remarks=merged_remarks,
+                )
+                status = "CREATED_SOURCE_VARIANT"
+            else:
+                target_variant_id = int(target_variant["variant_id"])
+                self.catalog.update_variant(
+                    variant_id=target_variant_id,
+                    file_name=target_file_name,
+                    source=normalized_source,
+                    translations=merged_translations,
+                    remarks=merged_remarks,
+                )
+                status = "REBOUND_SOURCE_VARIANT"
+            self.bindings.bind_scope(entry_id, "rel", "current", target_variant_id)
         summary = {
             "business_key": business_key,
             "updated_languages": sorted(translations_by_lang),
             "updated_remarks": sorted(remarks_by_key),
-            "status": "UPDATED_CANONICAL",
+            "status": status,
         }
         return {
             "summary": summary,
             "report_rows": [
                 {
                     "business_key": business_key,
-                    "status": "UPDATED_CANONICAL",
+                    "status": status,
                 }
             ],
         }

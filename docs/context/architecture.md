@@ -23,7 +23,7 @@ HTTP boundary only.
 - `imports_jobs.py`: import batch APIs, upload preview, jobs, reports, artifacts
 - `scopes_read_models.py`: branch summary, compare, queue, master query
 - `workflows.py`: dev import, hotfix, promote, fill, QA, trash/restore
-- `inspection.py`: read-only entry-variant, retained-variant, and orphan-variant inspection
+- `inspection.py`: read-only canonical entry-variant inspection plus orphan inspection
 
 ### `app/services/project/`
 
@@ -49,9 +49,9 @@ Import batch service.
 Core write model.
 
 - `repositories.py`: SQL and hydration
-- `services.py`: entry, variant catalog, lifecycle, and scope binding services
+- `services.py`: entry, canonical source-variant catalog, orphan lifecycle, and scope binding services
 - `records.py`: typed record shapes
-- `inspection.py`: project-scoped lifecycle inspection assembly
+- `inspection.py`: project-scoped canonical variant and orphan inspection assembly
 - `compatibility.py`: old string-shaped compatibility layer
 - `facade.py`: compatibility facade that wires split services together
 
@@ -91,7 +91,7 @@ Demo data seeding and sample workbook generation.
 
 ## Database Tables
 
-Current schema version: `variant-v3`.
+Current schema version: `variant-v4`.
 
 Main tables:
 
@@ -102,7 +102,6 @@ Main tables:
 - `variant_translations`
 - `variant_remarks`
 - `scope_bindings`
-- `retained_variants`
 - `dev_versions`
 - `imports`
 - `import_rows`
@@ -118,7 +117,7 @@ Legacy snapshot/canonical tables are dropped during schema rebuild and are no lo
 2. `WorkbenchService` creates a job and stages files when needed.
 3. `ImportService` parses workbooks and writes `imports` plus `import_rows`.
 4. `DevVersionService` consumes the import batch.
-5. Entry, variant, and binding services create/update variants and scope bindings.
+5. Entry, variant, and binding services resolve canonical same-source variants, apply rel/dev authority rules, and update scope bindings.
 6. Job report is written to disk and indexed in `jobs`.
 
 ### Read Models
@@ -140,6 +139,12 @@ Legacy snapshot/canonical tables are dropped during schema rebuild and are no lo
 1. Product routes use `ProjectStateService`.
 2. Compatibility state for `/variant-workbench` and frozen default-project flows stays in `WorkbenchService`.
 3. Compatibility bootstrap includes demo samples and trash count; product bootstrap does not.
+
+### Runtime Migration
+
+1. `app/db.py` keeps schema version `variant-v4`.
+2. Startup also applies a runtime semantics migration for the canonical-source model.
+3. The migration collapses duplicate same-source variants per entry, rebinds scopes to the chosen canonical row, and recomputes orphan state.
 
 ## Architectural Rules
 

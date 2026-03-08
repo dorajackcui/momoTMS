@@ -26,13 +26,10 @@ Runtime surfaces:
 
 - Product app: `http://127.0.0.1:8000/app`
 - Imports and jobs: `http://127.0.0.1:8000/app/imports`
+- Inspection: `http://127.0.0.1:8000/app/inspection`
 - New project: `http://127.0.0.1:8000/app/projects/new`
 - Variant workbench: `http://127.0.0.1:8000/variant-workbench` (deprecated internal regression page)
 - OpenAPI: `http://127.0.0.1:8000/docs`
-
-Removed surface:
-
-- `GET /workbench` now returns `410 Gone`
 
 If demo data is missing, call `POST /api/demo/reset`.
 
@@ -75,9 +72,11 @@ PLAYWRIGHT_BROWSERS_PATH=.playwright npm run test:e2e
 
 ## Current Runtime Notes
 
-- New work should prefer project-scoped APIs such as `/api/projects/{project_id}/...`.
-- Default-project compatibility routes still exist for project `1`.
-- The live write model is `entries + variants + scope_bindings + retained_variants`.
 - `/app` is the only operator-facing product surface.
+- New work should prefer project-scoped APIs such as `/api/projects/{project_id}/...`.
+- Default-project compatibility routes still exist for project `1` and stay frozen.
 - `/variant-workbench` is a deprecated internal validation page.
+- `GET /workbench` returns `410 Gone`.
+- The live write model is `entries + variants + scope_bindings` with canonical `business_key + source` variants.
+- `retained` has been removed completely; inactive variants are modeled only as `orphan` or `trashed`.
 - Project schema is defined at project creation time and is not editable afterward.

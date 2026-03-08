@@ -101,8 +101,8 @@ def test_variant_read_models_and_upload_endpoints() -> None:
         assert compare_response.status_code == 200
         compare_payload = compare_response.json()
         compare_rows = {row["business_key"]: row for row in compare_payload["rows"]}
-        assert compare_rows["rel.locked.same"]["state"] == "diverged"
-        assert "file_name_changed" in compare_rows["rel.locked.same"]["diff_categories"]
+        assert compare_rows["rel.locked.same"]["state"] == "aligned"
+        assert compare_rows["rel.locked.same"]["diff_categories"] == []
         assert compare_rows["rel.locked.changed"]["state"] == "diverged"
         assert "source_changed" in compare_rows["rel.locked.changed"]["diff_categories"]
         assert compare_rows["dev.new.entry"]["state"] == "target_only"
@@ -155,8 +155,8 @@ def test_variant_read_models_and_upload_endpoints() -> None:
         )
         assert paged_compare.status_code == 200
         paged_payload = paged_compare.json()
-        assert paged_payload["total_rows"] >= 2
-        assert len(paged_payload["rows"]) == 2
+        assert paged_payload["total_rows"] == 1
+        assert len(paged_payload["rows"]) == 1
         assert all(row["state"] == "diverged" for row in paged_payload["rows"])
 
         queue_response = client.get(
@@ -590,7 +590,7 @@ def test_project_routes_enforce_import_and_job_ownership() -> None:
             assert f"job not found: {fill_job['job_id']}" in response.json()["detail"]
 
 
-def test_inspection_routes_expose_variants_and_retained_entries() -> None:
+def test_inspection_routes_expose_canonical_variants_and_orphans() -> None:
     with TestClient(app) as client:
         assert client.post("/api/demo/reset").status_code == 200
         sample_root = Path(DemoService().sample_paths("core-cycle")["root"])
@@ -615,20 +615,17 @@ def test_inspection_routes_expose_variants_and_retained_entries() -> None:
         variants_payload = entry_variants.json()
         assert variants_payload["business_key"] == "common.welcome"
         assert variants_payload["variants"]
-        assert any(variant["is_retained"] for variant in variants_payload["variants"])
         assert all("bindings" in variant for variant in variants_payload["variants"])
-
-        retained_response = client.get("/api/projects/1/retained-variants")
-        assert retained_response.status_code == 200
-        retained_payload = retained_response.json()
-        assert retained_payload["project_id"] == 1
-        retained_keys = {row["business_key"] for row in retained_payload["results"]}
-        assert "common.welcome" in retained_keys
 
         orphan_response = client.get("/api/projects/1/orphan-variants")
         assert orphan_response.status_code == 200
-        assert orphan_response.json()["project_id"] == 1
-        assert isinstance(orphan_response.json()["results"], list)
+        orphan_payload = orphan_response.json()
+        assert orphan_payload["project_id"] == 1
+        orphan_keys = {row["business_key"] for row in orphan_payload["results"]}
+        assert "common.welcome" in orphan_keys
+
+        retained_response = client.get("/api/projects/1/retained-variants")
+        assert retained_response.status_code == 404
 
 
 def test_inspection_routes_return_404_for_missing_or_cross_project_resources() -> None:

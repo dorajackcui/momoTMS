@@ -35,7 +35,7 @@ Product boundary:
 
 ## Validation Surfaces
 
-- `/workbench`: removed in P1; `GET /workbench` now returns `410 Gone`
+- `/workbench`: removed; `GET /workbench` returns `410 Gone`
 - `/variant-workbench`: deprecated internal validation UI
 
 `/variant-workbench` remains useful for compatibility-route regression, but it is not a product shell and should not gain new features.
@@ -61,7 +61,7 @@ Current validation split:
 - fill and QA execution
 - promote preview and execution
 - jobs/report/artifact inspection
-- retained/orphan inspection and business-key variant lookup
+- canonical/orphan inspection and business-key variant lookup
 
 Out of scope in the current product app:
 
@@ -79,7 +79,7 @@ The product app depends on:
 - paginated compare and queue APIs
 - import preview data with `available_headers`, `suggested_mapping`, and `missing_targets`
 - job detail/report APIs
-- retained/orphan/entry-variant inspection APIs
+- canonical entry-variant and orphan inspection APIs
 - project-scoped workflow routes for dev import, promote, fill, and QA
 
 The product app stores selected project id locally, clears it when no projects exist, and refreshes branch state from project-scoped APIs only.

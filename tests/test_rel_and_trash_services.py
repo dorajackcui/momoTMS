@@ -3,6 +3,7 @@ from pathlib import Path
 from app.db import get_db_path
 from app.services.demo.service import DemoService
 from app.services.variant.compatibility import StringService
+from app.services.variant.inspection import VariantInspectionService
 from app.services.workflows.rel import RelService
 from app.services.workflows.trash import TrashService
 
@@ -47,6 +48,7 @@ def test_rel_hotfix_updates_canonical_content() -> None:
         passive_remarks,
         file_name=passive_file_name,
     )
+    inspection = VariantInspectionService().entry_variants(sample["passive_hotfix"]["business_key"])
     passive_target = strings.get_string(sample["passive_hotfix"]["business_key"], include_deleted=False)
     assert passive_target is not None
     assert passive_target["file_name"] == "release/common.xlsx"
@@ -54,6 +56,46 @@ def test_rel_hotfix_updates_canonical_content() -> None:
     assert passive_target["translations"]["fr"] == "  Correctif passif  "
     assert passive_target["translations"]["en"] == ""
     assert passive_target["remarks"]["context"] == "Passive hotfix updated from rel"
+    assert len(inspection["variants"]) == 2
+    assert any(variant["is_orphaned"] for variant in inspection["variants"])
+
+
+def test_rel_source_hotfix_rebinds_rel_without_touching_dev_binding() -> None:
+    reset_demo()
+    strings = StringService()
+    rel = RelService()
+    inspection = VariantInspectionService()
+
+    shared_variant_id = strings.create_string(
+        "hotfix.shared",
+        "release/shared.xlsx",
+        "Shared source",
+        {"fr": "Shared fr", "en": "Shared en"},
+        {"context": "shared"},
+    )
+    strings.ensure_membership(shared_variant_id, "rel", "current")
+    strings.ensure_membership(shared_variant_id, "dev", "2.2.3")
+
+    result = rel.passive_hotfix(
+        "hotfix.shared",
+        "Shared source updated",
+        {"fr": "Rel rewritten"},
+        {"context": "rewritten"},
+        file_name="release/shared-hotfix.xlsx",
+    )
+
+    assert result["summary"]["status"] == "CREATED_SOURCE_VARIANT"
+    variants_payload = inspection.entry_variants("hotfix.shared")
+    variants_by_source = {variant["source"]: variant for variant in variants_payload["variants"]}
+
+    assert variants_by_source["Shared source updated"]["file_name"] == "release/shared-hotfix.xlsx"
+    assert variants_by_source["Shared source updated"]["translations"]["fr"] == "Rel rewritten"
+    assert {(binding["scope_type"], binding["scope_value"]) for binding in variants_by_source["Shared source updated"]["bindings"]} == {
+        ("rel", "current")
+    }
+    assert {(binding["scope_type"], binding["scope_value"]) for binding in variants_by_source["Shared source"]["bindings"]} == {
+        ("dev", "2.2.3")
+    }
 
 
 def test_trash_delete_is_scope_aware_and_restore_is_variant_aware() -> None:

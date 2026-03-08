@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.routers.common import handle_errors
-from app.schemas import EntryVariantsResponse, OrphanVariantsResponse, RetainedVariantsResponse
+from app.schemas import EntryVariantsResponse, OrphanVariantsResponse
 from app.services.variant.inspection import VariantInspectionService
 
 router = APIRouter()
@@ -17,15 +17,6 @@ def entry_variants(project_id: int, business_key: str) -> EntryVariantsResponse:
                 business_key,
                 project_id=project_id,
             )
-        )
-    )
-
-
-@router.get("/api/projects/{project_id}/retained-variants", response_model=RetainedVariantsResponse)
-def retained_variants(project_id: int) -> RetainedVariantsResponse:
-    return handle_errors(
-        lambda: RetainedVariantsResponse(
-            **VariantInspectionService().retained_variants(project_id=project_id)
         )
     )
 
