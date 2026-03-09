@@ -4,7 +4,6 @@ from typing import Any
 
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.variant.services import (
-    CanonicalVariantService,
     EntryService,
     ScopeBindingService,
     VariantCatalogService,
@@ -19,7 +18,6 @@ class VariantInspectionService:
         self.bindings = ScopeBindingService()
         self.catalog = VariantCatalogService()
         self.lifecycle = VariantLifecycleService()
-        self.canonical = CanonicalVariantService(self.catalog, self.bindings.bindings)
 
     def entry_variants(
         self,
@@ -44,7 +42,7 @@ class VariantInspectionService:
             )
 
         variants = []
-        for variant in self.canonical.list_canonical_variants(int(entry["entry_id"]), include_trashed=True):
+        for variant in self.catalog.list_variants(int(entry["entry_id"]), include_trashed=True):
             variants.append(
                 {
                     "variant_id": int(variant["variant_id"]),

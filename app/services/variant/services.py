@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -159,10 +158,32 @@ class VariantCatalogService:
         remarks: dict[str, str | None],
     ) -> VariantRecord | None:
         normalized_source = self._require_non_content("source", source)
-        for variant in self.list_variants(entry_id, include_trashed=False):
-            if variant["source"] == normalized_source:
-                return variant
-        return None
+        return self.variants.get_active_by_entry_and_source(entry_id, normalized_source)
+
+    def find_variant_by_source(
+        self,
+        entry_id: int,
+        source: str,
+        include_trashed: bool = False,
+    ) -> VariantRecord | None:
+        normalized_source = self._require_non_content("source", source)
+        if not include_trashed:
+            return self.variants.get_active_by_entry_and_source(entry_id, normalized_source)
+        matches = [
+            variant
+            for variant in self.list_variants(entry_id, include_trashed=True)
+            if variant["source"] == normalized_source
+        ]
+        if not matches:
+            return None
+        active_matches = [variant for variant in matches if variant["trashed_at"] is None]
+        if len(active_matches) > 1:
+            raise RuntimeError(
+                f"duplicate active variants found for entry_id={entry_id}, source={normalized_source!r}"
+            )
+        if active_matches:
+            return active_matches[0]
+        return matches[-1]
 
     def list_variants(self, entry_id: int, include_trashed: bool = True) -> list[VariantRecord]:
         return self.variants.list_by_entry(entry_id, include_trashed=include_trashed)
@@ -179,100 +200,6 @@ class VariantCatalogService:
         if not normalized:
             raise ValueError(f"{field_name} is required")
         return normalized
-
-
-class CanonicalVariantService:
-    def __init__(
-        self,
-        variants: VariantCatalogService | None = None,
-        bindings: ScopeBindingRepository | None = None,
-    ) -> None:
-        self.variants = variants or VariantCatalogService()
-        self.bindings = bindings or ScopeBindingRepository()
-
-    def list_canonical_variants(
-        self,
-        entry_id: int,
-        include_trashed: bool = True,
-    ) -> list[VariantRecord]:
-        variants = self.variants.list_variants(entry_id, include_trashed=include_trashed)
-        if not variants:
-            return []
-        bindings_by_variant = self._bindings_by_variant(entry_id)
-        variants_by_source: dict[str, list[VariantRecord]] = defaultdict(list)
-        for variant in variants:
-            variants_by_source[variant["source"]].append(variant)
-        canonical_variants = [
-            self._choose_canonical_variant(group, bindings_by_variant)
-            for group in variants_by_source.values()
-        ]
-        return sorted(canonical_variants, key=lambda item: int(item["variant_id"]))
-
-    def find_canonical_variant_by_source(
-        self,
-        entry_id: int,
-        source: str,
-        include_trashed: bool = False,
-    ) -> VariantRecord | None:
-        normalized_source = normalize_non_content_value(source)
-        if not normalized_source:
-            raise ValueError("source is required")
-        variants = [
-            item
-            for item in self.list_canonical_variants(entry_id, include_trashed=include_trashed)
-            if item["source"] == normalized_source
-        ]
-        if not variants:
-            return None
-        return variants[0]
-
-    def is_rel_bound(self, entry_id: int, variant_id: int) -> bool:
-        return any(
-            binding["scope_type"] == "rel" and binding["scope_value"] == "current"
-            for binding in self._bindings_by_variant(entry_id).get(variant_id, [])
-        )
-
-    def binding_count(self, entry_id: int, variant_id: int) -> int:
-        return len(self._bindings_by_variant(entry_id).get(variant_id, []))
-
-    def _bindings_by_variant(self, entry_id: int) -> dict[int, list[BindingRecord]]:
-        grouped: dict[int, list[BindingRecord]] = defaultdict(list)
-        for binding in self.bindings.list_for_entry(entry_id):
-            grouped[int(binding["variant_id"])].append(binding)
-        return grouped
-
-    def _choose_canonical_variant(
-        self,
-        variants: list[VariantRecord],
-        bindings_by_variant: dict[int, list[BindingRecord]],
-    ) -> VariantRecord:
-        return max(
-            variants,
-            key=lambda item: self._variant_rank(item, bindings_by_variant),
-        )
-
-    def _variant_rank(
-        self,
-        variant: VariantRecord,
-        bindings_by_variant: dict[int, list[BindingRecord]],
-    ) -> tuple[int, int, int, int, str, int]:
-        variant_id = int(variant["variant_id"])
-        bindings = bindings_by_variant.get(variant_id, [])
-        rel_bound = any(
-            binding["scope_type"] == "rel" and binding["scope_value"] == "current"
-            for binding in bindings
-        )
-        active = bool(bindings)
-        non_trashed = variant["trashed_at"] is None
-        orphan_like = non_trashed and not active and variant["orphaned_at"] is not None
-        return (
-            1 if non_trashed else 0,
-            1 if rel_bound else 0,
-            1 if active else 0,
-            1 if orphan_like else 0,
-            variant["updated_at"],
-            variant_id,
-        )
 
 
 class VariantLifecycleService:
@@ -525,7 +452,6 @@ class PreferredEntryViewService:
         self.variants = variants or VariantCatalogService()
         self.bindings = bindings or ScopeBindingService()
         self.lifecycle = lifecycle or VariantLifecycleService()
-        self.canonical = CanonicalVariantService(self.variants, self.bindings.bindings)
 
     def get_preferred_entry_view(
         self,
@@ -602,7 +528,7 @@ class PreferredEntryViewService:
             )[0]
         if preferred_binding is not None:
             return self.variants.get_variant(int(preferred_binding["variant_id"]))
-        variants = self.canonical.list_canonical_variants(int(entry["entry_id"]), include_trashed=True)
+        variants = self.variants.list_variants(int(entry["entry_id"]), include_trashed=True)
         non_trashed = [variant for variant in variants if variant["trashed_at"] is None]
         if non_trashed:
             return non_trashed[-1]

@@ -4,7 +4,7 @@ from typing import Any
 
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.io import normalize_non_content_value
-from app.services.variant.services import CanonicalVariantService, EntryService, ScopeBindingService, VariantCatalogService
+from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
 
 
 class RelService:
@@ -13,7 +13,6 @@ class RelService:
         self.entries = EntryService()
         self.bindings = ScopeBindingService()
         self.catalog = VariantCatalogService()
-        self.canonical = CanonicalVariantService(self.catalog, self.bindings.bindings)
 
     def summary(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         members = self.bindings.list_scope_entries("rel", "current", project_id)
@@ -79,7 +78,11 @@ class RelService:
             status = "UPDATED_CANONICAL"
         else:
             entry_id = int(rel_item["entry"]["entry_id"])
-            target_variant = self.canonical.find_canonical_variant_by_source(entry_id, normalized_source, include_trashed=False)
+            target_variant = self.catalog.find_variant_by_source(
+                entry_id,
+                normalized_source,
+                include_trashed=False,
+            )
             if target_variant is None:
                 target_variant_id = self.catalog.create_variant(
                     entry_id,

@@ -1,4 +1,7 @@
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from app.db import get_db_path
 from app.services.demo.service import DemoService
@@ -43,6 +46,18 @@ def test_variant_repository_hydrates_nested_content() -> None:
     assert hydrated["source"] == "Hello"
     assert hydrated["translations"]["fr"] == "  Bonjour  "
     assert hydrated["remarks"]["context"] == "home"
+
+
+def test_variant_schema_rejects_duplicate_active_source_rows() -> None:
+    reset_demo()
+    entries = EntryService()
+    catalog = VariantCatalogService()
+
+    entry = entries.get_or_create_entry("repo.unique-source", project_id=DEFAULT_PROJECT_ID)
+    catalog.create_variant(int(entry["entry_id"]), None, "Same source", {"fr": "A"}, {})
+
+    with pytest.raises(sqlite3.IntegrityError):
+        catalog.create_variant(int(entry["entry_id"]), None, "Same source", {"fr": "B"}, {})
 
 
 def test_preferred_entry_view_selection_order() -> None:

@@ -41,4 +41,5 @@ The docs are organized by how quickly you need context:
 
 - Prefer current code over docs when details conflict.
 - Treat these docs as a description of the current runtime, not a future-spec backlog.
+- New development must not add or extend old data semantic compatibility paths. If a model change invalidates existing local data, prefer reset/reseed over migration fallback unless a task explicitly requires migration work.
 - Use OpenAPI at `/docs` for exact request and response schemas.

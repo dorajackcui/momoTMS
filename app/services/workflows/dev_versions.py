@@ -252,7 +252,7 @@ class DevVersionService:
         bindings = binding_rows_by_entry.get(entry_id, [])
         variants = variants_by_entry.get(entry_id, [])
         current_dev = self._find_binding(bindings, "dev", version)
-        source_variant = self._find_source_variant_in_cache(variants, bindings, payload["source"])
+        source_variant = self._find_source_variant_in_cache(entry_id, variants, payload["source"])
 
         if source_variant is None:
             variant_id = self.catalog.create_variant(
@@ -331,34 +331,19 @@ class DevVersionService:
 
     def _find_source_variant_in_cache(
         self,
+        entry_id: int,
         variants: list[dict[str, Any]],
-        bindings: list[dict[str, Any]],
         source: str,
     ) -> dict[str, Any] | None:
         normalized_source = normalize_non_content_value(source)
         candidates = [variant for variant in variants if variant["source"] == normalized_source]
         if not candidates:
             return None
-        return max(candidates, key=lambda item: self._variant_rank(item, bindings))
-
-    def _variant_rank(
-        self,
-        variant: dict[str, Any],
-        bindings: list[dict[str, Any]],
-    ) -> tuple[int, int, int, int, str, int]:
-        variant_id = int(variant["variant_id"])
-        variant_bindings = [binding for binding in bindings if int(binding["variant_id"]) == variant_id]
-        rel_bound = self._is_rel_bound(bindings, variant_id)
-        active = bool(variant_bindings)
-        orphan_like = variant["trashed_at"] is None and not active and variant["orphaned_at"] is not None
-        return (
-            1 if variant["trashed_at"] is None else 0,
-            1 if rel_bound else 0,
-            1 if active else 0,
-            1 if orphan_like else 0,
-            variant["updated_at"],
-            variant_id,
-        )
+        if len(candidates) > 1:
+            raise RuntimeError(
+                f"duplicate active variants found for entry_id={entry_id}, source={normalized_source!r}"
+            )
+        return candidates[0]
 
     def _is_rel_bound(self, bindings: list[dict[str, Any]], variant_id: int) -> bool:
         return any(

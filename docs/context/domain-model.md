@@ -47,7 +47,7 @@ It stores:
 - `remarks`
 - lifecycle timestamps such as `orphaned_at`, `trashed_at`, `restored_at`
 
-Multiple variants may still exist under the same entry, but duplicate same-source rows are collapsed to one canonical variant during runtime migration and future writes.
+The target invariant is one canonical non-trashed variant per `source` under an entry. Incompatible local DBs are reset by schema rebuild instead of being repaired through old-data semantic migration.
 
 ## Scope Binding
 

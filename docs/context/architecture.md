@@ -91,7 +91,7 @@ Demo data seeding and sample workbook generation.
 
 ## Database Tables
 
-Current schema version: `variant-v4`.
+Current schema version: `variant-v5`.
 
 Main tables:
 
@@ -107,7 +107,13 @@ Main tables:
 - `import_rows`
 - `jobs`
 
-Legacy snapshot/canonical tables are dropped during schema rebuild and are no longer part of the live model.
+Legacy snapshot/canonical tables are no longer part of the live model. Incompatible local DBs are rebuilt to the current schema instead of being migrated in place.
+
+## Development Rule
+
+- New development must not add or extend old data semantic compatibility behavior.
+- If a model change invalidates existing local data, prefer reset/reseed over startup migration, read-time canonicalization, or dual-semantics fallback unless migration is explicitly required.
+- Existing compatibility-only API surfaces are a separate concern from old data semantics and should not be used to justify new data migration debt.
 
 ## Data Flow
 
@@ -142,9 +148,10 @@ Legacy snapshot/canonical tables are dropped during schema rebuild and are no lo
 
 ### Runtime Migration
 
-1. `app/db.py` keeps schema version `variant-v4`.
-2. Startup also applies a runtime semantics migration for the canonical-source model.
-3. The migration collapses duplicate same-source variants per entry, rebinds scopes to the chosen canonical row, and recomputes orphan state.
+1. `app/db.py` keeps schema version `variant-v5`.
+2. Startup rebuilds the local schema when the stored version differs.
+3. The live schema enforces one non-trashed `(entry_id, source)` row through a partial unique index.
+4. Model changes should continue to prefer reset/reseed over old-data semantic migration.
 
 ## Architectural Rules
 

@@ -253,6 +253,27 @@ class VariantRepository:
             return None
         return self._hydrate_rows([row])[0]
 
+    def get_active_by_entry_and_source(self, entry_id: int, source: str) -> VariantRecord | None:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM variants
+                WHERE entry_id = ?
+                  AND source = ?
+                  AND trashed_at IS NULL
+                ORDER BY variant_id
+                """,
+                (entry_id, source),
+            ).fetchall()
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise RuntimeError(
+                f"duplicate active variants found for entry_id={entry_id}, source={source!r}"
+            )
+        return self._hydrate_rows(rows)[0]
+
     def list_by_entry(self, entry_id: int, include_trashed: bool = True) -> list[VariantRecord]:
         params: list[Any] = [entry_id]
         where = ["entry_id = ?"]
@@ -917,4 +938,3 @@ class ScopeBindingRepository:
                 }
             )
         return hydrated
-

@@ -8,7 +8,7 @@ The current runtime is already project-scoped and variant-oriented. The old flat
 
 - Multi-project runtime with project creation and schema storage
 - Canonical-source write model: entry identity is `business_key`, variant identity is `business_key + source`, and scopes only bind active variants
-- Runtime migration at startup collapses duplicate same-source variants and recomputes orphan state
+- Schema version changes rebuild incompatible local DBs instead of applying old-data semantic migration
 - Read APIs for branch summary, branch compare, translation queue, and master query
 - Product frontend at `/app`
 - Internal validation page at `/variant-workbench`
@@ -76,6 +76,7 @@ The current runtime is already project-scoped and variant-oriented. The old flat
 ## Current Boundaries
 
 - Product behavior is project-scoped first.
+- New development must not add or extend old data semantic compatibility. If local data becomes incompatible after a model change, reset/reseed is preferred over adding migration or read-time fallback behavior unless migration is explicitly required by the task.
 - Compatibility endpoints still exist for default project `1`.
 - Compatibility write routes for hotfix and trash are gone; only project-scoped replacements remain.
 - The compatibility layer still exposes `/api/state`, `/api/strings`, `/api/dev-versions`, and similar default-project routes for validation surfaces.

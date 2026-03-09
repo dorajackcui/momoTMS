@@ -4,23 +4,16 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
 DB_PATH_ENV_VAR = "MOMO_TMS_DB_PATH"
-SCHEMA_VERSION = "variant-v4"
-MODEL_SEMANTICS_KEY = "variant_model_semantics"
-MODEL_SEMANTICS_VERSION = "canonical-source-v1"
+SCHEMA_VERSION = "variant-v5"
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
     return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def get_db_path(db_path: Path | str | None = None) -> Path:
@@ -41,7 +34,6 @@ def init_db(db_path: Path | str | None = None) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
         if _current_schema_version(conn) != SCHEMA_VERSION:
             _rebuild_schema(conn)
-        _apply_runtime_migrations(conn)
     finally:
         conn.close()
 
@@ -76,15 +68,6 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS import_rows;
         DROP TABLE IF EXISTS imports;
         DROP TABLE IF EXISTS jobs;
-
-        DROP TABLE IF EXISTS branch_heads;
-        DROP TABLE IF EXISTS snapshot_items;
-        DROP TABLE IF EXISTS snapshots;
-        DROP TABLE IF EXISTS translations;
-        DROP TABLE IF EXISTS strings;
-        DROP TABLE IF EXISTS string_memberships;
-        DROP TABLE IF EXISTS string_remarks;
-        DROP TABLE IF EXISTS string_translations;
         PRAGMA foreign_keys = ON;
         """
     )
@@ -141,6 +124,10 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         );
 
         CREATE INDEX idx_variants_entry ON variants(entry_id);
+        CREATE INDEX idx_variants_entry_source ON variants(entry_id, source);
+        CREATE UNIQUE INDEX idx_variants_entry_source_active
+        ON variants(entry_id, source)
+        WHERE trashed_at IS NULL;
         CREATE INDEX idx_variants_trashed ON variants(trashed_at);
         CREATE INDEX idx_variants_orphaned ON variants(orphaned_at);
 
@@ -239,147 +226,6 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         (SCHEMA_VERSION,),
     )
     conn.commit()
-
-
-def _apply_runtime_migrations(conn: sqlite3.Connection) -> None:
-    row = conn.execute(
-        "SELECT value FROM app_meta WHERE key = ?",
-        (MODEL_SEMANTICS_KEY,),
-    ).fetchone()
-    if row and str(row["value"]) == MODEL_SEMANTICS_VERSION:
-        return
-
-    entry_rows = conn.execute("SELECT entry_id FROM entries ORDER BY entry_id").fetchall()
-    for entry_row in entry_rows:
-        _collapse_entry_same_source_variants(conn, int(entry_row["entry_id"]))
-        _refresh_entry_orphan_states(conn, int(entry_row["entry_id"]))
-
-    conn.execute(
-        """
-        INSERT INTO app_meta(key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key)
-        DO UPDATE SET value = excluded.value
-        """,
-        (MODEL_SEMANTICS_KEY, MODEL_SEMANTICS_VERSION),
-    )
-    conn.commit()
-
-
-def _collapse_entry_same_source_variants(conn: sqlite3.Connection, entry_id: int) -> None:
-    variant_rows = conn.execute(
-        """
-        SELECT variant_id, source, orphaned_at, trashed_at, updated_at
-        FROM variants
-        WHERE entry_id = ?
-        ORDER BY variant_id
-        """,
-        (entry_id,),
-    ).fetchall()
-    if len(variant_rows) < 2:
-        return
-
-    binding_rows = conn.execute(
-        """
-        SELECT variant_id, scope_type, scope_value
-        FROM scope_bindings
-        WHERE entry_id = ?
-        ORDER BY scope_type, scope_value
-        """,
-        (entry_id,),
-    ).fetchall()
-    bindings_by_variant: dict[int, list[dict[str, Any]]] = {}
-    for binding_row in binding_rows:
-        bindings_by_variant.setdefault(int(binding_row["variant_id"]), []).append(binding_row)
-
-    variants_by_source: dict[str, list[dict[str, Any]]] = {}
-    for variant_row in variant_rows:
-        variants_by_source.setdefault(str(variant_row["source"] or ""), []).append(variant_row)
-
-    for variants in variants_by_source.values():
-        if len(variants) < 2:
-            continue
-        canonical = max(
-            variants,
-            key=lambda item: _variant_model_rank(item, bindings_by_variant.get(int(item["variant_id"]), [])),
-        )
-        canonical_variant_id = int(canonical["variant_id"])
-        duplicate_ids = [int(item["variant_id"]) for item in variants if int(item["variant_id"]) != canonical_variant_id]
-        if not duplicate_ids:
-            continue
-        placeholders = ", ".join("?" for _ in duplicate_ids)
-        conn.execute(
-            f"""
-            UPDATE scope_bindings
-            SET variant_id = ?
-            WHERE variant_id IN ({placeholders})
-            """,
-            [canonical_variant_id, *duplicate_ids],
-        )
-        conn.execute(
-            f"DELETE FROM variants WHERE variant_id IN ({placeholders})",
-            duplicate_ids,
-        )
-
-
-def _refresh_entry_orphan_states(conn: sqlite3.Connection, entry_id: int) -> None:
-    variant_rows = conn.execute(
-        """
-        SELECT variant_id, orphaned_at, trashed_at
-        FROM variants
-        WHERE entry_id = ?
-        ORDER BY variant_id
-        """,
-        (entry_id,),
-    ).fetchall()
-    binding_rows = conn.execute(
-        """
-        SELECT variant_id, COUNT(*) AS binding_count
-        FROM scope_bindings
-        WHERE entry_id = ?
-        GROUP BY variant_id
-        """,
-        (entry_id,),
-    ).fetchall()
-    binding_counts = {int(row["variant_id"]): int(row["binding_count"] or 0) for row in binding_rows}
-    timestamp = _now_iso()
-    for variant_row in variant_rows:
-        variant_id = int(variant_row["variant_id"])
-        if variant_row["trashed_at"] is not None:
-            orphaned_at = None
-        elif binding_counts.get(variant_id, 0) == 0:
-            orphaned_at = variant_row["orphaned_at"] or timestamp
-        else:
-            orphaned_at = None
-        conn.execute(
-            """
-            UPDATE variants
-            SET orphaned_at = ?
-            WHERE variant_id = ?
-            """,
-            (orphaned_at, variant_id),
-        )
-
-
-def _variant_model_rank(
-    variant_row: dict[str, Any],
-    bindings: list[dict[str, Any]],
-) -> tuple[int, int, int, int, str, int]:
-    rel_bound = any(
-        row["scope_type"] == "rel" and row["scope_value"] == "current"
-        for row in bindings
-    )
-    active = bool(bindings)
-    non_trashed = variant_row["trashed_at"] is None
-    orphan_like = non_trashed and not active and variant_row["orphaned_at"] is not None
-    return (
-        1 if non_trashed else 0,
-        1 if rel_bound else 0,
-        1 if active else 0,
-        1 if orphan_like else 0,
-        str(variant_row["updated_at"] or ""),
-        int(variant_row["variant_id"]),
-    )
 
 
 @contextmanager
