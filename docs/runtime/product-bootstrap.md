@@ -18,18 +18,11 @@ The response includes:
 
 - `project`
 - `schema`
-- `rel_summary`
-- `candidate_dev_version`
-- `dev_versions`
+- `release_summary`
+- `candidate_dev_branch`
+- `dev_branches`
 - `imports`
 - `jobs`
-
-The response does not include:
-
-- `trash_count`
-- `samples`
-
-Those fields are reserved for the compatibility bootstrap at `GET /api/state`.
 
 ## Usage Rules
 

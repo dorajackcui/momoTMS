@@ -1,10 +1,9 @@
-from app.services.variant.compatibility import StringService
-from app.services.variant.facade import VariantService
 from app.services.variant.inspection import VariantInspectionService
 from app.services.variant.records import (
     BindingRecord,
+    BindingSummary,
+    EntryVariantView,
     EntryRecord,
-    PreferredEntryView,
     ScopeEntryRecord,
     VariantRecord,
 )
@@ -15,27 +14,28 @@ from app.services.variant.repositories import (
 )
 from app.services.variant.services import (
     EntryService,
-    PreferredEntryViewService,
+    EntryVariantViewAssembler,
     ScopeBindingService,
     VariantCatalogService,
     VariantLifecycleService,
 )
+from app.services.variant.workflows import VariantWorkflowService
 
 __all__ = [
     "BindingRecord",
+    "BindingSummary",
+    "EntryVariantView",
     "EntryRecord",
     "EntryRepository",
     "EntryService",
-    "PreferredEntryView",
-    "PreferredEntryViewService",
+    "EntryVariantViewAssembler",
     "VariantInspectionService",
     "ScopeBindingRepository",
     "ScopeBindingService",
     "ScopeEntryRecord",
-    "StringService",
     "VariantCatalogService",
     "VariantLifecycleService",
+    "VariantWorkflowService",
     "VariantRecord",
     "VariantRepository",
-    "VariantService",
 ]

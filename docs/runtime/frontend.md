@@ -1,6 +1,6 @@
 # Frontend
 
-The repository currently serves one product surface and one frozen internal validation page.
+The repository serves one product surface.
 
 ## Product Surface
 
@@ -36,14 +36,7 @@ Product boundary:
 ## Validation Surfaces
 
 - `/workbench`: removed; `GET /workbench` returns `410 Gone`
-- `/variant-workbench`: deprecated internal validation UI
-
-`/variant-workbench` remains useful for compatibility-route regression, but it is not a product shell and should not gain new features.
-
-Current validation split:
-
-- `/variant-workbench` exercises compatibility bootstrap, compatibility read-model routes, and upload-based flows
-- `/variant-workbench` is explicitly internal and marked deprecated in the page chrome
+- `/variant-workbench`: removed; `GET /variant-workbench` returns `410 Gone`
 
 ## Product Responsibilities
 
@@ -57,9 +50,9 @@ Current validation split:
 - translation queue
 - master query
 - import preview and guided header mapping
-- dev import execution
+- dev import execution through branch mutation
 - fill and QA execution
-- promote preview and execution
+- promote preview and execution through branch sync
 - jobs/report/artifact inspection
 - canonical/orphan inspection and business-key variant lookup
 
@@ -80,7 +73,7 @@ The product app depends on:
 - import preview data with `available_headers`, `suggested_mapping`, and `missing_targets`
 - job detail/report APIs
 - canonical entry-variant and orphan inspection APIs
-- project-scoped workflow routes for dev import, promote, fill, and QA
+- project-scoped branch mutation/sync routes plus fill and QA
 
 The product app stores selected project id locally, clears it when no projects exist, and refreshes branch state from project-scoped APIs only.
 

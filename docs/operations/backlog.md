@@ -7,14 +7,14 @@ Use this page as a short status snapshot of the runtime that remains after the r
 ## Current State
 
 - `/app` is the only operator-facing product surface.
-- `/variant-workbench` remains available only as a deprecated internal regression page.
-- `GET /workbench` returns `410 Gone`.
+- `/variant-workbench` and `/workbench` both return `410 Gone`.
 - Product bootstrap is `GET /api/projects/{project_id}/state`.
-- `GET /api/state` and other default-project routes remain frozen as compatibility-only surfaces for project `1`.
-- Hotfix stays API-only and internal-only.
+- Runtime APIs are project-scoped only.
+- Branch writes are unified as scope mutation plus scope sync.
+- rel/current direct mutation stays API-only and internal-only.
 - Trash and restore are project-scoped and variant-aware.
 - `/app/imports` is the operator cockpit for imports, jobs, reports, and artifacts.
-- Canonical-source variant semantics are live for dev import, rel hotfix, promote, fill, and inspection.
+- Canonical-source variant semantics are live for scope mutation, scope sync, fill, and inspection.
 - `/app/inspection` is the read-only inspection surface for canonical/orphan variants and business-key lookups.
 - Retained lifecycle semantics and storage have been removed.
 
@@ -26,32 +26,14 @@ Use this page as a short status snapshot of the runtime that remains after the r
 - Long-running jobs record stage timing in `job.summary.stages`.
 - Project switching, no-project empty state, and imports/job inspection are handled in `/app`.
 
-## Compatibility Route Policy
+## Runtime Surface
 
-Compatibility routes are frozen, not expanded.
-
-Kept temporarily:
-
-- `/api/state`
-- `/api/demo/reset`
-- `/api/strings`
-- `/api/strings/{business_key}`
-- `/api/imports/...`
-- `/api/jobs/...`
-- `/api/dev-versions...`
-- `/api/scopes/...`
-- `/api/translation-queue`
-- `/api/master/...`
-- `/api/promote/...`
-- `/api/fill...`
-- `/api/qa...`
-
-Removed from the live API:
-
-- `/api/rel/hotfix/active`
-- `/api/rel/hotfix/passive`
-- `/api/trash/delete`
-- `/api/trash/restore`
+- `/api/projects/{project_id}/branches`
+- `/api/projects/{project_id}/branches/compare`
+- `/api/projects/{project_id}/branches/mutations`
+- `/api/projects/{project_id}/branches/sync/execute`
+- `/api/projects/{project_id}/imports/...`
+- `/api/projects/{project_id}/jobs/...`
 
 ## Source Docs
 

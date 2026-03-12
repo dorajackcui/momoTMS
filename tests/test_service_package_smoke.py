@@ -1,22 +1,18 @@
 from app.main import app
+from app.services.branch import BranchMutationService, BranchService, BranchSyncService, ScopeRef, ScopeType
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
 from app.services.shared.io import normalize_non_content_value
 from app.services.shared.jobs import JobService
 from app.services.shared.utils import now_iso
-from app.services.variant.compatibility import StringService
-from app.services.variant.facade import VariantService
-from app.services.variant.records import EntryRecord
+from app.services.variant.records import EntryVariantView
 from app.services.variant.repositories import VariantRepository
-from app.services.variant.services import EntryService
-from app.services.workflows.dev_versions import DevVersionService
-from app.services.workflows.promote import PromoteService
+from app.services.variant.services import EntryService, EntryVariantViewAssembler
+from app.services.variant.workflows import VariantWorkflowService
+from app.services.workflows.fill import FillService
 from app.services.workflows.qa import QaScanService
-from app.services.workflows.qa_rules import validate_pair
-from app.services.workflows.rel import RelService
-from app.services.workflows.trash import TrashService
-from app.services.workflows.workbench import WorkbenchService
+from app.services.workflows.workbench import WorkflowService
 
 
 def test_new_service_paths_import_and_expose_expected_symbols() -> None:
@@ -24,30 +20,36 @@ def test_new_service_paths_import_and_expose_expected_symbols() -> None:
     assert normalize_non_content_value(" x ") == "x"
     assert DemoService is not None
     assert ProjectService is not None
-    assert VariantService is not None
-    assert StringService is not None
+    assert BranchService is not None
+    assert BranchMutationService is not None
+    assert BranchSyncService is not None
+    assert ScopeRef is not None
+    assert ScopeType is not None
     assert EntryService is not None
+    assert EntryVariantViewAssembler is not None
     assert VariantRepository is not None
     assert ImportService is not None
-    assert DevVersionService is not None
-    assert PromoteService is not None
-    assert RelService is not None
-    assert TrashService is not None
+    assert FillService is not None
     assert QaScanService is not None
-    assert WorkbenchService is not None
+    assert WorkflowService is not None
     assert JobService is not None
-    assert EntryRecord is not None
-    assert callable(validate_pair)
+    assert EntryVariantView is not None
+    assert VariantWorkflowService is not None
 
 
-def test_app_still_registers_main_routes_after_service_cleanup() -> None:
+def test_app_registers_branch_centric_routes_only() -> None:
     paths = {route.path for route in app.routes}
     assert "/api/projects" in paths
+    assert "/api/projects/{project_id}/state" in paths
     assert "/api/projects/{project_id}/imports/upload-folder" in paths
-    assert "/api/projects/{project_id}/dev-versions/import" in paths
-    assert "/api/projects/{project_id}/scopes/compare" in paths
+    assert "/api/projects/{project_id}/branches" in paths
+    assert "/api/projects/{project_id}/branches/compare" in paths
+    assert "/api/projects/{project_id}/branches/mutations" in paths
+    assert "/api/projects/{project_id}/branches/sync/execute" in paths
     assert "/api/projects/{project_id}/jobs/{job_id}" in paths
-    assert "/api/projects/{project_id}/entries/{business_key}/variants" in paths
-    assert "/api/projects/{project_id}/orphan-variants" in paths
-    assert "/api/projects/{project_id}/retained-variants" not in paths
-    assert "/workbench" in paths
+    assert "/variant-workbench" in paths
+    assert "/api/state" not in paths
+    assert "/api/strings" not in paths
+    assert "/api/dev-versions/import" not in paths
+    assert "/api/scopes/compare" not in paths
+    assert "/api/projects/{project_id}/branches/dev/import" not in paths

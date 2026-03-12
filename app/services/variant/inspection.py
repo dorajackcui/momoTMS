@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.branch.models import ScopeRef
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.variant.services import (
     EntryService,
@@ -34,8 +35,7 @@ class VariantInspectionService:
         for binding in binding_rows:
             bindings_by_variant.setdefault(int(binding["variant_id"]), []).append(
                 {
-                    "scope_type": binding["scope_type"],
-                    "scope_value": binding["scope_value"],
+                    "scope_ref": str(ScopeRef.parse(f"{binding['scope_type']}/{binding['scope_value']}")),
                     "created_at": binding["created_at"],
                     "updated_at": binding["updated_at"],
                 }
@@ -52,7 +52,7 @@ class VariantInspectionService:
                     "remarks": variant["remarks"],
                     "bindings": sorted(
                         bindings_by_variant.get(int(variant["variant_id"]), []),
-                        key=lambda item: (item["scope_type"], item["scope_value"]),
+                        key=lambda item: item["scope_ref"],
                     ),
                     "is_orphaned": variant["orphaned_at"] is not None,
                     "is_trashed": variant["trashed_at"] is not None,

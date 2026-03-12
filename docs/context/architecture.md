@@ -18,12 +18,22 @@ The backend is a small layered FastAPI application:
 
 HTTP boundary only.
 
-- `pages.py`: `/app`, removed `/workbench` tombstone (`410`), `/variant-workbench`
-- `projects_state.py`: project bootstrap, project create, demo reset, compatibility string endpoints
-- `imports_jobs.py`: import batch APIs, upload preview, jobs, reports, artifacts
-- `scopes_read_models.py`: branch summary, compare, queue, master query
-- `workflows.py`: dev import, hotfix, promote, fill, QA, trash/restore
+- `pages.py`: `/app` plus `/workbench` and `/variant-workbench` tombstones (`410`)
+- `projects_state.py`: project bootstrap, project create, demo reset
+- `imports_jobs.py`: project-scoped import batch APIs, upload preview, jobs, reports, artifacts
+- `scopes_read_models.py`: project-scoped branch summary, compare, queue, master query
+- `workflows.py`: project-scoped branch mutation/sync writes, fill, QA, trash/restore
 - `inspection.py`: read-only canonical entry-variant inspection plus orphan inspection
+
+### `app/services/branch/`
+
+Branch semantics and policy source of truth.
+
+- `models.py`: `ScopeType` and `ScopeRef`
+- `policy.py`: scope-specific mutation and sync policy rules
+- `mutations.py`: generic scope mutation execution for direct and import-batch inputs
+- `sync.py`: generic scope-to-scope sync preview and execute
+- `service.py`: dev branch metadata and branch-oriented read delegation
 
 ### `app/services/project/`
 
@@ -50,10 +60,9 @@ Core write model.
 
 - `repositories.py`: SQL and hydration
 - `services.py`: entry, canonical source-variant catalog, orphan lifecycle, and scope binding services
+- `workflows.py`: project-scoped trash/delete and restore workflows
 - `records.py`: typed record shapes
 - `inspection.py`: project-scoped canonical variant and orphan inspection assembly
-- `compatibility.py`: old string-shaped compatibility layer
-- `facade.py`: compatibility facade that wires split services together
 
 ### `app/services/read_models/`
 
@@ -67,15 +76,11 @@ Projection services for product-facing reads.
 
 ### `app/services/workflows/`
 
-Workflow services and orchestration.
+Thin job orchestration only.
 
-- `dev_versions.py`: dev-version metadata and dev import
-- `rel.py`: release summary and hotfix
-- `promote.py`: promote preview and execution
 - `fill.py`: fill artifact generation
 - `qa.py`: QA scan/report
-- `trash.py`: scope-aware delete and variant-aware restore
-- `workbench.py`: compatibility bootstrap plus job-oriented orchestration used by routers
+- `workbench.py`: job-oriented orchestration that delegates branch mutation/sync and variant lifecycle workflows
 
 ### `app/services/shared/`
 
@@ -117,13 +122,13 @@ Legacy snapshot/canonical tables are no longer part of the live model. Incompati
 
 ## Data Flow
 
-### Import to Dev Scope
+### Branch Mutation
 
 1. Router receives directory path or uploaded folder.
-2. `WorkbenchService` creates a job and stages files when needed.
+2. `WorkflowService` creates a job and stages files when needed.
 3. `ImportService` parses workbooks and writes `imports` plus `import_rows`.
-4. `DevVersionService` consumes the import batch.
-5. Entry, variant, and binding services resolve canonical same-source variants, apply rel/dev authority rules, and update scope bindings.
+4. `BranchMutationService` adapts direct or import-batch input into scope changes.
+5. Entry, variant, and binding services resolve canonical same-source variants, apply scope policy, and update scope bindings.
 6. Job report is written to disk and indexed in `jobs`.
 
 ### Read Models
@@ -136,15 +141,14 @@ Legacy snapshot/canonical tables are no longer part of the live model. Incompati
 ### Fill / QA
 
 1. Router accepts a directory or uploaded folder.
-2. `WorkbenchService` stages input and opens a job.
+2. `WorkflowService` stages input and opens a job.
 3. Workflow service reads workbook rows using schema-resolved columns.
 4. Output report or artifact is written under the job directory.
 
 ### Bootstrap
 
 1. Product routes use `ProjectStateService`.
-2. Compatibility state for `/variant-workbench` and frozen default-project flows stays in `WorkbenchService`.
-3. Compatibility bootstrap includes demo samples and trash count; product bootstrap does not.
+2. `ProjectStateService` assembles the product bootstrap directly.
 
 ### Runtime Migration
 
@@ -159,5 +163,5 @@ Legacy snapshot/canonical tables are no longer part of the live model. Incompati
 - Business rules belong in domain or workflow services.
 - SQL belongs in repositories, not routers.
 - New code should import explicit submodules instead of relying on package re-exports.
-- Prefer project-scoped APIs and services over default-project compatibility routes.
+- Runtime APIs are project-scoped and branch-oriented.
 - Lifecycle inspection source of truth is `app/routers/inspection.py` plus `app/services/variant/inspection.py`.

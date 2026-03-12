@@ -4,6 +4,8 @@ import json
 
 from fastapi import HTTPException, UploadFile
 
+from app.services.branch.models import ScopeRef
+
 
 def handle_errors(fn):
     try:
@@ -14,13 +16,8 @@ def handle_errors(fn):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def parse_scope_ref(scope_ref: str) -> tuple[str, str]:
-    if "/" not in scope_ref:
-        raise ValueError(f"invalid scope ref: {scope_ref}")
-    scope_type, scope_value = scope_ref.split("/", 1)
-    if scope_type not in {"rel", "dev"} or not scope_value:
-        raise ValueError(f"invalid scope ref: {scope_ref}")
-    return scope_type, scope_value
+def parse_scope_ref(scope_ref: str) -> ScopeRef:
+    return ScopeRef.parse(scope_ref)
 
 
 def read_folder_upload(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,40 +27,42 @@ class ProjectSchemaSummary(BaseModel):
     created_at: str
 
 
-class StringMembership(BaseModel):
-    membership_type: str
-    membership_value: str
+class BindingSummary(BaseModel):
+    scope_ref: str
+    created_at: str
+    updated_at: str
 
 
-class StringDetail(BaseModel):
-    string_id: int
-    entry_id: int | None = None
+class EntryVariantView(BaseModel):
+    variant_id: int
+    entry_id: int
     project_id: int
     business_key: str
     file_name: str | None = None
     source: str
     translations: dict[str, str | None] = Field(default_factory=dict)
     remarks: dict[str, str | None] = Field(default_factory=dict)
-    memberships: list[StringMembership] = Field(default_factory=list)
-    deleted_at: str | None = None
+    bindings: list[BindingSummary] = Field(default_factory=list)
+    trashed_at: str | None = None
     trash_until: str | None = None
     restored_at: str | None = None
     created_at: str
     updated_at: str
 
 
-class DevVersionSummary(BaseModel):
+class DevBranchSummary(BaseModel):
     project_id: int
     version: str
     version_line: str
+    scope_ref: str
     is_candidate_release: bool
-    member_count: int
+    entry_count: int
     created_at: str
     promoted_at: str | None = None
 
 
-class DevVersionDetail(DevVersionSummary):
-    members: list[StringDetail] = Field(default_factory=list)
+class DevBranchDetail(DevBranchSummary):
+    entries: list[EntryVariantView] = Field(default_factory=list)
 
 
 class ImportBatchSummary(BaseModel):
@@ -117,32 +119,14 @@ class JobDetail(BaseModel):
     report: ReportPayload
 
 
-class JobStageSummary(BaseModel):
-    stage: str
-    elapsed_ms: int
-    meta: dict[str, Any] = Field(default_factory=dict)
-
-
-class SampleOption(BaseModel):
-    sample_id: str
-    label: str
-    description: str
-    lang: str
-    dev_version: str
-    active_hotfix: dict[str, Any] = Field(default_factory=dict)
-    passive_hotfix: dict[str, Any] = Field(default_factory=dict)
-    trash_keys: list[str] = Field(default_factory=list)
-    paths: dict[str, str] = Field(default_factory=dict)
-
-
-class PromotePreview(BaseModel):
-    version: str
-    version_line: str
-    target_key_count: int
-    added_to_rel_count: int
-    already_in_rel_count: int
-    removed_from_rel_count: int
-    cleanup_dev_membership_count: int
+class BranchSyncPreview(BaseModel):
+    source_scope_ref: str
+    target_scope_ref: str
+    target_entry_count: int
+    added_to_target_count: int
+    already_in_target_count: int
+    removed_from_target_count: int
+    cleanup_binding_count: int
     report_rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -151,34 +135,27 @@ class ProductStateResponse(BaseModel):
 
     project: ProjectSummary
     project_schema: ProjectSchemaSummary = Field(alias="schema")
-    rel_summary: dict[str, Any] = Field(default_factory=dict)
-    candidate_dev_version: DevVersionSummary | None = None
-    dev_versions: list[DevVersionSummary] = Field(default_factory=list)
+    release_summary: dict[str, Any] = Field(default_factory=dict)
+    candidate_dev_branch: DevBranchDetail | None = None
+    dev_branches: list[DevBranchSummary] = Field(default_factory=list)
     imports: list[ImportBatchSummary] = Field(default_factory=list)
     jobs: list[JobSummary] = Field(default_factory=list)
 
 
-class CompatStateResponse(ProductStateResponse):
-    trash_count: int
-    samples: list[SampleOption] = Field(default_factory=list)
-
-
-class BranchScopeSummary(BaseModel):
-    scope_type: str
-    scope_value: str
+class BranchSummaryItem(BaseModel):
+    scope_ref: str
     entry_count: int
     status_counts: dict[str, int] = Field(default_factory=dict)
     version_line: str | None = None
     is_candidate_release: bool | None = None
 
 
-class ScopeSummaryResponse(BaseModel):
-    scopes: list[BranchScopeSummary] = Field(default_factory=list)
+class BranchListResponse(BaseModel):
+    scopes: list[BranchSummaryItem] = Field(default_factory=list)
 
 
 class BranchSide(BaseModel):
-    scope_type: str
-    scope_value: str
+    scope_ref: str
     variant_id: int
     file_name: str | None = None
     source: str
@@ -205,9 +182,9 @@ class BranchCompareRow(BaseModel):
     target: BranchSide | None = None
 
 
-class BranchCompare(BaseModel):
-    base_scope: str
-    target_scope: str
+class BranchCompareResponse(BaseModel):
+    base_scope_ref: str
+    target_scope_ref: str
     status_counts: dict[str, int] = Field(default_factory=dict)
     rows: list[BranchCompareRow] = Field(default_factory=list)
     priority_rows: list[TranslationPriorityRow] = Field(default_factory=list)
@@ -217,8 +194,8 @@ class BranchCompare(BaseModel):
     page_size: int = 0
 
 
-class TranslationQueueResult(BaseModel):
-    target_scope: str
+class BranchQueueResponse(BaseModel):
+    target_scope_ref: str
     lang: str | None = None
     status_counts: dict[str, int] = Field(default_factory=dict)
     rows: list[TranslationPriorityRow] = Field(default_factory=list)
@@ -229,8 +206,7 @@ class TranslationQueueResult(BaseModel):
 
 class MasterQueryRow(BaseModel):
     business_key: str
-    scope_type: str
-    scope_value: str
+    scope_ref: str
     variant_id: int
     file_name: str | None = None
     source: str
@@ -238,22 +214,15 @@ class MasterQueryRow(BaseModel):
     remarks: dict[str, str | None] = Field(default_factory=dict)
 
 
-class MasterEntryResult(BaseModel):
+class MasterEntryResponse(BaseModel):
     business_key: str
     entry_id: int
     results: list[MasterQueryRow] = Field(default_factory=list)
 
 
-class MasterSearchResult(BaseModel):
+class MasterSearchResponse(BaseModel):
     source: str
     results: list[MasterQueryRow] = Field(default_factory=list)
-
-
-class VariantBindingSummary(BaseModel):
-    scope_type: str
-    scope_value: str
-    created_at: str
-    updated_at: str
 
 
 class EntryVariantInspection(BaseModel):
@@ -262,7 +231,7 @@ class EntryVariantInspection(BaseModel):
     source: str
     translations: dict[str, str | None] = Field(default_factory=dict)
     remarks: dict[str, str | None] = Field(default_factory=dict)
-    bindings: list[VariantBindingSummary] = Field(default_factory=list)
+    bindings: list[BindingSummary] = Field(default_factory=list)
     is_orphaned: bool = False
     is_trashed: bool = False
     orphaned_at: str | None = None
@@ -302,24 +271,39 @@ class ImportDirectoryRequest(BaseModel):
     input_dir: str
 
 
-class DevImportRequest(BaseModel):
-    import_batch_id: int
-    version: str
-    mark_as_candidate: bool = True
-
-
-class RelHotfixActiveRequest(BaseModel):
+class BranchMutationChange(BaseModel):
     business_key: str
-    lang: str
-    target_text: str
-
-
-class RelHotfixPassiveRequest(BaseModel):
-    business_key: str
-    source: str
+    source: str | None = None
     translations_by_lang: dict[str, str] = Field(default_factory=dict)
     remarks_by_key: dict[str, str] = Field(default_factory=dict)
     file_name: str | None = None
+
+
+class BranchDirectMutationInput(BaseModel):
+    kind: Literal["direct"]
+    changes: list[BranchMutationChange] = Field(default_factory=list)
+
+
+class BranchImportBatchMutationInput(BaseModel):
+    kind: Literal["import_batch"]
+    import_batch_id: int
+    mark_as_candidate_release: bool = True
+
+
+BranchMutationInput = Annotated[
+    BranchDirectMutationInput | BranchImportBatchMutationInput,
+    Field(discriminator="kind"),
+]
+
+
+class BranchMutationRequest(BaseModel):
+    scope_ref: str
+    input: BranchMutationInput
+
+
+class BranchSyncRequest(BaseModel):
+    source_scope_ref: str
+    target_scope_ref: str
 
 
 class ScopedTrashDeleteRequest(BaseModel):
@@ -329,14 +313,6 @@ class ScopedTrashDeleteRequest(BaseModel):
 
 class VariantTrashRestoreRequest(BaseModel):
     variant_ids: list[int]
-
-
-class PromotePreviewRequest(BaseModel):
-    version: str
-
-
-class PromoteExecuteRequest(BaseModel):
-    version: str
 
 
 class FillRequest(BaseModel):

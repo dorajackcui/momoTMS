@@ -20,14 +20,13 @@ Implemented.
 当前代码已经按本 PRD 落地，现状是：
 
 - variant 复用按 `business_key + source`
-- dev import 按 same-source canonical decision matrix 执行
-- rel hotfix 在 source 变更时复用或创建目标 same-source variant 后 rebind
-- fill / compare / queue / promote 仍然围绕 active bindings 运转
+- branch 写接口已经收敛为 `scope mutation` + `scope sync`
+- `dev/*` 和 `rel/current` 的差异通过 policy 表达，不再通过不同方法名表达
+- fill / compare / queue / sync 仍然围绕 active bindings 运转
 
 现有相关实现集中在：
 
-- `app/services/workflows/dev_versions.py`
-- `app/services/workflows/rel.py`
+- `app/services/branch/service.py`
 - `app/services/variant/`
 
 ## Target Model
@@ -83,72 +82,61 @@ authority 只决定命中已有 same-source variant 时，是否允许覆盖 can
 
 ## Decision Matrix
 
-| Writer | Hit target | Binding | Content |
+| Scope mutation policy | Hit target | Binding | Content |
 | --- | --- | --- | --- |
-| `dev import` | rel-bound active variant | bind/rebind dev | keep existing canonical content |
-| `dev import` | non-rel active variant | bind/rebind dev | update canonical `translations/remarks` |
-| `dev import` | orphan variant | bind dev and clear orphan | update canonical `translations/remarks` |
-| `dev import` | miss | create variant and bind dev | write incoming content |
-| `rel` source hotfix | hit same-source non-trashed variant | rebind rel | update canonical content with rel payload |
-| `rel` source hotfix | miss | create variant and bind rel | write hotfix content |
-| `rel` translation/remarks hotfix | current rel variant | keep rel binding | update canonical content in place |
+| `dev/*` mutation hit rel-bound active variant | rel-bound active variant | bind/rebind dev | keep existing canonical content |
+| `dev/*` mutation hit non-rel active variant | non-rel active variant | bind/rebind dev | update canonical `translations/remarks` |
+| `dev/*` mutation hit orphan variant | orphan variant | bind dev and clear orphan | update canonical `translations/remarks` |
+| `dev/*` mutation miss | miss | create variant and bind dev | write incoming content |
+| `rel/current` direct mutation with source change | hit same-source non-trashed variant | rebind rel | update canonical content with rel payload |
+| `rel/current` direct mutation with source change | miss | create variant and bind rel | write mutation content |
+| `rel/current` direct mutation without source change | current rel variant | keep rel binding | update canonical content in place |
 
 补充规则：
 
-- `dev import` 不做逐行 content conflict 检查
-- `dev import` 不会覆盖 rel-bound canonical content
-- `dev import` 可以覆盖 orphan 或纯 dev-shared canonical content
+- `dev/*` import-batch mutation 不做逐行 content conflict 检查
+- `dev/*` mutation 不会覆盖 rel-bound canonical content
+- `dev/*` mutation 可以覆盖 orphan 或纯 dev-shared canonical content
 - 本轮不区分 `dev/2.4` 与 `dev/2.5` 的 authority，后写入的 dev 可覆盖未被 rel 占用的 content
 
 ## Workflow Rules
 
-### Dev Import
+### Scope Mutation
 
-1. `business_key` 不存在：
+统一 mutation 输入：
+
+- `direct`: 显式 `changes[]`
+- `import_batch`: 通过 `import_batch_id` 解析出 `changes`
+
+核心规则：
+
+1. `business_key` 不存在且目标 policy 允许：
    - 创建 entry
    - 创建 variant
-   - bind 到目标 `dev/<version>`
-2. `business_key` 存在，但 `source` 不存在：
-   - 创建 variant
-   - bind 到目标 `dev/<version>`
+   - bind 到目标 scope
+2. `business_key` 存在，且 `source` 未变化：
+   - 更新当前 scope 已绑定 variant
 3. `business_key + source` 已存在：
    - hit rel-bound active: 只 bind
-   - hit non-rel active: bind 并更新 `translations/remarks`
-   - hit orphan: bind、清除 orphan、更新 `translations/remarks`
+   - hit non-rel active: bind 并按 policy 更新 `translations/remarks`
+   - hit orphan: bind、清除 orphan，并按 policy 更新 `translations/remarks`
    - 不创建重复 same-source variant
 
 建议 report statuses：
 
-- `CREATED_SOURCE_VARIANT`
-- `BOUND_REL_OWNED_SOURCE_VARIANT`
-- `UPDATED_REUSED_SOURCE_VARIANT`
-- `REVIVED_ORPHAN_SOURCE_VARIANT`
+- `UPDATED_BOUND_VARIANT`
+- `BOUND_EXISTING_VARIANT`
+- `UPDATED_AND_BOUND_EXISTING_VARIANT`
+- `CREATED_AND_BOUND_VARIANT`
+- `NOOP`
 
-### Rel Source Hotfix
+### Scope Sync
 
-- source 改变时，不允许原地改现有 variant 的 `source`
-- 必须按 `business_key + new_source` 查找
-- hit 则复用并 rebind `rel/current`
-- miss 则 create + bind
-- rel payload 覆盖命中 variant 的 canonical content
-- 旧 rel variant 若失去全部 scope，进入 `orphan`
-
-示例：
-
-- before: `abc -> rel, dev/2.4`
-- after rel source hotfix: `abc -> dev/2.4`, `abd -> rel`
-
-### Rel Translation/Remarks Hotfix
-
-- `source` 不变时，直接修改当前 rel variant 的 canonical content
-- 不创建新 variant
-- 所有共享该 variant 的 scopes 一起看到变化
-
-### Promote
-
-- promote 仍然只是 rebinding
-- `rel/current` 指向目标 `dev/<version>` 当前绑定的 variants
-- promote 不复制 content，不创建 variant
+- sync 仍然只是 rebinding
+- `dev/<version> -> rel/current` 是当前唯一支持的 policy 实例
+- sync preview 比较 source/target active bindings
+- sync execute 不复制 content，不创建 variant
+- `dev/<version> -> rel/current` execute 后会清理同 version line 的 dev bindings
 
 ### Trash / Restore
 
@@ -165,7 +153,7 @@ authority 只决定命中已有 same-source variant 时，是否允许覆盖 can
 - 每个 entry 收敛成唯一的 `source -> canonical variant`
 - 去除同一 entry 下重复 same-source variants
 - 重算 active / orphan / trashed
-- 让 fill / compare / queue / promote 在新模型下不回归
+- 让 fill / compare / queue / scope sync 在新模型下不回归
 
 同 source 多 variant 时，canonical 选择顺序固定为：
 
@@ -184,8 +172,8 @@ authority 只决定命中已有 same-source variant 时，是否允许覆盖 can
 这些语义会变：
 
 - variant identity
-- dev import report statuses
-- rel hotfix behavior
+- branch mutation report statuses
+- direct rel mutation behavior
 - inspection response semantics
 - old variant rows 的迁移 contract
 
@@ -193,42 +181,43 @@ authority 只决定命中已有 same-source variant 时，是否允许覆盖 can
 
 - `/api/projects/{project_id}/entries/{business_key}/variants` 必须返回 canonical variants、bindings、orphan state
 - compare / queue / master / fill / QA 继续只读 active bindings
-- compatibility routes 若继续保留，必须映射到新模型
-- 不做新旧两套 variant 语义长期共存
+- branch 写 API 固定为 `/branches/mutations` 和 `/branches/sync/*`
+- `/variants/trash/*` 保持 variant lifecycle 边界
+- 不做新旧两套 branch workflow 路由长期共存
 
 ## Acceptance
 
 实现完成后，至少要满足：
 
-- 同 source 的 dev import 不创建新 variant
+- 同 source 的 `dev/*` import-batch mutation 不创建新 variant
 - dev hit rel-owned variant 时只 bind，不改 content
 - dev hit orphan 或 non-rel active variant 时会更新 canonical content
-- rel source hotfix 会把 rel 从 `abc` 切到 `abd`，原 `abc` 上其他 dev bindings 不受影响
-- rel translation hotfix 会同步影响所有共享该 variant 的 scopes
-- repeated source hotfix `abc -> abd -> abe -> abf` 后：
+- `rel/current` direct source mutation 会把 rel 从 `abc` 切到 `abd`，原 `abc` 上其他 dev bindings 不受影响
+- `rel/current` direct translation mutation 会同步影响所有共享该 variant 的 scopes
+- repeated direct source mutation `abc -> abd -> abe -> abf` 后：
   - `abf` 是 rel active
   - 中间失去全部 scope 的 variants 进入 orphan
   - 仍被 dev 使用的老 source 保持 active
-- promote 只 rebind，不复制 content
+- sync 只 rebind，不复制 content
 - fill 只从 canonical active variant 取内容
 - inspection 能展示 active/orphan canonical variants 及其 bindings
 - 迁移后不存在同一 entry 下重复 `source` variants
 
 ## Minimum Test Set
 
-- dev import:
+- branch mutation:
   - new key + new source
   - existing key + same source hit rel-owned variant
   - existing key + same source hit non-rel active variant
   - existing key + same source hit orphan
   - existing key + new source
-- rel hotfix:
+- rel/current direct mutation:
   - source change while rel/dev share one variant
   - translation-only change while rel/dev share one variant
   - repeated source changes `abc -> abd -> abe -> abf`
-- promote:
+- scope sync:
   - dev to rel rebind
-  - version-line cleanup after promote
+  - version-line cleanup after sync execute
 - migration:
   - duplicate same-source variants collapse correctly
   - rel-bound active precedence beats orphan precedence
@@ -236,7 +225,6 @@ authority 只决定命中已有 same-source variant 时，是否允许覆盖 can
 
 ## Assumptions
 
-- 这份 PRD 先作为修改准则，不同步改写 `docs/context/` 基线文档。
 - 不新增 product hotfix UI。
 - 不做 per-row content conflict 检查。
 - orphan TTL / 自动清理后续另立文档。

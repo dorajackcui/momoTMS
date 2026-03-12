@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import sqlite3
 from typing import Any
 
+from app.services.branch.models import ScopeRef
 from app.services.shared.io import (
     normalize_content_map,
     normalize_non_content_map,
@@ -12,8 +14,9 @@ from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.utils import now_iso
 from app.services.variant.records import (
     BindingRecord,
+    BindingSummary,
+    EntryVariantView,
     EntryRecord,
-    PreferredEntryView,
     ScopeEntryRecord,
     VariantRecord,
 )
@@ -211,19 +214,24 @@ class VariantLifecycleService:
         self.variants = variants or VariantRepository()
         self.bindings = bindings or ScopeBindingRepository()
 
-    def refresh_orphan_states(self, entry_id: int) -> None:
-        variant_rows = self.variants.list_by_entry(entry_id, include_trashed=True)
-        binding_counts = self.bindings.binding_counts_for_entry(entry_id)
-        timestamp = now_iso()
+    def refresh_orphan_states(
+        self,
+        entry_id: int,
+        conn: sqlite3.Connection | None = None,
+        timestamp: str | None = None,
+    ) -> None:
+        variant_rows = self.variants.list_by_entry(entry_id, include_trashed=True, conn=conn)
+        binding_counts = self.bindings.binding_counts_for_entry(entry_id, conn=conn)
+        marker = timestamp or now_iso()
         for variant in variant_rows:
             variant_id = int(variant["variant_id"])
             if variant["trashed_at"] is not None:
                 orphaned_at = None
             elif binding_counts.get(variant_id, 0) == 0:
-                orphaned_at = variant["orphaned_at"] or timestamp
+                orphaned_at = variant["orphaned_at"] or marker
             else:
                 orphaned_at = None
-            self.variants.set_orphaned_at(variant_id, orphaned_at)
+            self.variants.set_orphaned_at(variant_id, orphaned_at, conn=conn)
 
     def trash_entries(
         self,
@@ -303,9 +311,13 @@ class VariantLifecycleService:
         self.variants.trash_variant(variant_id, timestamp, self._trash_until(trash_days))
         self.refresh_orphan_states(entry_id)
 
-    def restore_variant(self, variant_id: int, entry_id: int) -> None:
-        self.variants.restore_variant(variant_id, now_iso())
-        self.refresh_orphan_states(entry_id)
+    def restore_variant(self, variant_id: int, entry_id: int) -> bool:
+        timestamp = now_iso()
+        restored = self.variants.restore_variant(variant_id, timestamp)
+        if not restored:
+            return False
+        self.refresh_orphan_states(entry_id, timestamp=timestamp)
+        return True
 
     def _normalize_business_keys(self, business_keys: list[str]) -> list[str]:
         normalized_keys: list[str] = []
@@ -338,35 +350,35 @@ class ScopeBindingService:
     def bind_scope(
         self,
         entry_id: int,
-        scope_type: str,
-        scope_value: str,
+        scope_ref: ScopeRef,
         variant_id: int,
     ) -> None:
-        normalized_scope_value = self._require_non_content("scope_value", scope_value)
+        scope_type, scope_value = scope_ref.as_tuple()
         timestamp = now_iso()
         self.bindings.upsert(
             entry_id,
             scope_type,
-            normalized_scope_value,
+            scope_value,
             variant_id,
             timestamp,
         )
         self.variants.clear_orphaned_at(variant_id, timestamp)
         self.lifecycle.refresh_orphan_states(entry_id)
 
-    def get_binding(self, entry_id: int, scope_type: str, scope_value: str) -> BindingRecord | None:
-        return self.bindings.get(entry_id, scope_type, self._require_non_content("scope_value", scope_value))
+    def get_binding(self, entry_id: int, scope_ref: ScopeRef) -> BindingRecord | None:
+        scope_type, scope_value = scope_ref.as_tuple()
+        return self.bindings.get(entry_id, scope_type, scope_value)
 
     def get_bindings_for_entries(
         self,
         entry_ids: list[int],
-        scope_type: str,
-        scope_value: str,
+        scope_ref: ScopeRef,
     ) -> dict[int, BindingRecord]:
+        scope_type, scope_value = scope_ref.as_tuple()
         return self.bindings.get_for_entries(
             entry_ids,
             scope_type,
-            self._require_non_content("scope_value", scope_value),
+            scope_value,
         )
 
     def list_bindings_for_entry(self, entry_id: int) -> list[BindingRecord]:
@@ -374,164 +386,92 @@ class ScopeBindingService:
 
     def list_scope_entries(
         self,
-        scope_type: str,
-        scope_value: str,
+        scope_ref: ScopeRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> list[ScopeEntryRecord]:
+        scope_type, scope_value = scope_ref.as_tuple()
         return self.bindings.list_scope_entries(
             project_id,
             scope_type,
-            self._require_non_content("scope_value", scope_value),
+            scope_value,
             self.variants,
         )
 
     def count_scope(
         self,
-        scope_type: str,
-        scope_value: str,
+        scope_ref: ScopeRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> int:
+        scope_type, scope_value = scope_ref.as_tuple()
         return self.bindings.count_scope(
             project_id,
             scope_type,
-            self._require_non_content("scope_value", scope_value),
+            scope_value,
         )
 
     def clear_scope(
         self,
-        scope_type: str,
-        scope_value: str,
+        scope_ref: ScopeRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> None:
-        normalized_scope_value = self._require_non_content("scope_value", scope_value)
-        removed = self.bindings.clear_scope(project_id, scope_type, normalized_scope_value)
+        scope_type, scope_value = scope_ref.as_tuple()
+        removed = self.bindings.clear_scope(project_id, scope_type, scope_value)
         for row in removed:
             self.lifecycle.refresh_orphan_states(int(row["entry_id"]))
 
     def remove_scope_bindings(
         self,
-        scope_type: str,
-        scope_values: list[str],
+        scope_refs: list[ScopeRef],
         project_id: int = DEFAULT_PROJECT_ID,
+        conn: sqlite3.Connection | None = None,
     ) -> int:
-        normalized_scope_values = [self._require_non_content("scope_value", value) for value in scope_values]
-        removed = self.bindings.remove_scope_bindings(project_id, scope_type, normalized_scope_values)
+        grouped_scope_values: dict[str, list[str]] = {}
+        for scope_ref in scope_refs:
+            scope_type, scope_value = scope_ref.as_tuple()
+            grouped_scope_values.setdefault(scope_type, []).append(scope_value)
+        removed: list[BindingRecord] = []
+        for scope_type, scope_values in grouped_scope_values.items():
+            removed.extend(self.bindings.remove_scope_bindings(project_id, scope_type, scope_values, conn=conn))
         for row in removed:
-            self.lifecycle.refresh_orphan_states(int(row["entry_id"]))
+            self.lifecycle.refresh_orphan_states(int(row["entry_id"]), conn=conn)
         return len(removed)
 
     def remove_binding(
         self,
         entry_id: int,
-        scope_type: str,
-        scope_value: str,
+        scope_ref: ScopeRef,
     ) -> BindingRecord | None:
-        normalized_scope_value = self._require_non_content("scope_value", scope_value)
-        removed = self.bindings.delete(entry_id, scope_type, normalized_scope_value)
+        scope_type, scope_value = scope_ref.as_tuple()
+        removed = self.bindings.delete(entry_id, scope_type, scope_value)
         if removed is None:
             return None
         self.lifecycle.refresh_orphan_states(int(removed["entry_id"]))
         return removed
 
-    def _require_non_content(self, field_name: str, value: Any) -> str:
-        normalized = normalize_non_content_value(value)
-        if not normalized:
-            raise ValueError(f"{field_name} is required")
-        return normalized
 
-
-class PreferredEntryViewService:
-    def __init__(
-        self,
-        entries: EntryService | None = None,
-        variants: VariantCatalogService | None = None,
-        bindings: ScopeBindingService | None = None,
-        lifecycle: VariantLifecycleService | None = None,
-    ) -> None:
-        self.entries = entries or EntryService()
-        self.variants = variants or VariantCatalogService()
-        self.bindings = bindings or ScopeBindingService()
-        self.lifecycle = lifecycle or VariantLifecycleService()
-
-    def get_preferred_entry_view(
-        self,
-        business_key: str,
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> PreferredEntryView | None:
-        entry = self.entries.get_entry(business_key, project_id)
-        if entry is None:
-            return None
-        return self.compat_entry_view(entry)
-
-    def list_preferred_entry_views(
-        self,
-        project_id: int = DEFAULT_PROJECT_ID,
-        search: str | None = None,
-    ) -> list[PreferredEntryView]:
-        return [self.compat_entry_view(entry) for entry in self.entries.list_entries(project_id, search)]
-
-    def compat_entry_view(self, entry: EntryRecord) -> PreferredEntryView:
-        preferred_variant = self.preferred_variant_for_entry(entry)
-        bindings = self.bindings.list_bindings_for_entry(int(entry["entry_id"]))
-        memberships = [
-            {
-                "membership_type": binding["scope_type"],
-                "membership_value": binding["scope_value"],
-            }
-            for binding in bindings
-        ]
-        if preferred_variant is None:
-            return {
-                "string_id": 0,
-                "entry_id": int(entry["entry_id"]),
-                "project_id": int(entry["project_id"]),
-                "business_key": entry["business_key"],
-                "file_name": "",
-                "source": "",
-                "translations": {},
-                "remarks": {},
-                "memberships": memberships,
-                "deleted_at": None,
-                "trash_until": None,
-                "restored_at": None,
-                "created_at": entry["created_at"],
-                "updated_at": entry["updated_at"],
-            }
+class EntryVariantViewAssembler:
+    def binding_summary(self, binding: BindingRecord) -> BindingSummary:
         return {
-            "string_id": int(preferred_variant["variant_id"]),
-            "entry_id": int(entry["entry_id"]),
-            "project_id": int(entry["project_id"]),
-            "business_key": entry["business_key"],
-            "file_name": preferred_variant["file_name"],
-            "source": preferred_variant["source"],
-            "translations": preferred_variant["translations"],
-            "remarks": preferred_variant["remarks"],
-            "memberships": memberships,
-            "deleted_at": preferred_variant["trashed_at"],
-            "trash_until": preferred_variant["trash_until"],
-            "restored_at": preferred_variant["restored_at"],
-            "created_at": preferred_variant["created_at"],
-            "updated_at": preferred_variant["updated_at"],
+            "scope_ref": str(ScopeRef.parse(f"{binding['scope_type']}/{binding['scope_value']}")),
+            "created_at": binding["created_at"],
+            "updated_at": binding["updated_at"],
         }
 
-    def preferred_variant_for_entry(self, entry: EntryRecord) -> VariantRecord | None:
-        bindings = self.bindings.list_bindings_for_entry(int(entry["entry_id"]))
-        preferred_binding = None
-        for binding in bindings:
-            if binding["scope_type"] == "rel" and binding["scope_value"] == "current":
-                preferred_binding = binding
-                break
-        if preferred_binding is None and bindings:
-            preferred_binding = sorted(
-                bindings,
-                key=lambda item: (item["scope_type"] != "dev", item["scope_value"]),
-            )[0]
-        if preferred_binding is not None:
-            return self.variants.get_variant(int(preferred_binding["variant_id"]))
-        variants = self.variants.list_variants(int(entry["entry_id"]), include_trashed=True)
-        non_trashed = [variant for variant in variants if variant["trashed_at"] is None]
-        if non_trashed:
-            return non_trashed[-1]
-        if variants:
-            return variants[-1]
-        return None
+    def assemble(self, item: ScopeEntryRecord, bindings: list[BindingRecord]) -> EntryVariantView:
+        variant = item["variant"]
+        return {
+            "variant_id": int(variant["variant_id"]),
+            "entry_id": int(item["entry_id"]),
+            "project_id": int(item["project_id"]),
+            "business_key": item["business_key"],
+            "file_name": variant["file_name"],
+            "source": variant["source"],
+            "translations": variant["translations"],
+            "remarks": variant["remarks"],
+            "bindings": [self.binding_summary(binding) for binding in bindings],
+            "trashed_at": variant["trashed_at"],
+            "trash_until": variant["trash_until"],
+            "restored_at": variant["restored_at"],
+            "created_at": variant["created_at"],
+            "updated_at": variant["updated_at"],
+        }

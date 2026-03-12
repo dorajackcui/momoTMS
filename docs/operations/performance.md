@@ -28,20 +28,20 @@ Current bottlenecks are more likely to come from:
 The current code already includes:
 
 - batched persistence of import rows
-- preloading and bulk creation during dev import
-- entry-local caching during dev import
+- preloading and bulk creation during import-batch mutations
+- entry-local caching during import-batch mutations
 - SQL counting for scope-size queries
 - paginated compare and queue APIs
 - repository-first scope projection for compare and translation queue
 - repository-level active-binding search for master query
-- stage timing in workflow/job summaries for import, dev import, promote, fill, and QA
+- stage timing in workflow/job summaries for import, branch mutation, scope sync, fill, and QA
 
 ## Hot Paths
 
 Watch these modules when working on performance:
 
 - `app/services/imports/service.py`
-- `app/services/workflows/dev_versions.py`
+- `app/services/branch/service.py`
 - `app/services/workflows/fill.py`
 - `app/services/workflows/qa.py`
 - `app/services/read_models/service.py`
@@ -67,8 +67,8 @@ Observed timings:
 - import directory: `106 ms`
   - `parse`: `99 ms`
   - `persist_import`: `1 ms`
-- dev import to `dev/9.9.9`: `345 ms`
-  - `bind_dev_scope`: `344 ms`
+- import-batch mutation to `dev/9.9.9`: `345 ms`
+  - `apply_scope_mutation`: `344 ms`
 - fill export: `250 ms`
   - `fill_export`: `233 ms`
   - `artifact_write`: `15 ms`

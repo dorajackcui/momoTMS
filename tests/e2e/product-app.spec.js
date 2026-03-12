@@ -51,8 +51,8 @@ test("loads the product app, resets project-scoped UI on switch, and exercises j
 
   await page.getByTestId("app-dev-version-input").fill("2.2.3");
   await page.getByTestId("app-run-dev-import").click();
-  await expect(page.getByTestId("app-jobs-list")).toContainText("dev_import");
-  await expect(page.getByTestId("app-job-detail")).toContainText("bind_dev_scope");
+  await expect(page.getByTestId("app-jobs-list")).toContainText("branch_mutation");
+  await expect(page.getByTestId("app-job-detail")).toContainText("apply_scope_mutation");
 
   await page.goto("/app/compare");
   await page.getByTestId("app-base-scope").selectOption("rel/current");
@@ -72,7 +72,7 @@ test("loads the product app, resets project-scoped UI on switch, and exercises j
   await page.getByTestId("app-promote-preview").click();
   await expect(page.getByText("promote preview")).toBeVisible();
   await page.getByTestId("app-promote-execute").click();
-  await expect(page.getByTestId("app-job-detail")).toContainText("promote_rebind");
+  await expect(page.getByTestId("app-job-detail")).toContainText("execute_scope_sync");
 
   await page.getByTestId("app-fill-folder").setInputFiles(fillDir);
   await expect(page.getByTestId("app-job-detail")).toContainText("fill_export");
@@ -91,6 +91,17 @@ test("loads the product app, resets project-scoped UI on switch, and exercises j
   await expect(page.getByTestId("app-inspection-detail")).toContainText("bindings");
 
   expect(
-    [...seenApiPaths].some((pathName) => pathName === "/api/state" || pathName.startsWith("/api/strings")),
+    [...seenApiPaths].some(
+      (pathName) =>
+        pathName === "/api/state" ||
+        pathName.startsWith("/api/strings") ||
+        pathName.startsWith("/api/scopes/") ||
+        pathName.startsWith("/api/dev-versions"),
+    ),
   ).toBeFalsy();
+  expect(
+    [...seenApiPaths].some(
+      (pathName) => pathName.startsWith("/api/projects/") && pathName.includes("/branches"),
+    ),
+  ).toBeTruthy();
 });

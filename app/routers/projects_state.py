@@ -1,21 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 
-from app.schemas import CompatStateResponse, CreateProjectRequest, ProductStateResponse, ProjectSummary, StringDetail
+from app.routers.common import handle_errors
+from app.schemas import CreateProjectRequest, ProductStateResponse, ProjectSummary
 from app.services.demo.service import DemoService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.project.state import ProjectStateService
-from app.services.variant.compatibility import StringService
-from app.services.workflows.workbench import WorkbenchService
-from app.routers.common import handle_errors
 
 router = APIRouter()
-
-
-@router.get("/api/state", response_model=CompatStateResponse)
-def state() -> CompatStateResponse:
-    return handle_errors(lambda: CompatStateResponse(**WorkbenchService().get_state(DEFAULT_PROJECT_ID)))
 
 
 @router.get("/api/projects", response_model=list[ProjectSummary])
@@ -41,30 +34,10 @@ def project_state(project_id: int) -> ProductStateResponse:
     return handle_errors(lambda: ProductStateResponse(**ProjectStateService().get_state(project_id)))
 
 
-@router.post("/api/demo/reset", response_model=CompatStateResponse)
-def demo_reset() -> CompatStateResponse:
-    def run() -> CompatStateResponse:
+@router.post("/api/demo/reset", response_model=ProductStateResponse)
+def demo_reset() -> ProductStateResponse:
+    def run() -> ProductStateResponse:
         DemoService().reset()
-        return CompatStateResponse(**WorkbenchService().get_state())
-
-    return handle_errors(run)
-
-
-@router.get("/api/strings", response_model=list[StringDetail])
-def list_strings(
-    search: str | None = Query(default=None),
-    include_deleted: bool = Query(default=False),
-) -> list[StringDetail]:
-    strings = StringService().list_strings(search=search, include_deleted=include_deleted)
-    return [StringDetail(**item) for item in strings]
-
-
-@router.get("/api/strings/{business_key}", response_model=StringDetail)
-def get_string(business_key: str) -> StringDetail:
-    def run() -> StringDetail:
-        item = StringService().get_string(business_key, include_deleted=True)
-        if not item:
-            raise KeyError(f"string not found: {business_key}")
-        return StringDetail(**item)
+        return ProductStateResponse(**ProjectStateService().get_state(DEFAULT_PROJECT_ID))
 
     return handle_errors(run)

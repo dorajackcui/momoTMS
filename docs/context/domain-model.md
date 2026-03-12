@@ -115,29 +115,38 @@ Priority statuses used by compare/queue:
 - validates required headers against project schema
 - stores row-level results in `imports` and `import_rows`
 
-### Dev Import
+### Scope Mutation
 
-- creates missing entries
-- looks up canonical variants by `same business_key + same source` across all non-trashed variants under the entry
-- if the hit is rel-bound, it only binds the target `dev/<version>` scope and keeps canonical content unchanged
-- if the hit is non-rel active or orphan, it updates canonical content in place and binds the target `dev/<version>` scope
-- if no same-source variant exists, it creates a new canonical variant and binds the target `dev/<version>` scope
-- can mark the imported version as candidate release
+Branch writes are split by capability, not by `dev` / `rel` method names.
 
-### Release Hotfix
+Input modes:
 
-- operates on the variant bound to `rel/current`
-- active hotfix changes one translation field
-- passive hotfix with unchanged `source` updates the current rel canonical variant in place
-- passive hotfix with changed `source` looks up or creates the target same-source canonical variant, updates its content, and rebinds `rel/current`
-- when rel moves away from a variant and no other scope still uses it, that old variant becomes `orphan`
+- `direct`: one or more business-key patches applied to a target scope
+- `import_batch`: one persisted import batch applied to a target scope
 
-### Promote
+Policy examples:
 
-- previews and executes binding changes from one `dev/<version>` into `rel/current`
-- moves release bindings to the variants currently bound by the target dev scope
-- does not copy content or create variants
-- may clear old dev bindings inside the same version line
+- `direct + rel/current` replaces the old rel hotfix behavior
+- `direct + dev/<version>` supports single-row or batch dev patching
+- `import_batch + dev/<version>` replaces the old dev import behavior
+- `import_batch + rel/current` is invalid
+
+Mutation rules:
+
+- if `source` is omitted, mutation requires an existing binding in the target scope and updates the currently bound variant in place
+- if `source` is provided and matches the currently bound variant, mutation updates that bound variant in place
+- if `source` is provided and differs, mutation resolves or creates the target same-source canonical variant and rebinds the scope when needed
+- `dev` policy keeps rel-owned canonical content authoritative when same-source hits a rel-bound variant
+- `dev` policy may create missing entries when `source` is present
+- `rel` policy always starts from the currently bound rel variant and never creates a missing business key from scratch
+
+### Scope Sync
+
+- previews and executes binding changes from one scope into another
+- the live policy only supports `dev/<version> -> rel/current`
+- sync rebinds active variants; it does not copy content or create variants
+- execute runs in one DB transaction
+- the `dev/<version> -> rel/current` policy still clears same-version-line dev bindings and marks those versions as promoted
 
 ### Trash / Restore
 
@@ -159,11 +168,10 @@ Priority statuses used by compare/queue:
 - uses project schema to locate columns
 - remains a read-only validation workflow
 
-## Compatibility Boundary
+## Branch Boundary
 
-Two APIs still expose old string-shaped views:
+The runtime is branch-centric:
 
-- `app/services/variant/compatibility.py`
-- `app/services/variant/facade.py`
-
-They exist to support validation routes and compatibility callers. New behavior should live in split domain services and repositories under `app/services/variant/`.
+- `variant` is the only content identity
+- `ScopeRef` is the branch identity exchanged across services and APIs
+- project-scoped `/branches` routes are the public read surface plus mutation/sync write surface for branch workflows

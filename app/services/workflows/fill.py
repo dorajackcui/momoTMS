@@ -9,6 +9,8 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import load_workbook
 
+from app.services.branch.models import ScopeRef
+from app.services.branch.service import BranchService
 from app.services.shared.io import (
     has_valid_fill_combined_key,
     is_blank_value,
@@ -17,13 +19,12 @@ from app.services.shared.io import (
     normalize_non_content_value,
 )
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.variant.services import ScopeBindingService
 
 
 class FillService:
     def __init__(self) -> None:
+        self.branches = BranchService()
         self.projects = ProjectService()
-        self.bindings = ScopeBindingService()
 
     def fill_and_export(
         self,
@@ -39,12 +40,12 @@ class FillService:
         if not root.exists() or not root.is_dir():
             raise ValueError(f"fill source directory not found: {source_dir}")
 
-        rel_entries = self.bindings.list_scope_entries("rel", "current", project_id)
+        rel_entries = self.branches.list_scope_entries(ScopeRef.rel_current(), project_id)
         strings_by_key = {
             normalize_non_content_value(item["business_key"]): item for item in rel_entries
         }
         strings_by_combo = {
-            normalize_fill_combined_key(item["business_key"], item["variant"]["source"]): item
+            normalize_fill_combined_key(item["business_key"], item["source"]): item
             for item in rel_entries
         }
 
@@ -94,7 +95,7 @@ class FillService:
                         if not is_blank_value(current_target):
                             kept += 1
                         candidate_content = normalize_content_value(
-                            candidate["variant"]["translations"].get(lang)
+                            candidate["translations"].get(lang)
                         )
                         if is_blank_value(candidate_content) and not allow_blank_write:
                             skipped_blank += 1

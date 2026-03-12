@@ -14,13 +14,13 @@ The docs are organized by how quickly you need context:
 - [context/domain-model.md](context/domain-model.md): core entities, scope semantics, variant lifecycle, and workflow rules
 - [context/architecture.md](context/architecture.md): backend layers, package layout, database tables, and service boundaries
 - [prd/0001-canonical-source-variant-model.md](prd/0001-canonical-source-variant-model.md): implemented canonical-source variant model and migration/acceptance reference
-- [runtime/api-surface.md](runtime/api-surface.md): current HTTP routes and compatibility-route policy
+- [runtime/api-surface.md](runtime/api-surface.md): current project-scoped HTTP routes plus branch mutation/sync API surface
 - [runtime/product-bootstrap.md](runtime/product-bootstrap.md): `/app` bootstrap contract for `GET /api/projects/{project_id}/state`
 - [runtime/frontend.md](runtime/frontend.md): `/app`, workbench pages, frontend source, and build/runtime expectations
 - [rules/io-and-excel.md](rules/io-and-excel.md): normalization, import, fill, and QA rules
 - [operations/performance.md](operations/performance.md): scale assumptions and current performance posture
-- [operations/backlog.md](operations/backlog.md): delivery-status snapshot and compatibility-route summary
-- [adr/0001-product-surface-and-compatibility-policy.md](adr/0001-product-surface-and-compatibility-policy.md): why `/app` is the product shell and compatibility routes stay frozen
+- [operations/backlog.md](operations/backlog.md): delivery-status snapshot after the branch-centric refactor
+- [adr/0001-product-surface-and-compatibility-policy.md](adr/0001-product-surface-and-compatibility-policy.md): why `/app` is the product shell and branch APIs are project-scoped
 
 ## Task Shortcuts
 
@@ -34,7 +34,7 @@ The docs are organized by how quickly you need context:
   Read [runtime/product-bootstrap.md](runtime/product-bootstrap.md), then [runtime/frontend.md](runtime/frontend.md), then `frontend/src/App.tsx`.
 - Import, fill, QA, or Excel handling:
   Read [rules/io-and-excel.md](rules/io-and-excel.md), then `app/services/imports/` or `app/services/workflows/`.
-- Delivery status or compatibility policy:
+- Delivery status or runtime status:
   Read [operations/backlog.md](operations/backlog.md).
 
 ## Reading Rules

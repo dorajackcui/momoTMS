@@ -12,8 +12,9 @@ type ProjectSummary = {
 type ProductBootstrapResponse = {
   project: ProjectSummary;
   schema: { translation_columns: string[]; remark_columns: string[] };
-  candidate_dev_version: { version: string } | null;
-  dev_versions: Array<{ version: string; version_line: string; is_candidate_release: boolean }>;
+  release_summary: { entry_count: number };
+  candidate_dev_branch: { version: string } | null;
+  dev_branches: Array<{ version: string; version_line: string; is_candidate_release: boolean; scope_ref: string }>;
   imports: ImportBatchSummary[];
   jobs: JobSummary[];
 };
@@ -55,8 +56,7 @@ type JobDetail = {
 
 type ScopeSummaryResponse = {
   scopes: Array<{
-    scope_type: string;
-    scope_value: string;
+    scope_ref: string;
     entry_count: number;
     status_counts: Record<string, number>;
     version_line?: string | null;
@@ -65,6 +65,7 @@ type ScopeSummaryResponse = {
 };
 
 type BranchSide = {
+  scope_ref: string;
   file_name: string | null;
   source: string;
   translations: Record<string, string>;
@@ -81,8 +82,8 @@ type BranchCompareRow = {
 };
 
 type BranchCompareResponse = {
-  base_scope: string;
-  target_scope: string;
+  base_scope_ref: string;
+  target_scope_ref: string;
   status_counts: Record<string, number>;
   rows: BranchCompareRow[];
   total_rows: number;
@@ -101,7 +102,7 @@ type QueueRow = {
 };
 
 type TranslationQueueResponse = {
-  target_scope: string;
+  target_scope_ref: string;
   lang: string | null;
   status_counts: Record<string, number>;
   rows: QueueRow[];
@@ -112,8 +113,7 @@ type TranslationQueueResponse = {
 
 type MasterRow = {
   business_key: string;
-  scope_type: string;
-  scope_value: string;
+  scope_ref: string;
   file_name: string | null;
   source: string;
   translations: Record<string, string>;
@@ -148,11 +148,10 @@ type ImportSheetMapping = {
   remark_columns: Record<string, string>;
 };
 
-type PromotePreview = Record<string, unknown> & { report_rows?: Array<Record<string, unknown>> };
+type BranchSyncPreview = Record<string, unknown> & { report_rows?: Array<Record<string, unknown>> };
 
 type VariantBindingSummary = {
-  scope_type: string;
-  scope_value: string;
+  scope_ref: string;
   created_at: string;
   updated_at: string;
 };
@@ -244,7 +243,7 @@ export function App() {
   const [importMappings, setImportMappings] = useState<Record<string, ImportSheetMapping>>({});
   const [pendingImportFiles, setPendingImportFiles] = useState<File[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [promotePreview, setPromotePreview] = useState<PromotePreview | null>(null);
+  const [promotePreview, setPromotePreview] = useState<BranchSyncPreview | null>(null);
   const [devVersionInput, setDevVersionInput] = useState("");
   const [promoteVersion, setPromoteVersion] = useState("");
   const [selectedImportBatch, setSelectedImportBatch] = useState("");
@@ -375,8 +374,8 @@ export function App() {
       setTargetScope(nextTarget);
     }
     const devOptions = scopeSummary.scopes
-      .filter((scope) => scope.scope_type === "dev")
-      .map((scope) => `dev/${scope.scope_value}`);
+      .filter((scope) => scope.scope_ref.startsWith("dev/"))
+      .map((scope) => scope.scope_ref);
     if (!devOptions.includes(queueTargetScope)) {
       setQueueTargetScope(devOptions[0] || "");
     }
@@ -523,7 +522,7 @@ export function App() {
       const state = await fetchJson<ProductBootstrapResponse>(`/api/projects/${projectId}/state`);
       const nextLang = selectedLang || state.schema.translation_columns[0] || "";
       const summary = await fetchJson<ScopeSummaryResponse>(
-        `/api/projects/${projectId}/scopes/summary?${new URLSearchParams({ lang: nextLang }).toString()}`,
+        `/api/projects/${projectId}/branches?${new URLSearchParams({ lang: nextLang }).toString()}`,
       );
       setBootstrap(state);
       setScopeSummary(summary);
@@ -573,8 +572,8 @@ export function App() {
     }
     try {
       const params = new URLSearchParams({
-        base: baseScope,
-        target: targetScope,
+        base_scope_ref: baseScope,
+        target_scope_ref: targetScope,
         lang: selectedLang,
         page: String(comparePage),
         page_size: String(PAGE_SIZE),
@@ -589,7 +588,7 @@ export function App() {
         params.append("diff_category", compareDiff);
       }
       const result = await fetchJson<BranchCompareResponse>(
-        `/api/projects/${selectedProjectId}/scopes/compare?${params.toString()}`,
+        `/api/projects/${selectedProjectId}/branches/compare?${params.toString()}`,
       );
       setCompare(result);
     } catch (error) {
@@ -603,7 +602,7 @@ export function App() {
     }
     try {
       const params = new URLSearchParams({
-        target: queueTargetScope,
+        target_scope_ref: queueTargetScope,
         lang: selectedLang,
         page: String(queuePage),
         page_size: String(PAGE_SIZE),
@@ -615,7 +614,7 @@ export function App() {
         params.append("priority_status", queueStatus);
       }
       const result = await fetchJson<TranslationQueueResponse>(
-        `/api/projects/${selectedProjectId}/translation-queue?${params.toString()}`,
+        `/api/projects/${selectedProjectId}/branches/queue?${params.toString()}`,
       );
       setQueue(result);
     } catch (error) {
@@ -631,7 +630,7 @@ export function App() {
     try {
       setMasterMode("key");
       const response = await fetchJson<MasterResponse>(
-        `/api/projects/${selectedProjectId}/master/entries/${encodeURIComponent(masterKey.trim())}`,
+        `/api/projects/${selectedProjectId}/branches/master/entries/${encodeURIComponent(masterKey.trim())}`,
       );
       setMasterRows(response.results || []);
       navigate("master", setRoute);
@@ -649,7 +648,7 @@ export function App() {
       setMasterMode("source");
       const params = new URLSearchParams({ source: masterSource.trim() });
       const response = await fetchJson<MasterResponse>(
-        `/api/projects/${selectedProjectId}/master/search?${params.toString()}`,
+        `/api/projects/${selectedProjectId}/branches/master/search?${params.toString()}`,
       );
       setMasterRows(response.results || []);
       navigate("master", setRoute);
@@ -762,12 +761,15 @@ export function App() {
       return;
     }
     try {
-      const result = await fetchJson<JobDetail>(`/api/projects/${selectedProjectId}/dev-versions/import`, {
+      const result = await fetchJson<JobDetail>(`/api/projects/${selectedProjectId}/branches/mutations`, {
         method: "POST",
         body: JSON.stringify({
-          import_batch_id: Number(selectedImportBatch),
-          version: devVersionInput.trim(),
-          mark_as_candidate: candidateRelease,
+          scope_ref: `dev/${devVersionInput.trim()}`,
+          input: {
+            kind: "import_batch",
+            import_batch_id: Number(selectedImportBatch),
+            mark_as_candidate_release: candidateRelease,
+          },
         }),
       });
       setTargetScope(`dev/${devVersionInput.trim()}`);
@@ -790,10 +792,16 @@ export function App() {
       return;
     }
     try {
-      const result = await fetchJson<PromotePreview>(`/api/projects/${selectedProjectId}/promote/preview`, {
-        method: "POST",
-        body: JSON.stringify({ version }),
-      });
+      const result = await fetchJson<BranchSyncPreview>(
+        `/api/projects/${selectedProjectId}/branches/sync/preview`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            source_scope_ref: `dev/${version}`,
+            target_scope_ref: "rel/current",
+          }),
+        },
+      );
       setPromotePreview(result);
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -810,10 +818,16 @@ export function App() {
       return;
     }
     try {
-      const result = await fetchJson<JobDetail>(`/api/projects/${selectedProjectId}/promote/execute`, {
-        method: "POST",
-        body: JSON.stringify({ version }),
-      });
+      const result = await fetchJson<JobDetail>(
+        `/api/projects/${selectedProjectId}/branches/sync/execute`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            source_scope_ref: `dev/${version}`,
+            target_scope_ref: "rel/current",
+          }),
+        },
+      );
       setSelectedJobId(result.job.job_id);
       setJobDetail(result);
       await refreshProjectState(selectedProjectId, `Job #${result.job.job_id} finished`);
@@ -1035,10 +1049,10 @@ export function App() {
               <div className="overview-grid" data-testid="overview-grid">
                 {(scopeSummary?.scopes || []).map((scope) => (
                   <button
-                    key={`${scope.scope_type}/${scope.scope_value}`}
+                    key={scope.scope_ref}
                     className="scope-card"
                     onClick={() => {
-                      const nextTarget = `${scope.scope_type}/${scope.scope_value}`;
+                      const nextTarget = scope.scope_ref;
                       if (nextTarget !== "rel/current") {
                         setTargetScope(nextTarget);
                         if (nextTarget.startsWith("dev/")) {
@@ -1049,7 +1063,7 @@ export function App() {
                     }}
                   >
                     <div className="scope-card__top">
-                      <strong>{scope.scope_type}/{scope.scope_value}</strong>
+                      <strong>{scope.scope_ref}</strong>
                       {scope.is_candidate_release ? <span className="badge accent">candidate</span> : null}
                     </div>
                     <span className="muted">entries {scope.entry_count}</span>
@@ -1286,7 +1300,7 @@ export function App() {
               headers={["business_key", "scope", "file_name", "source", `translations:${selectedLang}`]}
               rows={masterRows.map((row) => [
                 row.business_key,
-                `${row.scope_type}/${row.scope_value}`,
+                row.scope_ref,
                 row.file_name || "-",
                 row.source,
                 row.translations[selectedLang] || "",
@@ -1385,7 +1399,7 @@ export function App() {
                         items={
                           variant.bindings.length > 0
                             ? variant.bindings.map((binding) => [
-                                `${binding.scope_type}/${binding.scope_value}`,
+                                binding.scope_ref,
                                 formatTimestamp(binding.updated_at),
                               ])
                             : [["state", "No active bindings"]]
@@ -1962,11 +1976,11 @@ function navigate(route: AppRoute, setter: (route: AppRoute) => void) {
 }
 
 function buildScopeOptions(
-  scopes: Array<{ scope_type: string; scope_value: string; is_candidate_release?: boolean | null }>,
+  scopes: Array<{ scope_ref: string; is_candidate_release?: boolean | null }>,
 ) {
   return scopes.map((scope) => ({
-    value: `${scope.scope_type}/${scope.scope_value}`,
-    label: `${scope.scope_type}/${scope.scope_value}${scope.is_candidate_release ? " · candidate" : ""}`,
+    value: scope.scope_ref,
+    label: `${scope.scope_ref}${scope.is_candidate_release ? " · candidate" : ""}`,
   }));
 }
 

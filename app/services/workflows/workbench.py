@@ -1,47 +1,27 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable
 
-from app.services.demo.service import DemoService
+from app.services.branch.models import ScopeRef
+from app.services.branch.mutations import BranchMutationService
+from app.services.branch.sync import BranchSyncService
 from app.services.imports.service import ImportService
-from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.workflows.dev_versions import DevVersionService
-from app.services.workflows.fill import FillService
+from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.jobs import JobService
-from app.services.workflows.promote import PromoteService
+from app.services.variant.workflows import VariantWorkflowService
+from app.services.workflows.fill import FillService
 from app.services.workflows.qa import QaScanService
-from app.services.workflows.rel import RelService
-from app.services.variant.services import VariantLifecycleService
-from app.services.workflows.trash import TrashService
 
 
-class WorkbenchService:
+class WorkflowService:
     def __init__(self) -> None:
-        self.demo_service = DemoService()
-        self.dev_version_service = DevVersionService()
+        self.branch_mutation_service = BranchMutationService()
+        self.branch_sync_service = BranchSyncService()
         self.fill_service = FillService()
         self.import_service = ImportService()
         self.job_service = JobService()
-        self.project_service = ProjectService()
-        self.promote_service = PromoteService()
         self.qa_scan_service = QaScanService()
-        self.rel_service = RelService()
-        self.lifecycle_service = VariantLifecycleService()
-        self.trash_service = TrashService()
-
-    def get_state(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
-        return {
-            "project": self.project_service.require_project(project_id),
-            "schema": self.project_service.get_schema(project_id),
-            "rel_summary": self.rel_service.summary(project_id),
-            "candidate_dev_version": self.dev_version_service.get_candidate_release(project_id),
-            "dev_versions": self.dev_version_service.list_versions(project_id=project_id, active_only=True),
-            "trash_count": self.lifecycle_service.trash_count(project_id),
-            "imports": self.import_service.list_batches(project_id=project_id),
-            "jobs": self.job_service.list_jobs(project_id=project_id),
-            "samples": self.demo_service.list_samples(),
-        }
+        self.variant_workflow_service = VariantWorkflowService()
 
     def import_directory(self, input_dir: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         return self._run_job(
@@ -80,86 +60,61 @@ class WorkbenchService:
             project_id=project_id,
         )
 
-    def dev_import(
+    def branch_mutation(
         self,
-        import_batch_id: int,
-        version: str,
-        mark_as_candidate: bool = True,
+        scope_ref: str,
+        input_payload: dict[str, Any],
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
         return self._run_job(
-            "dev_import",
+            "branch_mutation",
             {
-                "import_batch_id": import_batch_id,
-                "version": version,
-                "mark_as_candidate": mark_as_candidate,
-                "project_id": project_id,
-            },
-            lambda _job_id: self._dev_import_action(import_batch_id, version, mark_as_candidate, project_id=project_id),
-            project_id=project_id,
-        )
-
-    def active_hotfix(
-        self,
-        business_key: str,
-        lang: str,
-        target_text: str,
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> dict[str, Any]:
-        return self._run_job(
-            "rel_hotfix_active",
-            {
-                "business_key": business_key,
-                "lang": lang,
-                "target_text": target_text,
+                "scope_ref": scope_ref,
+                "input": input_payload,
                 "project_id": project_id,
             },
             lambda _job_id: self._wrap_report(
-                self.rel_service.active_hotfix(business_key, lang, target_text, project_id=project_id)
-            ),
-            project_id=project_id,
-        )
-
-    def passive_hotfix(
-        self,
-        business_key: str,
-        source: str,
-        translations_by_lang: dict[str, str],
-        remarks_by_key: dict[str, str],
-        file_name: str | None = None,
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> dict[str, Any]:
-        return self._run_job(
-            "rel_hotfix_passive",
-            {
-                "business_key": business_key,
-                "source": source,
-                "translations_by_lang": translations_by_lang,
-                "remarks_by_key": remarks_by_key,
-                "file_name": file_name,
-                "project_id": project_id,
-            },
-            lambda _job_id: self._wrap_report(
-                self.rel_service.passive_hotfix(
-                    business_key,
-                    source,
-                    translations_by_lang,
-                    remarks_by_key,
-                    file_name=file_name,
+                self.branch_mutation_service.apply(
+                    ScopeRef.parse(scope_ref),
+                    input_payload,
                     project_id=project_id,
                 )
             ),
             project_id=project_id,
         )
 
-    def preview_promote(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
-        return self.promote_service.preview(version, project_id)
+    def branch_sync_preview(
+        self,
+        source_scope_ref: str,
+        target_scope_ref: str,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        return self.branch_sync_service.preview(
+            ScopeRef.parse(source_scope_ref),
+            ScopeRef.parse(target_scope_ref),
+            project_id=project_id,
+        )
 
-    def execute_promote(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+    def branch_sync_execute(
+        self,
+        source_scope_ref: str,
+        target_scope_ref: str,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
         return self._run_job(
-            "promote_execute",
-            {"version": version, "project_id": project_id},
-            lambda _job_id: self._wrap_report(self.promote_service.execute(version, project_id)),
+            "branch_sync_execute",
+            {
+                "source_scope_ref": source_scope_ref,
+                "target_scope_ref": target_scope_ref,
+                "project_id": project_id,
+            },
+            lambda _job_id: self._wrap_report(
+                self.branch_sync_service.execute(
+                    ScopeRef.parse(source_scope_ref),
+                    ScopeRef.parse(target_scope_ref),
+                    project_id=project_id,
+                )
+            ),
             project_id=project_id,
         )
 
@@ -173,8 +128,8 @@ class WorkbenchService:
             "trash_delete",
             {"scope_ref": scope_ref, "business_keys": business_keys, "project_id": project_id},
             lambda _job_id: self._wrap_report(
-                self.trash_service.delete(
-                    scope_ref,
+                self.variant_workflow_service.delete(
+                    ScopeRef.parse(scope_ref),
                     business_keys,
                     project_id=project_id,
                 )
@@ -191,7 +146,7 @@ class WorkbenchService:
             "trash_restore",
             {"variant_ids": variant_ids, "project_id": project_id},
             lambda _job_id: self._wrap_report(
-                self.trash_service.restore(
+                self.variant_workflow_service.restore(
                     variant_ids,
                     project_id=project_id,
                 )
@@ -268,8 +223,8 @@ class WorkbenchService:
                 "lang": lang,
                 "project_id": project_id,
             },
-            lambda job_id: self._qa_action(
-                self._stage_uploaded_folder(job_id, files, "qa_source"),
+            lambda _job_id: self._qa_action(
+                self._stage_uploaded_folder(_job_id, files, "qa_source"),
                 lang,
                 project_id=project_id,
             ),
@@ -295,21 +250,6 @@ class WorkbenchService:
         )
         report = self.import_service.import_report(summary["import_batch_id"], issues_only=False)
         return {"summary": summary, "report": report}
-
-    def _dev_import_action(
-        self,
-        import_batch_id: int,
-        version: str,
-        mark_as_candidate: bool,
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> dict[str, Any]:
-        result = self.dev_version_service.import_batch(
-            import_batch_id,
-            version,
-            mark_as_candidate,
-            project_id=project_id,
-        )
-        return self._wrap_report(result)
 
     def _fill_action(
         self,

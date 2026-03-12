@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.branch.service import BranchService
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.jobs import JobService
-from app.services.workflows.dev_versions import DevVersionService
-from app.services.workflows.rel import RelService
 
 
 class ProjectStateService:
     def __init__(self) -> None:
+        self.branch_service = BranchService()
         self.project_service = ProjectService()
-        self.rel_service = RelService()
-        self.dev_version_service = DevVersionService()
         self.import_service = ImportService()
         self.job_service = JobService()
 
@@ -21,9 +19,9 @@ class ProjectStateService:
         return {
             "project": self.project_service.require_project(project_id),
             "schema": self.project_service.get_schema(project_id),
-            "rel_summary": self.rel_service.summary(project_id),
-            "candidate_dev_version": self.dev_version_service.get_candidate_release(project_id),
-            "dev_versions": self.dev_version_service.list_versions(project_id=project_id, active_only=True),
+            "release_summary": self.branch_service.release_summary(project_id),
+            "candidate_dev_branch": self.branch_service.get_candidate_dev_branch(project_id),
+            "dev_branches": self.branch_service.list_dev_branches(project_id=project_id, active_only=True),
             "imports": self.import_service.list_batches(project_id=project_id),
             "jobs": self.job_service.list_jobs(project_id=project_id),
         }

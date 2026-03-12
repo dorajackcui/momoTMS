@@ -35,6 +35,12 @@ class BindingRecord(TypedDict):
     updated_at: str
 
 
+class BindingSummary(TypedDict):
+    scope_ref: str
+    created_at: str
+    updated_at: str
+
+
 class ScopeEntryRecord(TypedDict):
     entry_id: int
     project_id: int
@@ -46,8 +52,8 @@ class ScopeEntryRecord(TypedDict):
     updated_at: str
 
 
-class PreferredEntryView(TypedDict):
-    string_id: int
+class EntryVariantView(TypedDict):
+    variant_id: int
     entry_id: int
     project_id: int
     business_key: str
@@ -55,8 +61,8 @@ class PreferredEntryView(TypedDict):
     source: str
     translations: dict[str, str]
     remarks: dict[str, str]
-    memberships: list[dict[str, str]]
-    deleted_at: str | None
+    bindings: list[BindingSummary]
+    trashed_at: str | None
     trash_until: str | None
     restored_at: str | None
     created_at: str

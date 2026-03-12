@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import sqlite3
 from typing import Any
 
 from app.db import get_conn
@@ -130,9 +131,32 @@ class EntryRepository:
 
 
 class VariantRepository:
-    def create(self, entry_id: int, file_name: str, source: str, timestamp: str) -> int:
-        with get_conn() as conn:
+    def create(
+        self,
+        entry_id: int,
+        file_name: str,
+        source: str,
+        timestamp: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> int:
+        if conn is not None:
             cur = conn.execute(
+                """
+                INSERT INTO variants(
+                    entry_id,
+                    file_name,
+                    source,
+                    orphaned_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (entry_id, file_name, source, timestamp, timestamp, timestamp),
+            )
+            return int(cur.lastrowid)
+        with get_conn() as local_conn:
+            cur = local_conn.execute(
                 """
                 INSERT INTO variants(
                     entry_id,
@@ -274,13 +298,29 @@ class VariantRepository:
             )
         return self._hydrate_rows(rows)[0]
 
-    def list_by_entry(self, entry_id: int, include_trashed: bool = True) -> list[VariantRecord]:
+    def list_by_entry(
+        self,
+        entry_id: int,
+        include_trashed: bool = True,
+        conn: sqlite3.Connection | None = None,
+    ) -> list[VariantRecord]:
         params: list[Any] = [entry_id]
         where = ["entry_id = ?"]
         if not include_trashed:
             where.append("trashed_at IS NULL")
-        with get_conn() as conn:
+        if conn is not None:
             rows = conn.execute(
+                f"""
+                SELECT *
+                FROM variants
+                WHERE {' AND '.join(where)}
+                ORDER BY variant_id
+                """,
+                params,
+            ).fetchall()
+            return self._hydrate_rows(rows)
+        with get_conn() as local_conn:
+            rows = local_conn.execute(
                 f"""
                 SELECT *
                 FROM variants
@@ -318,8 +358,13 @@ class VariantRepository:
             grouped[int(variant["entry_id"])].append(variant)
         return grouped
 
-    def clear_orphaned_at(self, variant_id: int, timestamp: str) -> None:
-        with get_conn() as conn:
+    def clear_orphaned_at(
+        self,
+        variant_id: int,
+        timestamp: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        if conn is not None:
             conn.execute(
                 """
                 UPDATE variants
@@ -329,10 +374,36 @@ class VariantRepository:
                 """,
                 (timestamp, variant_id),
             )
+            return
+        with get_conn() as local_conn:
+            local_conn.execute(
+                """
+                UPDATE variants
+                SET orphaned_at = NULL,
+                    updated_at = ?
+                WHERE variant_id = ?
+                """,
+                (timestamp, variant_id),
+            )
 
-    def set_orphaned_at(self, variant_id: int, orphaned_at: str | None) -> None:
-        with get_conn() as conn:
+    def set_orphaned_at(
+        self,
+        variant_id: int,
+        orphaned_at: str | None,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        if conn is not None:
             conn.execute(
+                """
+                UPDATE variants
+                SET orphaned_at = ?
+                WHERE variant_id = ?
+                """,
+                (orphaned_at, variant_id),
+            )
+            return
+        with get_conn() as local_conn:
+            local_conn.execute(
                 """
                 UPDATE variants
                 SET orphaned_at = ?
@@ -422,9 +493,9 @@ class VariantRepository:
                 (timestamp, trash_until, timestamp, variant_id),
             )
 
-    def restore_variant(self, variant_id: int, timestamp: str) -> None:
+    def restore_variant(self, variant_id: int, timestamp: str) -> bool:
         with get_conn() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE variants
                 SET trashed_at = NULL,
@@ -432,9 +503,18 @@ class VariantRepository:
                     restored_at = ?,
                     updated_at = ?
                 WHERE variant_id = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM variants active
+                      WHERE active.entry_id = variants.entry_id
+                        AND active.source = variants.source
+                        AND active.trashed_at IS NULL
+                        AND active.variant_id != variants.variant_id
+                  )
                 """,
                 (timestamp, timestamp, variant_id),
             )
+        return cur.rowcount > 0
 
     def count_trashed_entries(self, project_id: int) -> int:
         with get_conn() as conn:
@@ -548,8 +628,9 @@ class ScopeBindingRepository:
         scope_value: str,
         variant_id: int,
         timestamp: str,
+        conn: sqlite3.Connection | None = None,
     ) -> int | None:
-        with get_conn() as conn:
+        if conn is not None:
             previous = conn.execute(
                 """
                 SELECT variant_id
@@ -560,6 +641,37 @@ class ScopeBindingRepository:
                 (scope_type, scope_value, entry_id),
             ).fetchone()
             conn.execute(
+                """
+                INSERT INTO scope_bindings(
+                    scope_type,
+                    scope_value,
+                    entry_id,
+                    variant_id,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scope_type, scope_value, entry_id)
+                DO UPDATE SET
+                    variant_id = excluded.variant_id,
+                    updated_at = excluded.updated_at
+                """,
+                (scope_type, scope_value, entry_id, variant_id, timestamp, timestamp),
+            )
+            if not previous:
+                return None
+            return int(previous["variant_id"])
+        with get_conn() as local_conn:
+            previous = local_conn.execute(
+                """
+                SELECT variant_id
+                FROM scope_bindings
+                WHERE scope_type = ? AND scope_value = ? AND entry_id = ?
+                LIMIT 1
+                """,
+                (scope_type, scope_value, entry_id),
+            ).fetchone()
+            local_conn.execute(
                 """
                 INSERT INTO scope_bindings(
                     scope_type,
@@ -646,9 +758,28 @@ class ScopeBindingRepository:
         scope_type: str,
         scope_value: str,
         variant_repo: VariantRepository,
+        conn: sqlite3.Connection | None = None,
     ) -> list[ScopeEntryRecord]:
-        with get_conn() as conn:
+        if conn is not None:
             rows = conn.execute(
+                """
+                SELECT e.entry_id, e.project_id, e.business_key, e.created_at AS entry_created_at, e.updated_at AS entry_updated_at,
+                       v.variant_id, v.file_name, v.source, v.orphaned_at, v.trashed_at, v.trash_until, v.restored_at, v.created_at AS variant_created_at, v.updated_at AS variant_updated_at,
+                       b.scope_type, b.scope_value
+                FROM scope_bindings b
+                JOIN entries e ON e.entry_id = b.entry_id
+                JOIN variants v ON v.variant_id = b.variant_id
+                WHERE e.project_id = ?
+                  AND b.scope_type = ?
+                  AND b.scope_value = ?
+                  AND v.trashed_at IS NULL
+                ORDER BY e.business_key
+                """,
+                (project_id, scope_type, scope_value),
+            ).fetchall()
+            return self._hydrate_bound_rows(rows, variant_repo)
+        with get_conn() as local_conn:
+            rows = local_conn.execute(
                 """
                 SELECT e.entry_id, e.project_id, e.business_key, e.created_at AS entry_created_at, e.updated_at AS entry_updated_at,
                        v.variant_id, v.file_name, v.source, v.orphaned_at, v.trashed_at, v.trash_until, v.restored_at, v.created_at AS variant_created_at, v.updated_at AS variant_updated_at,
@@ -809,8 +940,14 @@ class ScopeBindingRepository:
             ).fetchall()
         return self._hydrate_bound_rows(rows, variant_repo)
 
-    def clear_scope(self, project_id: int, scope_type: str, scope_value: str) -> list[BindingRecord]:
-        with get_conn() as conn:
+    def clear_scope(
+        self,
+        project_id: int,
+        scope_type: str,
+        scope_value: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> list[BindingRecord]:
+        if conn is not None:
             rows = conn.execute(
                 """
                 SELECT *
@@ -828,6 +965,25 @@ class ScopeBindingRepository:
                 """,
                 (scope_type, scope_value, project_id),
             )
+            return self._hydrate_rows(rows)
+        with get_conn() as local_conn:
+            rows = local_conn.execute(
+                """
+                SELECT *
+                FROM scope_bindings
+                WHERE scope_type = ? AND scope_value = ?
+                  AND entry_id IN (SELECT entry_id FROM entries WHERE project_id = ?)
+                """,
+                (scope_type, scope_value, project_id),
+            ).fetchall()
+            local_conn.execute(
+                """
+                DELETE FROM scope_bindings
+                WHERE scope_type = ? AND scope_value = ?
+                  AND entry_id IN (SELECT entry_id FROM entries WHERE project_id = ?)
+                """,
+                (scope_type, scope_value, project_id),
+            )
         return self._hydrate_rows(rows)
 
     def remove_scope_bindings(
@@ -835,12 +991,13 @@ class ScopeBindingRepository:
         project_id: int,
         scope_type: str,
         scope_values: list[str],
+        conn: sqlite3.Connection | None = None,
     ) -> list[BindingRecord]:
         if not scope_values:
             return []
         placeholders = ", ".join("?" for _ in scope_values)
         params = [scope_type, *scope_values, project_id]
-        with get_conn() as conn:
+        if conn is not None:
             rows = conn.execute(
                 f"""
                 SELECT *
@@ -852,6 +1009,27 @@ class ScopeBindingRepository:
                 params,
             ).fetchall()
             conn.execute(
+                f"""
+                DELETE FROM scope_bindings
+                WHERE scope_type = ?
+                  AND scope_value IN ({placeholders})
+                  AND entry_id IN (SELECT entry_id FROM entries WHERE project_id = ?)
+                """,
+                params,
+            )
+            return self._hydrate_rows(rows)
+        with get_conn() as local_conn:
+            rows = local_conn.execute(
+                f"""
+                SELECT *
+                FROM scope_bindings
+                WHERE scope_type = ?
+                  AND scope_value IN ({placeholders})
+                  AND entry_id IN (SELECT entry_id FROM entries WHERE project_id = ?)
+                """,
+                params,
+            ).fetchall()
+            local_conn.execute(
                 f"""
                 DELETE FROM scope_bindings
                 WHERE scope_type = ?
@@ -874,9 +1052,24 @@ class ScopeBindingRepository:
             ).fetchone()
         return int(row["count"] or 0)
 
-    def binding_counts_for_entry(self, entry_id: int) -> dict[int, int]:
-        with get_conn() as conn:
+    def binding_counts_for_entry(
+        self,
+        entry_id: int,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, int]:
+        if conn is not None:
             rows = conn.execute(
+                """
+                SELECT variant_id, COUNT(*) AS count
+                FROM scope_bindings
+                WHERE entry_id = ?
+                GROUP BY variant_id
+                """,
+                (entry_id,),
+            ).fetchall()
+            return {int(row["variant_id"]): int(row["count"] or 0) for row in rows}
+        with get_conn() as local_conn:
+            rows = local_conn.execute(
                 """
                 SELECT variant_id, COUNT(*) AS count
                 FROM scope_bindings
