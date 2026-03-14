@@ -1,8 +1,8 @@
 # Domain Model
 
-This file describes the business model the current runtime is built around.
+This document describes the business model the current runtime is built around.
 
-## Project and Schema
+## Project And Schema
 
 Each project owns:
 
@@ -45,9 +45,7 @@ It stores:
 - `source`
 - `translations`
 - `remarks`
-- lifecycle timestamps such as `orphaned_at`, `trashed_at`, `restored_at`
-
-The target invariant is one canonical non-trashed variant per `source` under an entry. Incompatible local DBs are reset by schema rebuild instead of being repaired through old-data semantic migration.
+- lifecycle timestamps such as `orphaned_at`, `trashed_at`, and `restored_at`
 
 ## Scope Binding
 
@@ -97,7 +95,7 @@ Branch states:
 - `base_only`
 - `target_only`
 
-Priority statuses used by compare/queue:
+Priority statuses used by compare and queue:
 
 - `already_translated`
 - `fillable`
@@ -114,10 +112,11 @@ Priority statuses used by compare/queue:
 - skips temporary `~$*.xlsx` files
 - validates required headers against project schema
 - stores row-level results in `imports` and `import_rows`
+- upload preview is sheet-based and returns suggested mappings per sheet
 
 ### Scope Mutation
 
-Branch writes are split by capability, not by `dev` / `rel` method names.
+Branch writes are split by capability, not by `dev` and `rel` method names.
 
 Input modes:
 
@@ -148,11 +147,11 @@ Mutation rules:
 - execute runs in one DB transaction
 - the `dev/<version> -> rel/current` policy still clears same-version-line dev bindings and marks those versions as promoted
 
-### Trash / Restore
+### Trash And Restore
 
 - delete is project-scoped and takes `scope_ref` plus `business_keys[]`
 - delete removes the active binding in the selected scope
-- if the affected variant no longer has any active bindings, lifecycle state refreshes it into `orphan` unless it is trashed
+- if the affected variant no longer has any active bindings, lifecycle state refreshes it into `orphan` unless it is already trashed
 - restore is project-scoped and takes `variant_ids[]`
 - restore clears trashed state for the selected variants only; it does not rebind scopes automatically
 
@@ -164,7 +163,7 @@ Mutation rules:
 
 ### QA
 
-- validates source/target content from workbook input
+- validates source and target content from workbook input
 - uses project schema to locate columns
 - remains a read-only validation workflow
 
@@ -172,6 +171,6 @@ Mutation rules:
 
 The runtime is branch-centric:
 
-- `variant` is the only content identity
+- `variant` is the content identity
 - `ScopeRef` is the branch identity exchanged across services and APIs
-- project-scoped `/branches` routes are the public read surface plus mutation/sync write surface for branch workflows
+- project-scoped `/branches` routes are the public read surface plus mutation and sync write surface for branch workflows

@@ -21,7 +21,7 @@ Current bottlenecks are more likely to come from:
 - workbook I/O through `openpyxl`
 - Python row loops
 - repeated DB round-trips
-- large in-memory compare/read-model operations
+- large in-memory compare and read-model operations
 
 ## Implemented Safeguards
 
@@ -34,7 +34,7 @@ The current code already includes:
 - paginated compare and queue APIs
 - repository-first scope projection for compare and translation queue
 - repository-level active-binding search for master query
-- stage timing in workflow/job summaries for import, branch mutation, scope sync, fill, and QA
+- stage timing in workflow and job summaries for import, branch mutation, scope sync, fill, and QA
 
 ## Hot Paths
 

@@ -1,4 +1,4 @@
-# IO and Excel Rules
+# Excel And IO Rules
 
 This file captures the stable normalization and workbook-processing rules used by import, fill, and QA.
 
@@ -65,7 +65,7 @@ Implemented mainly in `app/services/imports/service.py`.
 
 - read only `.xlsx` files
 - skip temporary files whose names start with `~$`
-- each sheet uses row `1` as header row
+- each sheet uses row `1` as the header row
 - rows missing normalized `business_key` are invalid
 - rows missing normalized `source` are invalid
 - import results are persisted row by row in `import_rows`
@@ -92,7 +92,7 @@ Implication:
 QA is schema-driven and read-only.
 
 - it reads source and selected target language columns from the workbook
-- it validates row-level source/target content
+- it validates row-level source and target content
 - it does not mutate runtime scope bindings
 
 ## Stability Notes

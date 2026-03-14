@@ -1,82 +1,59 @@
 # Momo TMS
 
-Momo TMS is a FastAPI + SQLite localization workflow prototype built around project-defined Excel schemas, scope-aware variants, import batches, fill, QA, promote, and job reports.
-
-This `README` is only the top-level entrypoint. For actual project context, start at [docs/README.md](docs/README.md).
-
-## Start Here
-
-- Docs index: [docs/README.md](docs/README.md)
-- App bootstrap: [`app/main.py`](/Users/zhiyangcui/Documents/Momo_TMS/app/main.py)
-- Database schema/bootstrap: [`app/db.py`](/Users/zhiyangcui/Documents/Momo_TMS/app/db.py)
-- Routers: [`app/routers`](/Users/zhiyangcui/Documents/Momo_TMS/app/routers)
-- Services: [`app/services`](/Users/zhiyangcui/Documents/Momo_TMS/app/services)
-- Frontend source: [`frontend`](/Users/zhiyangcui/Documents/Momo_TMS/frontend)
+Momo TMS is a FastAPI + SQLite localization workflow prototype for project-defined Excel schemas, scope-aware variants, branch comparison, fill, QA, sync, and job reports.
 
 ## Quick Start
+
+Backend:
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
-uvicorn app.main:app --reload
 ```
 
-Runtime surfaces:
+Frontend dependencies:
 
-- Product app: `http://127.0.0.1:8000/app`
-- Imports and jobs: `http://127.0.0.1:8000/app/imports`
-- Inspection: `http://127.0.0.1:8000/app/inspection`
-- New project: `http://127.0.0.1:8000/app/projects/new`
-- Variant workbench: `http://127.0.0.1:8000/variant-workbench` (deprecated internal regression page)
-- OpenAPI: `http://127.0.0.1:8000/docs`
+```bash
+npm install
+```
 
-If demo data is missing, call `POST /api/demo/reset`.
-
-## Frontend Build
+Build the product app and start the backend:
 
 ```bash
 npm run build:app
-```
-
-The frontend source lives in `frontend/`, but scripts are defined in the repository root `package.json`.
-
-## Test
-
-Backend:
-
-```bash
 . .venv/bin/activate
-python -m pytest -q
+uvicorn app.main:app --reload
 ```
 
-E2E:
+Useful URLs:
 
-```bash
-. .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
+- Product app: `http://127.0.0.1:8000/app`
+- New project: `http://127.0.0.1:8000/app/projects/new`
+- OpenAPI: `http://127.0.0.1:8000/docs`
 
-In another terminal:
+If you want fresh demo data, call `POST /api/demo/reset`.
 
-```bash
-PLAYWRIGHT_BROWSERS_PATH=.playwright npm run test:e2e
-```
+## Basic Workflow
 
-## Repo Structure
+1. Create a project and define translation and remark columns.
+2. Import `.xlsx` files into a project-scoped workflow.
+3. Use `/app` to compare branches, inspect queues, run fill and QA, and promote dev content to release.
 
-- `app/`: FastAPI app, routers, services, schemas, static assets
-- `frontend/`: React + TypeScript source for `/app`
-- `docs/`: agent-oriented project context
-- `tests/`: backend and E2E tests
+## Documentation
 
-## Current Runtime Notes
+- Human-facing docs index: [docs/README.md](docs/README.md)
+- Local setup: [docs/development/local-setup.md](docs/development/local-setup.md)
+- Testing and validation: [docs/development/testing-and-validation.md](docs/development/testing-and-validation.md)
+- Terminology explainer: [docs/concepts/terminology.md](docs/concepts/terminology.md)
+- API reference: [docs/reference/api.md](docs/reference/api.md)
+- Agent instructions: [AGENTS.md](AGENTS.md)
+- Archived legacy material: [archive/README.md](archive/README.md)
+
+## Current Runtime Boundaries
 
 - `/app` is the only operator-facing product surface.
-- New work should prefer project-scoped APIs such as `/api/projects/{project_id}/...`.
-- Default-project compatibility routes still exist for project `1` and stay frozen.
-- `/variant-workbench` is a deprecated internal validation page.
-- `GET /workbench` returns `410 Gone`.
-- The live write model is `entries + variants + scope_bindings` with canonical `business_key + source` variants.
-- `retained` has been removed completely; inactive variants are modeled only as `orphan` or `trashed`.
-- Project schema is defined at project creation time and is not editable afterward.
+- `GET /workbench` and `GET /variant-workbench` both return `410 Gone`.
+- Public APIs are project-scoped under `/api/projects/{project_id}/...`.
+- The live write model is canonical-source based: one entry per `business_key`, one non-trashed same-source variant under an entry, and scope bindings choose the active variant.
+- `retained` is gone; inactive variants are only `orphan` or `trashed`.
