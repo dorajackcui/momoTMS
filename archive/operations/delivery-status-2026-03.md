@@ -26,8 +26,8 @@ Archived on March 14, 2026 during the documentation system refactor. Keep this f
 
 ## Verification
 
-- Route inventory and request/response contracts now live in [../../docs/reference/api.md](../../docs/reference/api.md).
-- Local run commands, environment overrides, and validation commands now live in [../../docs/development/local-setup.md](../../docs/development/local-setup.md) and [../../docs/development/testing-and-validation.md](../../docs/development/testing-and-validation.md).
+- Route inventory and request/response contracts now live in [../../docs/contracts.md](../../docs/contracts.md).
+- Local run commands, environment overrides, and validation commands now live in [../../docs/runtime.md](../../docs/runtime.md).
 - Backend route regression is primarily covered by `tests/test_variant_api.py` and `tests/test_service_package_smoke.py`.
 - Branch workflow behavior is primarily covered by `tests/test_branch_service.py` and `tests/test_io_flows.py`.
 - Product flow coverage is primarily in `tests/e2e/product-app.spec.js` and `tests/e2e/product-app-empty.spec.js`.

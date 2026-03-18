@@ -42,18 +42,10 @@ If you want fresh demo data, call `POST /api/demo/reset`.
 
 ## Documentation
 
-- Human-facing docs index: [docs/README.md](docs/README.md)
-- Local setup: [docs/development/local-setup.md](docs/development/local-setup.md)
-- Testing and validation: [docs/development/testing-and-validation.md](docs/development/testing-and-validation.md)
-- Terminology explainer: [docs/concepts/terminology.md](docs/concepts/terminology.md)
-- API reference: [docs/reference/api.md](docs/reference/api.md)
+- Start here: [docs/README.md](docs/README.md)
+- Runtime and validation: [docs/runtime.md](docs/runtime.md)
+- System model and invariants: [docs/system.md](docs/system.md)
+- Routes and payload contracts: [docs/contracts.md](docs/contracts.md)
+- Workflow and Excel rules: [docs/workflows.md](docs/workflows.md)
 - Agent instructions: [AGENTS.md](AGENTS.md)
 - Archived legacy material: [archive/README.md](archive/README.md)
-
-## Current Runtime Boundaries
-
-- `/app` is the only operator-facing product surface.
-- `GET /workbench` and `GET /variant-workbench` both return `410 Gone`.
-- Public APIs are project-scoped under `/api/projects/{project_id}/...`.
-- The live write model is canonical-source based: one entry per `business_key`, one non-trashed same-source variant under an entry, and scope bindings choose the active variant.
-- `retained` is gone; inactive variants are only `orphan` or `trashed`.

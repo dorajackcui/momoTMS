@@ -9,7 +9,7 @@ Use this checklist for self-review or Codex `/review`.
 
 ## Route And Docs Drift
 
-- If a route, payload, or SPA flow changed, were the matching docs under `docs/reference/`, `docs/development/`, or `docs/architecture/` updated?
+- If a route, payload, SPA flow, runtime command, or workflow rule changed, was the matching owner doc under `docs/` updated?
 - Does `README.md` still match the current public runtime surfaces and commands?
 - Are all referenced links, file paths, and commands still valid?
 
@@ -29,8 +29,9 @@ Use this checklist for self-review or Codex `/review`.
 - Were the right commands run for this change type?
 - If not, does the final summary say exactly what was not run and why?
 - Is there enough evidence that the change works beyond “the code looks right”?
+- If docs, routes, commands, local links, repo file paths, or test references changed, did `.venv/bin/python scripts/validate_docs.py` run, and were wording or ownership claims still checked manually?
 
 ## Documentation Follow-Through
 
-- Did the diff update the narrowest source-of-truth doc rather than copy the same fact into multiple files?
+- Did the diff update the owner doc chosen from `AGENTS.md` and `docs/README.md` rather than copy the same fact into multiple files?
 - Are historical notes preserved under `archive/` instead of mixed into active guidance?

@@ -1,6 +1,6 @@
 # Performance
 
-This document captures the current scale assumptions and optimization posture.
+This document captures a historical performance snapshot that is no longer part of the active hot path for agents.
 
 ## Expected Scale
 
@@ -12,20 +12,18 @@ The runtime is designed around batch workflows such as:
 
 This is a batch-processing system, not an interactive row-by-row editor.
 
-## Current Posture
+## Historical Posture
 
-SQLite is still the active storage engine and is acceptable for the current phase.
+SQLite was the active storage engine in this phase and remained acceptable for the current product shape.
 
-Current bottlenecks are more likely to come from:
+At the time, likely bottlenecks were:
 
 - workbook I/O through `openpyxl`
 - Python row loops
 - repeated DB round-trips
 - large in-memory compare and read-model operations
 
-## Implemented Safeguards
-
-The current code already includes:
+## Implemented Safeguards At The Time
 
 - batched persistence of import rows
 - preloading and bulk creation during import-batch mutations
@@ -35,23 +33,6 @@ The current code already includes:
 - repository-first scope projection for compare and translation queue
 - repository-level active-binding search for master query
 - stage timing in workflow and job summaries for import, branch mutation, scope sync, fill, and QA
-
-## Hot Paths
-
-Watch these modules when working on performance:
-
-- `app/services/imports/service.py`
-- `app/services/branch/service.py`
-- `app/services/workflows/fill.py`
-- `app/services/workflows/qa.py`
-- `app/services/read_models/service.py`
-
-## Near-Term Guidance
-
-- keep long-running workflows job-based
-- avoid moving heavy work into synchronous request handlers
-- avoid re-hydrating full scopes if page-sized slices are enough
-- prefer batching and caching before considering a database migration
 
 ## Local Baseline
 
@@ -75,10 +56,4 @@ Observed timings:
 - QA scan: `93 ms`
   - `qa_scan`: `93 ms`
 
-These numbers are local baselines, not SLOs. Use them to catch regressions when compare logic, workbook parsing, or workflow orchestration changes.
-
-## Non-Goals
-
-- no move away from SQLite right now
-- no Translation Memory performance work in this phase
-- no inline editing optimization, because inline editing is not a product goal
+These numbers were local baselines, not SLOs.

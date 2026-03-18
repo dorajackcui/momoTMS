@@ -1,6 +1,6 @@
 # PRD 0001: Canonical Source Variant Model (Archived)
 
-Archived on March 14, 2026 during the documentation system refactor. This PRD is implemented and preserved for rationale, migration assumptions, and acceptance context. Active runtime guidance now lives in `docs/architecture/` and `docs/reference/`.
+Archived on March 14, 2026 during the documentation system refactor. This PRD is implemented and preserved for rationale, migration assumptions, and acceptance context. Active runtime guidance now lives in `docs/system.md`, `docs/contracts.md`, and `docs/workflows.md`.
 
 ## Status
 
