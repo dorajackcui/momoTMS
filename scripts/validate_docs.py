@@ -14,6 +14,7 @@ ACTIVE_DOCS = [
     Path("docs/system.md"),
     Path("docs/contracts.md"),
     Path("docs/workflows.md"),
+    Path("docs/user-guide.md"),
 ]
 MARKDOWN_SCAN_DIRS = [
     Path("docs"),
@@ -196,7 +197,7 @@ def main() -> int:
 
     print(f"Documentation validation passed for {len(ACTIVE_DOCS)} active docs and {len(files)} checked Markdown files.")
     print("- scanned repo-root Markdown plus Markdown under docs/ and archive/")
-    print("- docs/ contains exactly the 5 active owner docs")
+    print(f"- docs/ contains exactly the {len(ACTIVE_DOCS)} active owner docs")
     print("- each active doc has the owner-template headings")
     print("- local Markdown links resolved")
     print("- repo-relative file and directory references in code spans and fenced command examples resolved")

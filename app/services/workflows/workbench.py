@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
-from app.services.branch.sync import BranchSyncService
+from app.services.branch.sync import BranchReplaceService
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.jobs import JobService
@@ -16,7 +16,7 @@ from app.services.workflows.qa import QaScanService
 class WorkflowService:
     def __init__(self) -> None:
         self.branch_mutation_service = BranchMutationService()
-        self.branch_sync_service = BranchSyncService()
+        self.branch_replace_service = BranchReplaceService()
         self.fill_service = FillService()
         self.import_service = ImportService()
         self.job_service = JobService()
@@ -62,20 +62,20 @@ class WorkflowService:
 
     def branch_mutation(
         self,
-        scope_ref: str,
+        branch_ref: str,
         input_payload: dict[str, Any],
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
         return self._run_job(
             "branch_mutation",
             {
-                "scope_ref": scope_ref,
+                "branch_ref": branch_ref,
                 "input": input_payload,
                 "project_id": project_id,
             },
             lambda _job_id: self._wrap_report(
                 self.branch_mutation_service.apply(
-                    ScopeRef.parse(scope_ref),
+                    BranchRef.parse(branch_ref),
                     input_payload,
                     project_id=project_id,
                 )
@@ -83,35 +83,35 @@ class WorkflowService:
             project_id=project_id,
         )
 
-    def branch_sync_preview(
+    def branch_replace_preview(
         self,
-        source_scope_ref: str,
-        target_scope_ref: str,
+        source_branch_ref: str,
+        target_branch_ref: str,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
-        return self.branch_sync_service.preview(
-            ScopeRef.parse(source_scope_ref),
-            ScopeRef.parse(target_scope_ref),
+        return self.branch_replace_service.preview(
+            BranchRef.parse(source_branch_ref),
+            BranchRef.parse(target_branch_ref),
             project_id=project_id,
         )
 
-    def branch_sync_execute(
+    def branch_replace_execute(
         self,
-        source_scope_ref: str,
-        target_scope_ref: str,
+        source_branch_ref: str,
+        target_branch_ref: str,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
         return self._run_job(
-            "branch_sync_execute",
+            "branch_replace_execute",
             {
-                "source_scope_ref": source_scope_ref,
-                "target_scope_ref": target_scope_ref,
+                "source_branch_ref": source_branch_ref,
+                "target_branch_ref": target_branch_ref,
                 "project_id": project_id,
             },
             lambda _job_id: self._wrap_report(
-                self.branch_sync_service.execute(
-                    ScopeRef.parse(source_scope_ref),
-                    ScopeRef.parse(target_scope_ref),
+                self.branch_replace_service.execute(
+                    BranchRef.parse(source_branch_ref),
+                    BranchRef.parse(target_branch_ref),
                     project_id=project_id,
                 )
             ),
@@ -120,16 +120,16 @@ class WorkflowService:
 
     def trash_delete(
         self,
-        scope_ref: str,
+        branch_ref: str,
         business_keys: list[str],
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
         return self._run_job(
             "trash_delete",
-            {"scope_ref": scope_ref, "business_keys": business_keys, "project_id": project_id},
+            {"branch_ref": branch_ref, "business_keys": business_keys, "project_id": project_id},
             lambda _job_id: self._wrap_report(
                 self.variant_workflow_service.delete(
-                    ScopeRef.parse(scope_ref),
+                    BranchRef.parse(branch_ref),
                     business_keys,
                     project_id=project_id,
                 )

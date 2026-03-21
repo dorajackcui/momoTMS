@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.routers.common import handle_errors, parse_scope_ref
+from app.routers.common import handle_errors, parse_branch_ref
 from app.schemas import BranchCompareResponse, BranchListResponse, BranchQueueResponse, MasterEntryResponse, MasterSearchResponse
 from app.services.branch.service import BranchService
 
@@ -17,8 +17,8 @@ def project_branch_summary(project_id: int, lang: str | None = Query(default=Non
 @router.get("/api/projects/{project_id}/branches/compare", response_model=BranchCompareResponse)
 def project_branch_compare(
     project_id: int,
-    base_scope_ref: str = Query(...),
-    target_scope_ref: str = Query(...),
+    base_branch_ref: str = Query(...),
+    target_branch_ref: str = Query(...),
     lang: str | None = Query(default=None),
     search: str | None = Query(default=None),
     state: list[str] | None = Query(default=None),
@@ -30,8 +30,8 @@ def project_branch_compare(
     return handle_errors(
         lambda: BranchCompareResponse(
             **BranchService().compare_branches(
-                parse_scope_ref(base_scope_ref),
-                parse_scope_ref(target_scope_ref),
+                parse_branch_ref(base_branch_ref),
+                parse_branch_ref(target_branch_ref),
                 project_id=project_id,
                 lang=lang,
                 search=search,
@@ -48,7 +48,7 @@ def project_branch_compare(
 @router.get("/api/projects/{project_id}/branches/queue", response_model=BranchQueueResponse)
 def project_branch_queue(
     project_id: int,
-    target_scope_ref: str = Query(...),
+    target_branch_ref: str = Query(...),
     lang: str | None = Query(default=None),
     search: str | None = Query(default=None),
     priority_status: list[str] | None = Query(default=None),
@@ -58,7 +58,7 @@ def project_branch_queue(
     return handle_errors(
         lambda: BranchQueueResponse(
             **BranchService().translation_queue(
-                parse_scope_ref(target_scope_ref),
+                parse_branch_ref(target_branch_ref),
                 project_id=project_id,
                 lang=lang,
                 search=search,

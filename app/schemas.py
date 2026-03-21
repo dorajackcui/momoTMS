@@ -28,7 +28,7 @@ class ProjectSchemaSummary(BaseModel):
 
 
 class BindingSummary(BaseModel):
-    scope_ref: str
+    branch_ref: str
     created_at: str
     updated_at: str
 
@@ -53,8 +53,8 @@ class EntryVariantView(BaseModel):
 class DevBranchSummary(BaseModel):
     project_id: int
     version: str
-    version_line: str
-    scope_ref: str
+    version_series: str
+    branch_ref: str
     is_candidate_release: bool
     entry_count: int
     created_at: str
@@ -119,9 +119,9 @@ class JobDetail(BaseModel):
     report: ReportPayload
 
 
-class BranchSyncPreview(BaseModel):
-    source_scope_ref: str
-    target_scope_ref: str
+class BranchReplacePreview(BaseModel):
+    source_branch_ref: str
+    target_branch_ref: str
     target_entry_count: int
     added_to_target_count: int
     already_in_target_count: int
@@ -143,19 +143,19 @@ class ProductStateResponse(BaseModel):
 
 
 class BranchSummaryItem(BaseModel):
-    scope_ref: str
+    branch_ref: str
     entry_count: int
     status_counts: dict[str, int] = Field(default_factory=dict)
-    version_line: str | None = None
+    version_series: str | None = None
     is_candidate_release: bool | None = None
 
 
 class BranchListResponse(BaseModel):
-    scopes: list[BranchSummaryItem] = Field(default_factory=list)
+    branches: list[BranchSummaryItem] = Field(default_factory=list)
 
 
 class BranchSide(BaseModel):
-    scope_ref: str
+    branch_ref: str
     variant_id: int
     file_name: str | None = None
     source: str
@@ -183,8 +183,8 @@ class BranchCompareRow(BaseModel):
 
 
 class BranchCompareResponse(BaseModel):
-    base_scope_ref: str
-    target_scope_ref: str
+    base_branch_ref: str
+    target_branch_ref: str
     status_counts: dict[str, int] = Field(default_factory=dict)
     rows: list[BranchCompareRow] = Field(default_factory=list)
     priority_rows: list[TranslationPriorityRow] = Field(default_factory=list)
@@ -195,7 +195,7 @@ class BranchCompareResponse(BaseModel):
 
 
 class BranchQueueResponse(BaseModel):
-    target_scope_ref: str
+    target_branch_ref: str
     lang: str | None = None
     status_counts: dict[str, int] = Field(default_factory=dict)
     rows: list[TranslationPriorityRow] = Field(default_factory=list)
@@ -206,7 +206,7 @@ class BranchQueueResponse(BaseModel):
 
 class MasterQueryRow(BaseModel):
     business_key: str
-    scope_ref: str
+    branch_ref: str
     variant_id: int
     file_name: str | None = None
     source: str
@@ -297,17 +297,17 @@ BranchMutationInput = Annotated[
 
 
 class BranchMutationRequest(BaseModel):
-    scope_ref: str
+    branch_ref: str
     input: BranchMutationInput
 
 
-class BranchSyncRequest(BaseModel):
-    source_scope_ref: str
-    target_scope_ref: str
+class BranchReplaceRequest(BaseModel):
+    source_branch_ref: str
+    target_branch_ref: str
 
 
 class ScopedTrashDeleteRequest(BaseModel):
-    scope_ref: str
+    branch_ref: str
     business_keys: list[str]
 
 

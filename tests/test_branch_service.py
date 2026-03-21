@@ -3,10 +3,11 @@ from pathlib import Path
 import pytest
 
 from app.db import get_db_path
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
+from app.services.branch.policy import AuthorityPolicy
 from app.services.branch.service import BranchService
-from app.services.branch.sync import BranchSyncService
+from app.services.branch.sync import BranchReplaceService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.variant.inspection import VariantInspectionService
@@ -26,10 +27,10 @@ def test_branch_import_paths_and_promote_cleanup() -> None:
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
     read_service = BranchService()
     mutation_service = BranchMutationService()
-    sync_service = BranchSyncService()
+    replace_service = BranchReplaceService()
 
     result = mutation_service.apply(
-        ScopeRef.dev(sample["dev_version"]),
+        BranchRef.dev(sample["dev_version"]),
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
@@ -42,13 +43,13 @@ def test_branch_import_paths_and_promote_cleanup() -> None:
     assert statuses["dev.mutable"] == "CREATED_AND_BOUND_VARIANT"
     assert statuses["dev.new.entry"] == "CREATED_AND_BOUND_VARIANT"
 
-    preview = sync_service.preview(ScopeRef.dev(sample["dev_version"]), ScopeRef.rel_current())
-    assert preview["source_scope_ref"] == f"dev/{sample['dev_version']}"
-    assert preview["target_scope_ref"] == "rel/current"
+    preview = replace_service.preview(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
+    assert preview["source_branch_ref"] == f"dev/{sample['dev_version']}"
+    assert preview["target_branch_ref"] == "rel/current"
     assert preview["target_entry_count"] >= 4
 
-    sync_service.execute(ScopeRef.dev(sample["dev_version"]), ScopeRef.rel_current())
-    rel_entries = read_service.list_scope_entries(ScopeRef.rel_current())
+    replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
+    rel_entries = read_service.list_branch_entries(BranchRef.rel_current())
     rel_keys = {item["business_key"] for item in rel_entries}
     assert {"rel.locked.same", "rel.locked.changed", "dev.mutable", "dev.new.entry"}.issubset(rel_keys)
     assert read_service.list_dev_branches(active_only=True) == []
@@ -59,9 +60,9 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
     read_service = BranchService()
     mutation_service = BranchMutationService()
-    sync_service = BranchSyncService()
+    replace_service = BranchReplaceService()
     mutation_service.apply(
-        ScopeRef.dev(sample["dev_version"]),
+        BranchRef.dev(sample["dev_version"]),
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
@@ -69,22 +70,22 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
         },
     )
 
-    rel_keys_before = {item["business_key"] for item in read_service.list_scope_entries(ScopeRef.rel_current())}
+    rel_keys_before = {item["business_key"] for item in read_service.list_branch_entries(BranchRef.rel_current())}
     dev_keys_before = {
-        item["business_key"] for item in read_service.list_scope_entries(ScopeRef.dev(sample["dev_version"]))
+        item["business_key"] for item in read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
     }
 
     def fail_cleanup(*args, **kwargs):
         raise RuntimeError("promote cleanup failed")
 
-    monkeypatch.setattr(sync_service.bindings.bindings, "remove_scope_bindings", fail_cleanup)
+    monkeypatch.setattr(replace_service.bindings.bindings, "remove_scope_bindings", fail_cleanup)
 
     with pytest.raises(RuntimeError, match="promote cleanup failed"):
-        sync_service.execute(ScopeRef.dev(sample["dev_version"]), ScopeRef.rel_current())
+        replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
 
-    rel_keys_after = {item["business_key"] for item in read_service.list_scope_entries(ScopeRef.rel_current())}
+    rel_keys_after = {item["business_key"] for item in read_service.list_branch_entries(BranchRef.rel_current())}
     dev_keys_after = {
-        item["business_key"] for item in read_service.list_scope_entries(ScopeRef.dev(sample["dev_version"]))
+        item["business_key"] for item in read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
     }
     assert rel_keys_after == rel_keys_before
     assert dev_keys_after == dev_keys_before
@@ -98,7 +99,7 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     variant_service = VariantWorkflowService()
 
     active = mutation_service.apply(
-        ScopeRef.rel_current(),
+        BranchRef.rel_current(),
         {
             "kind": "direct",
             "changes": [
@@ -114,7 +115,7 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     assert active["summary"]["updated_bound_variant_count"] == 1
 
     passive = mutation_service.apply(
-        ScopeRef.rel_current(),
+        BranchRef.rel_current(),
         {
             "kind": "direct",
             "changes": [
@@ -132,7 +133,7 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
 
     before_delete = VariantInspectionService().entry_variants("common.welcome")
     target_variant_id = before_delete["variants"][0]["variant_id"]
-    delete_result = variant_service.delete(ScopeRef.rel_current(), ["common.welcome"])
+    delete_result = variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     assert delete_result["summary"]["trashed_variant_count"] == 1
 
     restore_result = variant_service.restore([target_variant_id])
@@ -150,7 +151,7 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
     inspection = VariantInspectionService()
 
     conflicted_variant_id = inspection.entry_variants("common.welcome")["variants"][0]["variant_id"]
-    variant_service.delete(ScopeRef.rel_current(), ["common.welcome"])
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     conflict_entry = read_service.entries.get_entry("common.welcome")
     assert conflict_entry is not None
     conflict_variant = read_service.catalog.get_variant(conflicted_variant_id)
@@ -161,7 +162,7 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
         conflict_variant["translations"],
         conflict_variant["remarks"],
     )
-    read_service.bindings.bind_scope(int(conflict_entry["entry_id"]), ScopeRef.dev("9.9.9"), replacement_variant_id)
+    read_service.bindings.bind_scope(int(conflict_entry["entry_id"]), BranchRef.dev("2.4.1"), replacement_variant_id)
 
     restore_entry = read_service.entries.get_or_create_entry("restore.ok")
     restore_variant_id = read_service.catalog.create_variant(
@@ -171,8 +172,8 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
         {"fr": "Restore target"},
         {"context": "restore"},
     )
-    read_service.bindings.bind_scope(int(restore_entry["entry_id"]), ScopeRef.rel_current(), restore_variant_id)
-    variant_service.delete(ScopeRef.rel_current(), ["restore.ok"])
+    read_service.bindings.bind_scope(int(restore_entry["entry_id"]), BranchRef.rel_current(), restore_variant_id)
+    variant_service.delete(BranchRef.rel_current(), ["restore.ok"])
 
     restore_result = variant_service.restore([conflicted_variant_id, restore_variant_id])
     statuses = {row["variant_id"]: row["status"] for row in restore_result["report_rows"]}
@@ -191,7 +192,7 @@ def test_direct_dev_mutation_reuses_rel_owned_variant_and_creates_missing_entrie
     read_service = BranchService()
 
     result = mutation_service.apply(
-        ScopeRef.dev("9.9.9"),
+        BranchRef.dev("2.4.3"),
         {
             "kind": "direct",
             "changes": [
@@ -214,5 +215,77 @@ def test_direct_dev_mutation_reuses_rel_owned_variant_and_creates_missing_entrie
     assert statuses["rel.locked.same"] == "BOUND_EXISTING_VARIANT"
     assert statuses["dev.direct.new"] == "CREATED_AND_BOUND_VARIANT"
 
-    dev_entries = read_service.list_scope_entries(ScopeRef.dev("9.9.9"))
+    dev_entries = read_service.list_branch_entries(BranchRef.dev("2.4.3"))
     assert any(item["business_key"] == "dev.direct.new" for item in dev_entries)
+
+
+def test_branch_authority_prefers_higher_series_and_later_patch() -> None:
+    assert AuthorityPolicy.key_for_branch(BranchRef.rel_current()) > AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.3"))
+    assert AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.3")) > AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.2"))
+    assert AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.1")) > AuthorityPolicy.key_for_branch(BranchRef.dev("2.5.3"))
+
+
+def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> None:
+    reset_demo()
+    entries = BranchService().entries
+    bindings = BranchService().bindings
+    catalog = BranchService().catalog
+    mutation_service = BranchMutationService()
+
+    entry = entries.get_or_create_entry("authority.series", project_id=1)
+    variant_id = catalog.create_variant(
+        int(entry["entry_id"]),
+        "authority.xlsx",
+        "Shared source",
+        {"fr": "Series owner"},
+        {"context": "authority"},
+    )
+    bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.series",
+                    "source": "Shared source",
+                    "translations_by_lang": {"fr": "Should not win"},
+                }
+            ],
+        },
+    )
+
+    assert result["report_rows"][0]["status"] == "BOUND_EXISTING_VARIANT"
+    assert catalog.get_variant(variant_id)["translations"]["fr"] == "Series owner"
+
+
+def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None:
+    reset_demo()
+    service = BranchService()
+    entry = service.entries.get_or_create_entry("authority.patch", project_id=1)
+    variant_id = service.catalog.create_variant(
+        int(entry["entry_id"]),
+        "authority.xlsx",
+        "Shared source",
+        {"fr": "Patch owner"},
+        {"context": "authority"},
+    )
+    service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+
+    result = BranchMutationService().apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.patch",
+                    "source": "Shared source",
+                    "translations_by_lang": {"fr": "Patch winner"},
+                }
+            ],
+        },
+    )
+
+    assert result["report_rows"][0]["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
+    assert service.catalog.get_variant(variant_id)["translations"]["fr"] == "Patch winner"

@@ -49,18 +49,18 @@ test("loads the product app, resets project-scoped UI on switch, and exercises j
   await expect(page.getByTestId("app-job-detail")).toContainText("persist_import");
   await expect(page.getByTestId("app-job-report-link")).toBeVisible();
 
-  await page.getByTestId("app-dev-version-input").fill("2.2.3");
+  await page.getByTestId("app-dev-version-input").fill("2.4.3");
   await page.getByTestId("app-run-dev-import").click();
   await expect(page.getByTestId("app-jobs-list")).toContainText("branch_mutation");
   await expect(page.getByTestId("app-job-detail")).toContainText("apply_scope_mutation");
 
   await page.goto("/app/compare");
   await page.getByTestId("app-base-scope").selectOption("rel/current");
-  await page.getByTestId("app-target-scope").selectOption("dev/2.2.3");
+  await page.getByTestId("app-target-scope").selectOption("dev/2.4.3");
   await expect(page.getByTestId("compare-table")).toContainText("rel.locked.changed");
 
   await page.goto("/app/queue");
-  await page.getByTestId("app-queue-target").selectOption("dev/2.2.3");
+  await page.getByTestId("app-queue-target").selectOption("dev/2.4.3");
   await expect(page.getByTestId("queue-table")).toContainText("dev.new.entry");
 
   await page.goto("/app/master");
@@ -69,10 +69,10 @@ test("loads the product app, resets project-scoped UI on switch, and exercises j
   await expect(page.getByTestId("master-table")).toContainText("rel.locked.same");
 
   await page.goto("/app/imports");
-  await page.getByTestId("app-promote-preview").click();
-  await expect(page.getByText("promote preview")).toBeVisible();
-  await page.getByTestId("app-promote-execute").click();
-  await expect(page.getByTestId("app-job-detail")).toContainText("execute_scope_sync");
+  await page.getByTestId("app-replace-preview").click();
+  await expect(page.getByText("replace preview")).toBeVisible();
+  await page.getByTestId("app-replace-execute").click();
+  await expect(page.getByTestId("app-job-detail")).toContainText("execute_branch_replace");
 
   await page.getByTestId("app-fill-folder").setInputFiles(fillDir);
   await expect(page.getByTestId("app-job-detail")).toContainText("fill_export");

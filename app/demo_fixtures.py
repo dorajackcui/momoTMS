@@ -6,7 +6,7 @@ SAMPLES: list[dict] = [
         "label": "Canonical Strings Core Cycle",
         "description": "覆盖目录导入、dev import、rel hotfix、promote、trash、fill 与 QA。",
         "lang": "fr",
-        "dev_version": "2.2.3",
+        "dev_version": "2.4.3",
         "active_hotfix": {
             "business_key": "common.welcome",
             "lang": "fr",
@@ -93,7 +93,7 @@ SAMPLES: list[dict] = [
         ],
         "import_workbooks": [
             {
-                "relative_path": "incoming/dev_2_2_3.xlsx",
+                "relative_path": "incoming/dev_2_4_3.xlsx",
                 "sheets": [
                     {
                         "title": "Strings",

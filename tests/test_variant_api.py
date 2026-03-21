@@ -33,7 +33,7 @@ def test_branch_routes_and_removed_compatibility_surface() -> None:
         mutation = client.post(
             "/api/projects/1/branches/mutations",
             json={
-                "scope_ref": f"dev/{sample['dev_version']}",
+                "branch_ref": f"dev/{sample['dev_version']}",
                 "input": {
                     "kind": "import_batch",
                     "import_batch_id": batch["import_batch_id"],
@@ -45,43 +45,43 @@ def test_branch_routes_and_removed_compatibility_surface() -> None:
 
         branches_response = client.get("/api/projects/1/branches", params={"lang": "fr"})
         assert branches_response.status_code == 200
-        scopes = branches_response.json()["scopes"]
-        assert any(item["scope_ref"] == "rel/current" for item in scopes)
-        assert any(item["scope_ref"] == f"dev/{sample['dev_version']}" for item in scopes)
+        branches = branches_response.json()["branches"]
+        assert any(item["branch_ref"] == "rel/current" for item in branches)
+        assert any(item["branch_ref"] == f"dev/{sample['dev_version']}" for item in branches)
 
         compare_response = client.get(
             "/api/projects/1/branches/compare",
             params={
-                "base_scope_ref": "rel/current",
-                "target_scope_ref": f"dev/{sample['dev_version']}",
+                "base_branch_ref": "rel/current",
+                "target_branch_ref": f"dev/{sample['dev_version']}",
                 "lang": "fr",
             },
         )
         assert compare_response.status_code == 200
         compare_payload = compare_response.json()
-        assert compare_payload["base_scope_ref"] == "rel/current"
-        assert compare_payload["target_scope_ref"] == f"dev/{sample['dev_version']}"
+        assert compare_payload["base_branch_ref"] == "rel/current"
+        assert compare_payload["target_branch_ref"] == f"dev/{sample['dev_version']}"
 
         queue_response = client.get(
             "/api/projects/1/branches/queue",
-            params={"target_scope_ref": f"dev/{sample['dev_version']}", "lang": "fr"},
+            params={"target_branch_ref": f"dev/{sample['dev_version']}", "lang": "fr"},
         )
         assert queue_response.status_code == 200
-        assert queue_response.json()["target_scope_ref"] == f"dev/{sample['dev_version']}"
+        assert queue_response.json()["target_branch_ref"] == f"dev/{sample['dev_version']}"
 
         master_response = client.get("/api/projects/1/branches/master/entries/rel.locked.same")
         assert master_response.status_code == 200
-        assert any(row["scope_ref"] == "rel/current" for row in master_response.json()["results"])
+        assert any(row["branch_ref"] == "rel/current" for row in master_response.json()["results"])
 
-        sync_preview = client.post(
-            "/api/projects/1/branches/sync/preview",
+        replace_preview = client.post(
+            "/api/projects/1/branches/replace/preview",
             json={
-                "source_scope_ref": f"dev/{sample['dev_version']}",
-                "target_scope_ref": "rel/current",
+                "source_branch_ref": f"dev/{sample['dev_version']}",
+                "target_branch_ref": "rel/current",
             },
         )
-        assert sync_preview.status_code == 200
-        assert sync_preview.json()["source_scope_ref"] == f"dev/{sample['dev_version']}"
+        assert replace_preview.status_code == 200
+        assert replace_preview.json()["source_branch_ref"] == f"dev/{sample['dev_version']}"
 
         assert client.post("/api/projects/1/branches/dev/import", json={}).status_code == 405
         assert client.post(f"/api/projects/1/branches/dev/{sample['dev_version']}/promote/preview").status_code == 404
@@ -101,9 +101,9 @@ def test_branch_read_routes_return_404_for_missing_project() -> None:
             client.get("/api/projects/999/branches"),
             client.get(
                 "/api/projects/999/branches/compare",
-                params={"base_scope_ref": "rel/current", "target_scope_ref": "dev/1.0.0"},
+                params={"base_branch_ref": "rel/current", "target_branch_ref": "dev/2.4.1"},
             ),
-            client.get("/api/projects/999/branches/queue", params={"target_scope_ref": "dev/1.0.0"}),
+            client.get("/api/projects/999/branches/queue", params={"target_branch_ref": "dev/2.4.1"}),
             client.get("/api/projects/999/branches/master/entries/common.welcome"),
             client.get("/api/projects/999/branches/master/search", params={"source": "Welcome {0}"}),
             client.get("/api/projects/999/branches/dev"),

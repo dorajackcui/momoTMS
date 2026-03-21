@@ -8,7 +8,7 @@ from typing import Any
 
 from openpyxl import Workbook
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.db import get_db_path, init_db
 from app.demo_fixtures import SAMPLES
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
@@ -90,11 +90,11 @@ class DemoService:
             )
             for membership in item.get("memberships", []):
                 if membership == "rel":
-                    self.bindings.bind_scope(int(entry["entry_id"]), ScopeRef.rel_current(), string_id)
+                    self.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), string_id)
                 elif membership.startswith("dev:"):
                     self.bindings.bind_scope(
                         int(entry["entry_id"]),
-                        ScopeRef.dev(membership.split(":", 1)[1]),
+                        BranchRef.dev(membership.split(":", 1)[1]),
                         string_id,
                     )
 

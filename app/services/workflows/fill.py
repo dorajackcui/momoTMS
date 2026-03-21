@@ -9,7 +9,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import load_workbook
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.branch.service import BranchService
 from app.services.shared.io import (
     has_valid_fill_combined_key,
@@ -40,7 +40,7 @@ class FillService:
         if not root.exists() or not root.is_dir():
             raise ValueError(f"fill source directory not found: {source_dir}")
 
-        rel_entries = self.branches.list_scope_entries(ScopeRef.rel_current(), project_id)
+        rel_entries = self.branches.list_branch_entries(BranchRef.rel_current(), project_id)
         strings_by_key = {
             normalize_non_content_value(item["business_key"]): item for item in rel_entries
         }
@@ -106,7 +106,7 @@ class FillService:
                                     "row_index": row_index,
                                     "business_key": business_key,
                                     "status": "SKIPPED_BLANK_CONTENT",
-                                    "from_scope": "rel/current",
+                                    "from_branch": "rel/current",
                                 }
                             )
                             continue
@@ -119,7 +119,7 @@ class FillService:
                                 "row_index": row_index,
                                 "business_key": business_key,
                                 "status": "FILLED",
-                                "from_scope": "rel/current",
+                                "from_branch": "rel/current",
                             }
                         )
                         continue
@@ -152,7 +152,7 @@ class FillService:
         report_path = export_dir / "fill_report.csv"
         with report_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
-            writer.writerow(["file_path", "sheet_name", "row_index", "business_key", "status", "from_scope"])
+            writer.writerow(["file_path", "sheet_name", "row_index", "business_key", "status", "from_branch"])
             for row in report_rows:
                 writer.writerow(
                     [
@@ -161,7 +161,7 @@ class FillService:
                         row.get("row_index"),
                         row.get("business_key"),
                         row.get("status"),
-                        row.get("from_scope", ""),
+                        row.get("from_branch", ""),
                     ]
                 )
 

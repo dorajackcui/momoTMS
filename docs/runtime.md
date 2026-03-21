@@ -94,6 +94,7 @@ Useful URLs:
 
 - `POST /api/demo/reset` clears jobs, deletes the local DB, rebuilds the schema, regenerates demo sample files, reseeds the default demo project, and returns the product bootstrap for project `1`
 - prefer demo reset or isolated runtime paths over adding compatibility-only startup migration logic
+- old local databases are not preserved for design compatibility by default; when local data no longer matches the current runtime model, reset or reseed instead of adding fallback behavior unless migration work is explicitly required
 
 ## Test Isolation
 

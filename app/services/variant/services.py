@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import sqlite3
 from typing import Any
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.shared.io import (
     normalize_content_map,
     normalize_non_content_map,
@@ -350,10 +350,10 @@ class ScopeBindingService:
     def bind_scope(
         self,
         entry_id: int,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
         variant_id: int,
     ) -> None:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         timestamp = now_iso()
         self.bindings.upsert(
             entry_id,
@@ -365,16 +365,16 @@ class ScopeBindingService:
         self.variants.clear_orphaned_at(variant_id, timestamp)
         self.lifecycle.refresh_orphan_states(entry_id)
 
-    def get_binding(self, entry_id: int, scope_ref: ScopeRef) -> BindingRecord | None:
-        scope_type, scope_value = scope_ref.as_tuple()
+    def get_binding(self, entry_id: int, branch_ref: BranchRef) -> BindingRecord | None:
+        scope_type, scope_value = branch_ref.as_tuple()
         return self.bindings.get(entry_id, scope_type, scope_value)
 
     def get_bindings_for_entries(
         self,
         entry_ids: list[int],
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
     ) -> dict[int, BindingRecord]:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         return self.bindings.get_for_entries(
             entry_ids,
             scope_type,
@@ -386,10 +386,10 @@ class ScopeBindingService:
 
     def list_scope_entries(
         self,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> list[ScopeEntryRecord]:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         return self.bindings.list_scope_entries(
             project_id,
             scope_type,
@@ -399,10 +399,10 @@ class ScopeBindingService:
 
     def count_scope(
         self,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> int:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         return self.bindings.count_scope(
             project_id,
             scope_type,
@@ -411,23 +411,23 @@ class ScopeBindingService:
 
     def clear_scope(
         self,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> None:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         removed = self.bindings.clear_scope(project_id, scope_type, scope_value)
         for row in removed:
             self.lifecycle.refresh_orphan_states(int(row["entry_id"]))
 
     def remove_scope_bindings(
         self,
-        scope_refs: list[ScopeRef],
+        branch_refs: list[BranchRef],
         project_id: int = DEFAULT_PROJECT_ID,
         conn: sqlite3.Connection | None = None,
     ) -> int:
         grouped_scope_values: dict[str, list[str]] = {}
-        for scope_ref in scope_refs:
-            scope_type, scope_value = scope_ref.as_tuple()
+        for branch_ref in branch_refs:
+            scope_type, scope_value = branch_ref.as_tuple()
             grouped_scope_values.setdefault(scope_type, []).append(scope_value)
         removed: list[BindingRecord] = []
         for scope_type, scope_values in grouped_scope_values.items():
@@ -439,9 +439,9 @@ class ScopeBindingService:
     def remove_binding(
         self,
         entry_id: int,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
     ) -> BindingRecord | None:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         removed = self.bindings.delete(entry_id, scope_type, scope_value)
         if removed is None:
             return None
@@ -452,7 +452,7 @@ class ScopeBindingService:
 class EntryVariantViewAssembler:
     def binding_summary(self, binding: BindingRecord) -> BindingSummary:
         return {
-            "scope_ref": str(ScopeRef.parse(f"{binding['scope_type']}/{binding['scope_value']}")),
+            "branch_ref": str(BranchRef.parse(f"{binding['scope_type']}/{binding['scope_value']}")),
             "created_at": binding["created_at"],
             "updated_at": binding["updated_at"],
         }

@@ -47,5 +47,6 @@ If you want fresh demo data, call `POST /api/demo/reset`.
 - System model and invariants: [docs/system.md](docs/system.md)
 - Routes and payload contracts: [docs/contracts.md](docs/contracts.md)
 - Workflow and Excel rules: [docs/workflows.md](docs/workflows.md)
+- User-facing product guide: [docs/user-guide.md](docs/user-guide.md)
 - Agent instructions: [AGENTS.md](AGENTS.md)
 - Archived legacy material: [archive/README.md](archive/README.md)

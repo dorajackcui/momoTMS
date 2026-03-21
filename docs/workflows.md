@@ -117,25 +117,27 @@ Mutation rules:
 
 ## Scope Sync Rules
 
-- previews and executes binding changes from one scope into another
+- previews and executes binding changes from one branch into another
 - the live policy only supports `dev/<version> -> rel/current`
-- sync rebinds active variants; it does not copy content or create variants
+- replace rebinds active variants; it does not copy content or create variants
 - execute runs in one DB transaction
-- the `dev/<version> -> rel/current` policy still clears same-version-line dev bindings and marks those versions as promoted
+- the `dev/<version> -> rel/current` policy still clears same-version-series dev bindings and marks those versions as promoted
 
 ## Trash And Restore Rules
 
-- delete is project-scoped and takes `scope_ref` plus `business_keys[]`
-- delete removes the active binding in the selected scope
-- if the affected variant no longer has any active bindings, lifecycle refreshes it into `orphan` unless it is already trashed
+- delete is project-scoped and takes `branch_ref` plus `business_keys[]`
+- delete removes the active binding in the selected branch
+- if the affected variant no longer has any active bindings, delete moves that variant into `trashed`
+- if other branches still bind the same variant, delete only removes the selected branch binding
 - restore is project-scoped and takes `variant_ids[]`
 - restore clears trashed state for the selected variants only; it does not rebind scopes automatically
+- restore may fail with `SOURCE_CONFLICT` when the same entry already has another live same-source variant
 
 ## Fill Rules
 
 - fill matches workbook rows by normalized `business_key + source`
 - if either value becomes empty, the row is not a valid fill candidate
-- runtime content still comes from active scope bindings, not from workbook rows alone
+- runtime content still comes from active branch bindings, not from workbook rows alone
 - fill writes translations back to workbook artifacts through a job
 
 Implication:

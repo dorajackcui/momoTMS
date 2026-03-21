@@ -29,6 +29,7 @@
 - [system.md](system.md): terminology, model, boundaries, package map, and invariants
 - [contracts.md](contracts.md): page routes, API routes, bootstrap, frontend contract, and errors
 - [workflows.md](workflows.md): import, mutation, sync, trash, restore, fill, QA, Excel, and normalization rules
+- [user-guide.md](user-guide.md): user-facing project introduction, branch and variant concepts, and common product operations
 
 ## Task Routing
 
@@ -38,6 +39,7 @@ Choose exactly one owner doc below for behavior facts. Use [runtime.md](runtime.
 - backend architecture, domain model, lifecycle, or invariants: [system.md](system.md) for behavior facts; use [runtime.md](runtime.md) for validation commands and docs checks
 - API, router, bootstrap, SPA route, or error changes: [contracts.md](contracts.md) for behavior facts; use [runtime.md](runtime.md) for validation commands and docs checks
 - import, mutation, sync, trash, restore, fill, QA, or Excel rules: [workflows.md](workflows.md) for behavior facts; use [runtime.md](runtime.md) for validation commands and docs checks
+- user-facing introduction, product glossary, or operator guidance: [user-guide.md](user-guide.md) for behavior facts; use [runtime.md](runtime.md) for validation commands and docs checks
 - docs-only work: choose the owner doc above from the behavior you changed, then use [runtime.md](runtime.md) for docs checks
 
 ## Related

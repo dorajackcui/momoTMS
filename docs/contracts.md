@@ -136,8 +136,8 @@ Workflow actions:
 - `POST /api/projects/{project_id}/branches/mutations`
 - `GET /api/projects/{project_id}/branches/dev`
 - `GET /api/projects/{project_id}/branches/dev/{version}`
-- `POST /api/projects/{project_id}/branches/sync/preview`
-- `POST /api/projects/{project_id}/branches/sync/execute`
+- `POST /api/projects/{project_id}/branches/replace/preview`
+- `POST /api/projects/{project_id}/branches/replace/execute`
 - `POST /api/projects/{project_id}/variants/trash/delete`
 - `POST /api/projects/{project_id}/variants/trash/restore`
 - `POST /api/projects/{project_id}/fill`
@@ -147,7 +147,7 @@ Workflow actions:
 
 ## Error Semantics
 
-- invalid scope refs and invalid business parameters return `400`
+- invalid branch refs and invalid business parameters return `400`
 - missing resources, missing artifacts, and cross-project access to imports, jobs, reports, and artifacts return `404`
 - request-body validation errors return `422`
 

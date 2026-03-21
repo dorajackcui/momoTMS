@@ -14,7 +14,7 @@ type ProductBootstrapResponse = {
   schema: { translation_columns: string[]; remark_columns: string[] };
   release_summary: { entry_count: number };
   candidate_dev_branch: { version: string } | null;
-  dev_branches: Array<{ version: string; version_line: string; is_candidate_release: boolean; scope_ref: string }>;
+  dev_branches: Array<{ version: string; version_series: string; is_candidate_release: boolean; branch_ref: string }>;
   imports: ImportBatchSummary[];
   jobs: JobSummary[];
 };
@@ -54,18 +54,18 @@ type JobDetail = {
   report: { summary: Record<string, unknown>; rows: Array<Record<string, unknown>> };
 };
 
-type ScopeSummaryResponse = {
-  scopes: Array<{
-    scope_ref: string;
+type BranchSummaryResponse = {
+  branches: Array<{
+    branch_ref: string;
     entry_count: number;
     status_counts: Record<string, number>;
-    version_line?: string | null;
+    version_series?: string | null;
     is_candidate_release?: boolean | null;
   }>;
 };
 
 type BranchSide = {
-  scope_ref: string;
+  branch_ref: string;
   file_name: string | null;
   source: string;
   translations: Record<string, string>;
@@ -82,8 +82,8 @@ type BranchCompareRow = {
 };
 
 type BranchCompareResponse = {
-  base_scope_ref: string;
-  target_scope_ref: string;
+  base_branch_ref: string;
+  target_branch_ref: string;
   status_counts: Record<string, number>;
   rows: BranchCompareRow[];
   total_rows: number;
@@ -102,7 +102,7 @@ type QueueRow = {
 };
 
 type TranslationQueueResponse = {
-  target_scope_ref: string;
+  target_branch_ref: string;
   lang: string | null;
   status_counts: Record<string, number>;
   rows: QueueRow[];
@@ -113,7 +113,7 @@ type TranslationQueueResponse = {
 
 type MasterRow = {
   business_key: string;
-  scope_ref: string;
+  branch_ref: string;
   file_name: string | null;
   source: string;
   translations: Record<string, string>;
@@ -148,10 +148,10 @@ type ImportSheetMapping = {
   remark_columns: Record<string, string>;
 };
 
-type BranchSyncPreview = Record<string, unknown> & { report_rows?: Array<Record<string, unknown>> };
+type BranchReplacePreview = Record<string, unknown> & { report_rows?: Array<Record<string, unknown>> };
 
 type VariantBindingSummary = {
-  scope_ref: string;
+  branch_ref: string;
   created_at: string;
   updated_at: string;
 };
@@ -219,7 +219,7 @@ export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [bootstrap, setBootstrap] = useState<ProductBootstrapResponse | null>(null);
-  const [scopeSummary, setScopeSummary] = useState<ScopeSummaryResponse | null>(null);
+  const [branchSummary, setBranchSummary] = useState<BranchSummaryResponse | null>(null);
   const [selectedLang, setSelectedLang] = useState("fr");
   const [baseScope, setBaseScope] = useState("rel/current");
   const [targetScope, setTargetScope] = useState("");
@@ -243,7 +243,7 @@ export function App() {
   const [importMappings, setImportMappings] = useState<Record<string, ImportSheetMapping>>({});
   const [pendingImportFiles, setPendingImportFiles] = useState<File[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [promotePreview, setPromotePreview] = useState<BranchSyncPreview | null>(null);
+  const [promotePreview, setPromotePreview] = useState<BranchReplacePreview | null>(null);
   const [devVersionInput, setDevVersionInput] = useState("");
   const [promoteVersion, setPromoteVersion] = useState("");
   const [selectedImportBatch, setSelectedImportBatch] = useState("");
@@ -281,7 +281,7 @@ export function App() {
 
   function resetProjectScopedUi() {
     setBootstrap(null);
-    setScopeSummary(null);
+    setBranchSummary(null);
     setCompare(null);
     setQueue(null);
     setCompareSearch("");
@@ -362,10 +362,10 @@ export function App() {
   }, [bootstrap, selectedImportBatch, selectedLang]);
 
   useEffect(() => {
-    if (!scopeSummary) {
+    if (!branchSummary) {
       return;
     }
-    const scopeOptions = buildScopeOptions(scopeSummary.scopes);
+    const scopeOptions = buildBranchOptions(branchSummary.branches);
     if (!scopeOptions.some((option) => option.value === baseScope)) {
       setBaseScope(scopeOptions.find((option) => option.value === "rel/current")?.value || scopeOptions[0]?.value || "");
     }
@@ -373,16 +373,16 @@ export function App() {
       const nextTarget = scopeOptions.find((option) => option.value !== (baseScope || "rel/current"))?.value || "";
       setTargetScope(nextTarget);
     }
-    const devOptions = scopeSummary.scopes
-      .filter((scope) => scope.scope_ref.startsWith("dev/"))
-      .map((scope) => scope.scope_ref);
+    const devOptions = branchSummary.branches
+      .filter((branch) => branch.branch_ref.startsWith("dev/"))
+      .map((branch) => branch.branch_ref);
     if (!devOptions.includes(queueTargetScope)) {
       setQueueTargetScope(devOptions[0] || "");
     }
-  }, [scopeSummary, baseScope, targetScope, queueTargetScope]);
+  }, [branchSummary, baseScope, targetScope, queueTargetScope]);
 
   useEffect(() => {
-    if (!selectedProjectId || !scopeSummary || !targetScope || !baseScope || !selectedLang) {
+    if (!selectedProjectId || !branchSummary || !targetScope || !baseScope || !selectedLang) {
       return;
     }
     if (baseScope === targetScope) {
@@ -390,7 +390,7 @@ export function App() {
       return;
     }
     void loadCompare();
-  }, [selectedProjectId, scopeSummary, selectedLang, baseScope, targetScope, comparePage]);
+  }, [selectedProjectId, branchSummary, selectedLang, baseScope, targetScope, comparePage]);
 
   useEffect(() => {
     if (!selectedProjectId || !queueTargetScope || !selectedLang) {
@@ -422,7 +422,7 @@ export function App() {
   const languageOptions = bootstrap?.schema.translation_columns || [];
   const imports = bootstrap?.imports || [];
   const jobs = bootstrap?.jobs || [];
-  const scopeOptions = useMemo(() => buildScopeOptions(scopeSummary?.scopes || []), [scopeSummary]);
+  const scopeOptions = useMemo(() => buildBranchOptions(branchSummary?.branches || []), [branchSummary]);
   const importMappingIssues = useMemo(
     () => listMissingImportMappings(importPreview, importMappings),
     [importPreview, importMappings],
@@ -521,15 +521,15 @@ export function App() {
       setIsBusy(true);
       const state = await fetchJson<ProductBootstrapResponse>(`/api/projects/${projectId}/state`);
       const nextLang = selectedLang || state.schema.translation_columns[0] || "";
-      const summary = await fetchJson<ScopeSummaryResponse>(
+      const summary = await fetchJson<BranchSummaryResponse>(
         `/api/projects/${projectId}/branches?${new URLSearchParams({ lang: nextLang }).toString()}`,
       );
       setBootstrap(state);
-      setScopeSummary(summary);
+      setBranchSummary(summary);
       setFlash({ message, error: false });
     } catch (error) {
       setBootstrap(null);
-      setScopeSummary(null);
+      setBranchSummary(null);
       setFlash({ message: asMessage(error), error: true });
     } finally {
       setIsBusy(false);
@@ -566,14 +566,14 @@ export function App() {
       return;
     }
     if (baseScope === targetScope) {
-      setFlash({ message: "Base scope and target scope must be different.", error: true });
+      setFlash({ message: "Base branch and target branch must be different.", error: true });
       setCompare(null);
       return;
     }
     try {
       const params = new URLSearchParams({
-        base_scope_ref: baseScope,
-        target_scope_ref: targetScope,
+        base_branch_ref: baseScope,
+        target_branch_ref: targetScope,
         lang: selectedLang,
         page: String(comparePage),
         page_size: String(PAGE_SIZE),
@@ -602,7 +602,7 @@ export function App() {
     }
     try {
       const params = new URLSearchParams({
-        target_scope_ref: queueTargetScope,
+        target_branch_ref: queueTargetScope,
         lang: selectedLang,
         page: String(queuePage),
         page_size: String(PAGE_SIZE),
@@ -764,7 +764,7 @@ export function App() {
       const result = await fetchJson<JobDetail>(`/api/projects/${selectedProjectId}/branches/mutations`, {
         method: "POST",
         body: JSON.stringify({
-          scope_ref: `dev/${devVersionInput.trim()}`,
+          branch_ref: `dev/${devVersionInput.trim()}`,
           input: {
             kind: "import_batch",
             import_batch_id: Number(selectedImportBatch),
@@ -788,17 +788,17 @@ export function App() {
     }
     const version = promoteVersion.trim() || queueTargetScope.replace(/^dev\//, "") || targetScope.replace(/^dev\//, "");
     if (!version) {
-      setFlash({ message: "Promote version is required.", error: true });
+      setFlash({ message: "Replace source version is required.", error: true });
       return;
     }
     try {
-      const result = await fetchJson<BranchSyncPreview>(
-        `/api/projects/${selectedProjectId}/branches/sync/preview`,
+      const result = await fetchJson<BranchReplacePreview>(
+        `/api/projects/${selectedProjectId}/branches/replace/preview`,
         {
           method: "POST",
           body: JSON.stringify({
-            source_scope_ref: `dev/${version}`,
-            target_scope_ref: "rel/current",
+            source_branch_ref: `dev/${version}`,
+            target_branch_ref: "rel/current",
           }),
         },
       );
@@ -814,17 +814,17 @@ export function App() {
     }
     const version = promoteVersion.trim() || queueTargetScope.replace(/^dev\//, "") || targetScope.replace(/^dev\//, "");
     if (!version) {
-      setFlash({ message: "Promote version is required.", error: true });
+      setFlash({ message: "Replace source version is required.", error: true });
       return;
     }
     try {
       const result = await fetchJson<JobDetail>(
-        `/api/projects/${selectedProjectId}/branches/sync/execute`,
+        `/api/projects/${selectedProjectId}/branches/replace/execute`,
         {
           method: "POST",
           body: JSON.stringify({
-            source_scope_ref: `dev/${version}`,
-            target_scope_ref: "rel/current",
+            source_branch_ref: `dev/${version}`,
+            target_branch_ref: "rel/current",
           }),
         },
       );
@@ -888,7 +888,7 @@ export function App() {
           <div className="stack">
             <p className="eyebrow">Momo TMS</p>
             <h1>Operator Console</h1>
-            <p>No projects are available yet. Create the first project to define the workbook schema and start import, compare, queue, fill, QA, and promote workflows.</p>
+            <p>No projects are available yet. Create the first project to define the workbook schema and start import, compare, queue, fill, QA, and replace workflows.</p>
             <p className="muted">Translation and remark column names are fixed after project creation.</p>
           </div>
           <div className="flash-wrap">
@@ -1045,14 +1045,14 @@ export function App() {
                 Go to Imports & Jobs
               </button>
             </div>
-            {(scopeSummary?.scopes || []).length > 0 ? (
+            {(branchSummary?.branches || []).length > 0 ? (
               <div className="overview-grid" data-testid="overview-grid">
-                {(scopeSummary?.scopes || []).map((scope) => (
+                {(branchSummary?.branches || []).map((branch) => (
                   <button
-                    key={scope.scope_ref}
+                    key={branch.branch_ref}
                     className="scope-card"
                     onClick={() => {
-                      const nextTarget = scope.scope_ref;
+                      const nextTarget = branch.branch_ref;
                       if (nextTarget !== "rel/current") {
                         setTargetScope(nextTarget);
                         if (nextTarget.startsWith("dev/")) {
@@ -1063,17 +1063,17 @@ export function App() {
                     }}
                   >
                     <div className="scope-card__top">
-                      <strong>{scope.scope_ref}</strong>
-                      {scope.is_candidate_release ? <span className="badge accent">candidate</span> : null}
+                      <strong>{branch.branch_ref}</strong>
+                      {branch.is_candidate_release ? <span className="badge accent">candidate</span> : null}
                     </div>
-                    <span className="muted">entries {scope.entry_count}</span>
-                    <code>{JSON.stringify(scope.status_counts)}</code>
+                    <span className="muted">entries {branch.entry_count}</span>
+                    <code>{JSON.stringify(branch.status_counts)}</code>
                   </button>
                 ))}
               </div>
             ) : (
               <PanelEmptyState
-                message="No scopes are available yet. Create an import batch and run dev import to populate branch views."
+                message="No branches are available yet. Create an import batch and run dev import to populate branch views."
                 actionLabel="Go to Imports & Jobs"
                 onAction={() => navigate("imports", setRoute)}
               />
@@ -1094,7 +1094,7 @@ export function App() {
             </div>
             <div className="toolbar">
               <label className="field compact">
-                <span>Base Scope</span>
+                <span>Base Branch</span>
                 <select
                   value={baseScope}
                   onChange={(event) => {
@@ -1111,7 +1111,7 @@ export function App() {
                 </select>
               </label>
               <label className="field compact">
-                <span>Target Scope</span>
+                <span>Target Branch</span>
                 <select
                   value={targetScope}
                   onChange={(event) => {
@@ -1154,11 +1154,11 @@ export function App() {
               </label>
             </div>
             {baseScope === targetScope ? (
-              <p className="flash error">Base scope and target scope must be different.</p>
+              <p className="flash error">Base branch and target branch must be different.</p>
             ) : null}
             {devScopeOptions.length === 0 ? (
               <PanelEmptyState
-                message="No dev scopes are available for compare yet. Run dev import from Imports & Jobs first."
+                message="No dev branches are available for compare yet. Run dev import from Imports & Jobs first."
                 actionLabel="Go to Imports & Jobs"
                 onAction={() => navigate("imports", setRoute)}
               />
@@ -1202,7 +1202,7 @@ export function App() {
             </div>
             <div className="toolbar">
               <label className="field compact">
-                <span>Target Scope</span>
+                <span>Target Branch</span>
                 <select
                   value={queueTargetScope}
                   onChange={(event) => {
@@ -1237,7 +1237,7 @@ export function App() {
             </div>
             {devScopeOptions.length === 0 ? (
               <PanelEmptyState
-                message="No dev scopes are available for translation queue yet. Run dev import from Imports & Jobs first."
+                message="No dev branches are available for translation queue yet. Run dev import from Imports & Jobs first."
                 actionLabel="Go to Imports & Jobs"
                 onAction={() => navigate("imports", setRoute)}
               />
@@ -1297,10 +1297,10 @@ export function App() {
             </div>
             <p className="muted">Mode: {masterMode === "key" ? "business_key" : "source"}</p>
             <DataTable
-              headers={["business_key", "scope", "file_name", "source", `translations:${selectedLang}`]}
+              headers={["business_key", "branch", "file_name", "source", `translations:${selectedLang}`]}
               rows={masterRows.map((row) => [
                 row.business_key,
-                row.scope_ref,
+                row.branch_ref,
                 row.file_name || "-",
                 row.source,
                 row.translations[selectedLang] || "",
@@ -1399,7 +1399,7 @@ export function App() {
                         items={
                           variant.bindings.length > 0
                             ? variant.bindings.map((binding) => [
-                                binding.scope_ref,
+                                binding.branch_ref,
                                 formatTimestamp(binding.updated_at),
                               ])
                             : [["state", "No active bindings"]]
@@ -1529,7 +1529,7 @@ export function App() {
               <div className="panel-head">
                 <div>
                   <p className="panel-kicker">Step 3</p>
-                  <h3>Fill, QA, and Promote</h3>
+                  <h3>Fill, QA, and Replace</h3>
                 </div>
               </div>
               <div className="imports-actions-grid">
@@ -1573,24 +1573,24 @@ export function App() {
                 </div>
                 <div className="stack">
                   <label className="field">
-                    <span>Promote Version</span>
+                    <span>Replace Source Version</span>
                     <input value={promoteVersion} onChange={(event) => setPromoteVersion(event.target.value)} placeholder={queueTargetScope.replace(/^dev\//, "") || "2.3.2"} />
                   </label>
                   <div className="toolbar">
-                    <button className="button" onClick={() => void runPromotePreview()} data-testid="app-promote-preview">
+                    <button className="button" onClick={() => void runPromotePreview()} data-testid="app-replace-preview">
                       Preview
                     </button>
-                    <button className="button accent" onClick={() => void runPromoteExecute()} data-testid="app-promote-execute">
+                    <button className="button accent" onClick={() => void runPromoteExecute()} data-testid="app-replace-execute">
                       Execute
                     </button>
                   </div>
                   {promotePreview ? (
                     <SummaryKeyValueList
-                      title="promote preview"
+                      title="replace preview"
                       items={Object.entries(promotePreview).filter(([key]) => key !== "report_rows").map(([key, value]) => [key, stringifyValue(value)])}
                     />
                   ) : (
-                    <p className="muted">Preview summarize promote impact before execution.</p>
+                    <p className="muted">Preview summarizes replace impact before execution.</p>
                   )}
                 </div>
               </div>
@@ -1615,7 +1615,7 @@ export function App() {
                       </button>
                     ))
                   ) : (
-                    <PanelEmptyState message="No jobs yet. Run import, dev import, fill, QA, or promote to populate this list." />
+                    <PanelEmptyState message="No jobs yet. Run import, dev import, fill, QA, or replace to populate this list." />
                   )}
                 </div>
                 <div className="job-detail" data-testid="app-job-detail">
@@ -1975,12 +1975,12 @@ function navigate(route: AppRoute, setter: (route: AppRoute) => void) {
   setter(route);
 }
 
-function buildScopeOptions(
-  scopes: Array<{ scope_ref: string; is_candidate_release?: boolean | null }>,
+function buildBranchOptions(
+  branches: Array<{ branch_ref: string; is_candidate_release?: boolean | null }>,
 ) {
-  return scopes.map((scope) => ({
-    value: scope.scope_ref,
-    label: `${scope.scope_ref}${scope.is_candidate_release ? " · candidate" : ""}`,
+  return branches.map((branch) => ({
+    value: branch.branch_ref,
+    label: `${branch.branch_ref}${branch.is_candidate_release ? " · candidate" : ""}`,
   }));
 }
 

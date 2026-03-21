@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.db import get_db_path
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.branch.service import BranchService
 from app.services.demo.service import DemoService
 from app.services.project.service import DEFAULT_PROJECT_ID
@@ -15,19 +15,27 @@ def reset_demo() -> None:
     DemoService().reset()
 
 
-def test_scope_ref_parsing_and_validation() -> None:
-    assert str(ScopeRef.parse("rel/current")) == "rel/current"
-    assert str(ScopeRef.dev("2.3.1")) == "dev/2.3.1"
+def test_branch_ref_parsing_and_validation() -> None:
+    assert str(BranchRef.parse("rel/current")) == "rel/current"
+    assert str(BranchRef.dev("2.4.1")) == "dev/2.4.1"
+    assert BranchRef.dev("2.4.1").version_series == "2.4.x"
 
     try:
-        ScopeRef.parse("rel/old")
+        BranchRef.parse("rel/old")
     except ValueError as exc:
-        assert "invalid release scope" in str(exc)
+        assert "invalid release branch" in str(exc)
     else:
-        raise AssertionError("expected invalid release scope")
+        raise AssertionError("expected invalid release branch")
+
+    try:
+        BranchRef.parse("dev/9.9.1")
+    except ValueError as exc:
+        assert "unsupported dev version series" in str(exc)
+    else:
+        raise AssertionError("expected unsupported dev version series")
 
 
-def test_entry_variant_view_uses_variant_and_scope_ref_names() -> None:
+def test_entry_variant_view_uses_variant_and_branch_ref_names() -> None:
     reset_demo()
     entries = EntryService()
     catalog = VariantCatalogService()
@@ -49,13 +57,13 @@ def test_entry_variant_view_uses_variant_and_scope_ref_names() -> None:
         {"fr": "Bonjour dev"},
         {"context": "dev"},
     )
-    bindings.bind_scope(int(entry["entry_id"]), ScopeRef.rel_current(), variant_id)
-    bindings.bind_scope(int(entry["entry_id"]), ScopeRef.dev("2.3.1"), dev_variant_id)
+    bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+    bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.1"), dev_variant_id)
     lifecycle.refresh_orphan_states(int(entry["entry_id"]))
 
-    view = BranchService().list_scope_entries(ScopeRef.rel_current(), DEFAULT_PROJECT_ID)
+    view = BranchService().list_branch_entries(BranchRef.rel_current(), DEFAULT_PROJECT_ID)
     item = next(row for row in view if row["business_key"] == "view.entry")
     assert item["variant_id"] == variant_id
-    assert [binding["scope_ref"] for binding in item["bindings"]] == ["rel/current"]
+    assert [binding["branch_ref"] for binding in item["bindings"]] == ["rel/current"]
     assert "memberships" not in item
     assert "string_id" not in item

@@ -1,5 +1,5 @@
 from app.main import app
-from app.services.branch import BranchMutationService, BranchService, BranchSyncService, ScopeRef, ScopeType
+from app.services.branch import BranchKind, BranchMutationService, BranchRef, BranchReplaceService, BranchService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
@@ -22,9 +22,9 @@ def test_new_service_paths_import_and_expose_expected_symbols() -> None:
     assert ProjectService is not None
     assert BranchService is not None
     assert BranchMutationService is not None
-    assert BranchSyncService is not None
-    assert ScopeRef is not None
-    assert ScopeType is not None
+    assert BranchReplaceService is not None
+    assert BranchRef is not None
+    assert BranchKind is not None
     assert EntryService is not None
     assert EntryVariantViewAssembler is not None
     assert VariantRepository is not None
@@ -45,7 +45,7 @@ def test_app_registers_branch_centric_routes_only() -> None:
     assert "/api/projects/{project_id}/branches" in paths
     assert "/api/projects/{project_id}/branches/compare" in paths
     assert "/api/projects/{project_id}/branches/mutations" in paths
-    assert "/api/projects/{project_id}/branches/sync/execute" in paths
+    assert "/api/projects/{project_id}/branches/replace/execute" in paths
     assert "/api/projects/{project_id}/jobs/{job_id}" in paths
     assert "/variant-workbench" in paths
     assert "/api/state" not in paths

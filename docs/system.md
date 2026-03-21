@@ -33,12 +33,13 @@
 - `GET /workbench` and `GET /variant-workbench` stay removed and return `410 Gone`
 - runtime APIs are project-scoped and branch-oriented
 - `GET /api/projects/{project_id}/state` is the bootstrap contract for `/app`
-- public branch writes go through `/branches/mutations` and `/branches/sync/*`
+- public branch writes go through `/branches/mutations` and `/branches/replace/*`
 - trash and restore stay under `/variants/trash/*`
 - project schema is fixed after project creation; there is no schema-edit API
 - `rel/current` direct mutation remains API-only and internal-only
 - `retained` has been removed entirely; inactive variants are only `orphan` or `trashed`
-- prefer reset or reseed over adding old-data semantic compatibility or dual-model fallback unless migration work is explicit
+- default to the best current-runtime design instead of preserving legacy routes, legacy UX flows, or old-data semantics
+- old local databases are not a design-compatibility target by default; prefer reset or reseed over adding compatibility shims or dual-model fallback unless migration work is explicit
 
 ## Core Model
 
@@ -82,7 +83,7 @@
 - scopes decide which variant is active right now
 - authority differences explain why `rel` and `dev` treat the same canonical variant differently
 
-Current scopes:
+Current branches:
 
 - `rel/current`
 - `dev/<version>`
@@ -141,7 +142,7 @@ Live tables:
 - `import_rows`
 - `jobs`
 
-Legacy snapshot and canonical tables are not part of the live model. Incompatible local DBs are rebuilt to the current schema instead of being migrated in place.
+Legacy snapshot and canonical tables are not part of the live model. Old local DBs are not kept design-compatible by default; incompatible runtimes are rebuilt or reseeded to the current schema instead of being migrated in place unless migration work is explicitly part of the task.
 
 ## System Data Flow
 

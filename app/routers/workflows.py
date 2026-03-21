@@ -5,8 +5,8 @@ from fastapi import APIRouter, File, Form, UploadFile
 from app.routers.common import handle_errors, read_folder_upload
 from app.schemas import (
     BranchMutationRequest,
-    BranchSyncPreview,
-    BranchSyncRequest,
+    BranchReplacePreview,
+    BranchReplaceRequest,
     DevBranchDetail,
     DevBranchSummary,
     FillRequest,
@@ -27,7 +27,7 @@ def project_branch_mutation(project_id: int, payload: BranchMutationRequest) -> 
     return handle_errors(
         lambda: JobDetail(
             **service.branch_mutation(
-                payload.scope_ref,
+                payload.branch_ref,
                 payload.input.model_dump(mode="python"),
                 project_id=project_id,
             )
@@ -47,26 +47,26 @@ def project_get_dev_branch(project_id: int, version: str) -> DevBranchDetail:
     return handle_errors(lambda: DevBranchDetail(**BranchService().get_dev_branch(version, project_id)))
 
 
-@router.post("/api/projects/{project_id}/branches/sync/preview", response_model=BranchSyncPreview)
-def project_branch_sync_preview(project_id: int, payload: BranchSyncRequest) -> BranchSyncPreview:
+@router.post("/api/projects/{project_id}/branches/replace/preview", response_model=BranchReplacePreview)
+def project_branch_replace_preview(project_id: int, payload: BranchReplaceRequest) -> BranchReplacePreview:
     return handle_errors(
-        lambda: BranchSyncPreview(
-            **WorkflowService().branch_sync_preview(
-                payload.source_scope_ref,
-                payload.target_scope_ref,
+        lambda: BranchReplacePreview(
+            **WorkflowService().branch_replace_preview(
+                payload.source_branch_ref,
+                payload.target_branch_ref,
                 project_id,
             )
         )
     )
 
 
-@router.post("/api/projects/{project_id}/branches/sync/execute", response_model=JobDetail)
-def project_branch_sync_execute(project_id: int, payload: BranchSyncRequest) -> JobDetail:
+@router.post("/api/projects/{project_id}/branches/replace/execute", response_model=JobDetail)
+def project_branch_replace_execute(project_id: int, payload: BranchReplaceRequest) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowService().branch_sync_execute(
-                payload.source_scope_ref,
-                payload.target_scope_ref,
+            **WorkflowService().branch_replace_execute(
+                payload.source_branch_ref,
+                payload.target_branch_ref,
                 project_id,
             )
         )
@@ -78,7 +78,7 @@ def project_trash_delete(project_id: int, payload: ScopedTrashDeleteRequest) -> 
     return handle_errors(
         lambda: JobDetail(
             **WorkflowService().trash_delete(
-                payload.scope_ref,
+                payload.branch_ref,
                 payload.business_keys,
                 project_id=project_id,
             )

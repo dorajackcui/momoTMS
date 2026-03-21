@@ -4,7 +4,7 @@ import json
 
 from fastapi import HTTPException, UploadFile
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 
 
 def handle_errors(fn):
@@ -16,8 +16,8 @@ def handle_errors(fn):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def parse_scope_ref(scope_ref: str) -> ScopeRef:
-    return ScopeRef.parse(scope_ref)
+def parse_branch_ref(branch_ref: str) -> BranchRef:
+    return BranchRef.parse(branch_ref)
 
 
 def read_folder_upload(

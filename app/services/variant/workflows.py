@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.io import normalize_non_content_value
 from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService, VariantLifecycleService
@@ -16,7 +16,7 @@ class VariantWorkflowService:
 
     def delete(
         self,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
         business_keys: list[str],
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, list[dict[str, object]] | dict[str, int]]:
@@ -32,26 +32,26 @@ class VariantWorkflowService:
                 missing_count += 1
                 report_rows.append({"business_key": business_key, "status": "MISSING"})
                 continue
-            binding = self.bindings.get_binding(int(entry["entry_id"]), scope_ref)
+            binding = self.bindings.get_binding(int(entry["entry_id"]), branch_ref)
             if binding is None:
                 not_bound_count += 1
                 report_rows.append(
                     {
                         "business_key": business_key,
-                        "scope_ref": str(scope_ref),
+                        "branch_ref": str(branch_ref),
                         "status": "NOT_BOUND_IN_SCOPE",
                     }
                 )
                 continue
             variant_id = int(binding["variant_id"])
-            self.bindings.remove_binding(int(entry["entry_id"]), scope_ref)
+            self.bindings.remove_binding(int(entry["entry_id"]), branch_ref)
             if self.bindings.bindings.count_for_variant(variant_id) == 0:
                 self.lifecycle.trash_variant(variant_id, int(entry["entry_id"]), trash_days=30)
                 trashed_variant_count += 1
                 report_rows.append(
                     {
                         "business_key": business_key,
-                        "scope_ref": str(scope_ref),
+                        "branch_ref": str(branch_ref),
                         "variant_id": variant_id,
                         "status": "TRASHED_VARIANT",
                     }
@@ -61,13 +61,13 @@ class VariantWorkflowService:
                 report_rows.append(
                     {
                         "business_key": business_key,
-                        "scope_ref": str(scope_ref),
+                        "branch_ref": str(branch_ref),
                         "variant_id": variant_id,
                         "status": "REMOVED_BINDING",
                     }
                 )
         summary = {
-            "scope_ref": str(scope_ref),
+            "branch_ref": str(branch_ref),
             "trashed_variant_count": trashed_variant_count,
             "removed_binding_count": removed_binding_count,
             "not_bound_count": not_bound_count,

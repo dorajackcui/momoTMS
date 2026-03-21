@@ -36,7 +36,7 @@ class BindingRecord(TypedDict):
 
 
 class BindingSummary(TypedDict):
-    scope_ref: str
+    branch_ref: str
     created_at: str
     updated_at: str
 

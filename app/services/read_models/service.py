@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db import get_conn
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
 
@@ -17,11 +17,11 @@ class ReadModelService:
         self.variant_repo = self.catalog.variants
 
     def branch_summary(self, project_id: int = DEFAULT_PROJECT_ID, lang: str | None = None) -> dict[str, Any]:
-        rel_scope = ScopeRef.rel_current()
-        rel_projection = self._scope_projection_map(rel_scope, project_id, lang)
-        scopes = [
+        rel_branch = BranchRef.rel_current()
+        rel_projection = self._branch_projection_map(rel_branch, project_id, lang)
+        branches = [
             {
-                "scope_ref": str(rel_scope),
+                "branch_ref": str(rel_branch),
                 "entry_count": len(rel_projection),
                 "status_counts": {
                     "aligned": len(rel_projection),
@@ -32,24 +32,24 @@ class ReadModelService:
             }
         ]
         for version in self._list_dev_versions(project_id=project_id, active_only=True):
-            scope_ref = ScopeRef.dev(version["version"])
-            members = self._scope_projection_map(scope_ref, project_id, lang)
+            branch_ref = BranchRef.dev(version["version"])
+            members = self._branch_projection_map(branch_ref, project_id, lang)
             compare = self._build_compare_rows(rel_projection, members, lang)
-            scopes.append(
+            branches.append(
                 {
-                    "scope_ref": str(scope_ref),
+                    "branch_ref": str(branch_ref),
                     "entry_count": len(members),
                     "status_counts": compare["status_counts"],
-                    "version_line": version["version_line"],
+                    "version_series": version["version_series"],
                     "is_candidate_release": version["is_candidate_release"],
                 }
             )
-        return {"scopes": scopes}
+        return {"branches": branches}
 
     def compare_branches(
         self,
-        base_scope_ref: ScopeRef,
-        target_scope_ref: ScopeRef,
+        base_branch_ref: BranchRef,
+        target_branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
         lang: str | None = None,
         search: str | None = None,
@@ -59,8 +59,8 @@ class ReadModelService:
         page: int = 1,
         page_size: int | None = None,
     ) -> dict[str, Any]:
-        base_projection = self._scope_projection_map(base_scope_ref, project_id, lang)
-        target_projection = self._scope_projection_map(target_scope_ref, project_id, lang)
+        base_projection = self._branch_projection_map(base_branch_ref, project_id, lang)
+        target_projection = self._branch_projection_map(target_branch_ref, project_id, lang)
         compare = self._build_compare_rows(
             base_projection,
             target_projection,
@@ -72,16 +72,16 @@ class ReadModelService:
             page=page,
             page_size=page_size,
             project_id=project_id,
-            base_scope_ref=base_scope_ref,
-            target_scope_ref=target_scope_ref,
+            base_branch_ref=base_branch_ref,
+            target_branch_ref=target_branch_ref,
         )
-        compare["base_scope_ref"] = str(base_scope_ref)
-        compare["target_scope_ref"] = str(target_scope_ref)
+        compare["base_branch_ref"] = str(base_branch_ref)
+        compare["target_branch_ref"] = str(target_branch_ref)
         return compare
 
     def translation_queue(
         self,
-        target_scope_ref: ScopeRef,
+        target_branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
         lang: str | None = None,
         search: str | None = None,
@@ -90,8 +90,8 @@ class ReadModelService:
         page_size: int | None = None,
     ) -> dict[str, Any]:
         compare = self.compare_branches(
-            ScopeRef.rel_current(),
-            target_scope_ref,
+            BranchRef.rel_current(),
+            target_branch_ref,
             project_id=project_id,
             lang=lang,
             search=search,
@@ -104,7 +104,7 @@ class ReadModelService:
             status = row["priority_status"]
             counts[status] = counts.get(status, 0) + 1
         return {
-            "target_scope_ref": str(target_scope_ref),
+            "target_branch_ref": str(target_branch_ref),
             "lang": lang,
             "status_counts": counts,
             "rows": compare["priority_rows"],
@@ -126,7 +126,7 @@ class ReadModelService:
             active_results.append(
                 {
                     "business_key": entry["business_key"],
-                    "scope_ref": f"{binding['scope_type']}/{binding['scope_value']}",
+                    "branch_ref": f"{binding['scope_type']}/{binding['scope_value']}",
                     "variant_id": int(variant["variant_id"]),
                     "file_name": variant["file_name"],
                     "source": variant["source"],
@@ -151,13 +151,13 @@ class ReadModelService:
         ]
         return {"source": source, "results": results}
 
-    def _scope_projection_map(
+    def _branch_projection_map(
         self,
-        scope_ref: ScopeRef,
+        branch_ref: BranchRef,
         project_id: int,
         lang: str | None,
     ) -> dict[str, dict[str, Any]]:
-        scope_type, scope_value = scope_ref.as_tuple()
+        scope_type, scope_value = branch_ref.as_tuple()
         return {
             item["business_key"]: item
             for item in self.binding_repo.list_scope_projection(project_id, scope_type, scope_value, lang)
@@ -167,7 +167,7 @@ class ReadModelService:
         variant = item["variant"]
         return {
             "business_key": item["business_key"],
-            "scope_ref": f"{item['scope_type']}/{item['scope_value']}",
+            "branch_ref": f"{item['scope_type']}/{item['scope_value']}",
             "variant_id": int(variant["variant_id"]),
             "file_name": variant["file_name"],
             "source": variant["source"],
@@ -188,8 +188,8 @@ class ReadModelService:
         page: int = 1,
         page_size: int | None = None,
         project_id: int | None = None,
-        base_scope_ref: ScopeRef | None = None,
-        target_scope_ref: ScopeRef | None = None,
+        base_branch_ref: BranchRef | None = None,
+        target_branch_ref: BranchRef | None = None,
     ) -> dict[str, Any]:
         all_rows: list[dict[str, Any]] = []
         status_counts = {"aligned": 0, "diverged": 0, "base_only": 0, "target_only": 0}
@@ -225,11 +225,11 @@ class ReadModelService:
         paged_rows = paged_rows_meta
         if (
             project_id is not None
-            and base_scope_ref is not None
-            and target_scope_ref is not None
+            and base_branch_ref is not None
+            and target_branch_ref is not None
         ):
             page_keys = [row["business_key"] for row in paged_rows_meta]
-            base_scope_type, base_scope_value = base_scope_ref.as_tuple()
+            base_scope_type, base_scope_value = base_branch_ref.as_tuple()
             base_full_map = {
                 item["business_key"]: item
                 for item in self.binding_repo.list_scope_entries_for_keys(
@@ -240,7 +240,7 @@ class ReadModelService:
                     self.variant_repo,
                 )
             }
-            target_scope_type, target_scope_value = target_scope_ref.as_tuple()
+            target_scope_type, target_scope_value = target_branch_ref.as_tuple()
             target_full_map = {
                 item["business_key"]: item
                 for item in self.binding_repo.list_scope_entries_for_keys(
@@ -332,7 +332,7 @@ class ReadModelService:
             return None
         variant = item["variant"]
         return {
-            "scope_ref": f"{item['scope_type']}/{item['scope_value']}",
+            "branch_ref": f"{item['scope_type']}/{item['scope_value']}",
             "variant_id": int(variant["variant_id"]),
             "file_name": variant["file_name"],
             "source": variant["source"],
@@ -416,7 +416,7 @@ class ReadModelService:
         return [
             {
                 "version": row["version"],
-                "version_line": row["version_line"],
+                "version_series": row["version_line"],
                 "is_candidate_release": bool(row["is_candidate_release"]),
             }
             for row in rows

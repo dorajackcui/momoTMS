@@ -2,37 +2,67 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.services.branch.models import ScopeRef
+from app.services.branch.models import BranchRef, DEV_SERIES_AUTHORITY
+
+
+@dataclass(frozen=True, order=True)
+class AuthorityKey:
+    tier: int
+    series_rank: int
+    version_parts: tuple[int, int, int]
+
+
+class AuthorityPolicy:
+    @classmethod
+    def key_for_branch(cls, branch_ref: BranchRef) -> AuthorityKey:
+        if branch_ref.is_rel:
+            return AuthorityKey(2, 0, (0, 0, 0))
+        version_series = branch_ref.version_series
+        if version_series is None:
+            raise ValueError(f"dev branch is missing version series: {branch_ref}")
+        return AuthorityKey(
+            1,
+            DEV_SERIES_AUTHORITY[version_series],
+            branch_ref.version_parts or (0, 0, 0),
+        )
+
+    @classmethod
+    def can_mutate_variant(cls, actor_branch_ref: BranchRef, bound_branch_refs: list[BranchRef]) -> bool:
+        if not bound_branch_refs:
+            return True
+        actor_key = cls.key_for_branch(actor_branch_ref)
+        highest_bound = max(cls.key_for_branch(branch_ref) for branch_ref in bound_branch_refs)
+        return actor_key >= highest_bound
 
 
 @dataclass(frozen=True)
-class ScopeMutationPolicy:
-    scope_ref: ScopeRef
+class BranchMutationPolicy:
+    branch_ref: BranchRef
 
     @classmethod
-    def for_scope(cls, scope_ref: ScopeRef) -> ScopeMutationPolicy:
-        if scope_ref.is_rel:
-            return ReleaseScopePolicy(scope_ref)
-        return DevScopePolicy(scope_ref)
+    def for_branch(cls, branch_ref: BranchRef) -> BranchMutationPolicy:
+        if branch_ref.is_rel:
+            return ReleaseBranchPolicy(branch_ref)
+        return DevBranchPolicy(branch_ref)
 
     def validate_input_kind(self, input_kind: str) -> None:
         if input_kind != "direct":
-            raise ValueError(f"{self.scope_ref} only supports direct mutations")
+            raise ValueError(f"{self.branch_ref} only supports direct mutations")
 
     def allow_missing_entry_creation(self) -> bool:
         return False
 
-    def can_update_hit_variant(self, *, rel_bound: bool) -> bool:
-        return True
+    def can_update_hit_variant(self, actor_branch_ref: BranchRef, bound_branch_refs: list[BranchRef]) -> bool:
+        return AuthorityPolicy.can_mutate_variant(actor_branch_ref, bound_branch_refs)
 
 
 @dataclass(frozen=True)
-class ReleaseScopePolicy(ScopeMutationPolicy):
+class ReleaseBranchPolicy(BranchMutationPolicy):
     pass
 
 
 @dataclass(frozen=True)
-class DevScopePolicy(ScopeMutationPolicy):
+class DevBranchPolicy(BranchMutationPolicy):
     def validate_input_kind(self, input_kind: str) -> None:
         if input_kind not in {"direct", "import_batch"}:
             raise ValueError(f"unsupported mutation input kind: {input_kind}")
@@ -40,30 +70,30 @@ class DevScopePolicy(ScopeMutationPolicy):
     def allow_missing_entry_creation(self) -> bool:
         return True
 
-    def can_update_hit_variant(self, *, rel_bound: bool) -> bool:
-        return not rel_bound
+    def can_update_hit_variant(self, actor_branch_ref: BranchRef, bound_branch_refs: list[BranchRef]) -> bool:
+        return AuthorityPolicy.can_mutate_variant(actor_branch_ref, bound_branch_refs)
 
 
 @dataclass(frozen=True)
-class ScopeSyncPolicy:
-    source_scope_ref: ScopeRef
-    target_scope_ref: ScopeRef
+class BranchReplacePolicy:
+    source_branch_ref: BranchRef
+    target_branch_ref: BranchRef
 
     @classmethod
-    def for_scopes(cls, source_scope_ref: ScopeRef, target_scope_ref: ScopeRef) -> ScopeSyncPolicy:
-        if source_scope_ref.is_dev and target_scope_ref.is_rel:
-            return DevToReleaseSyncPolicy(source_scope_ref, target_scope_ref)
-        raise ValueError(f"unsupported scope sync pair: {source_scope_ref} -> {target_scope_ref}")
+    def for_branches(cls, source_branch_ref: BranchRef, target_branch_ref: BranchRef) -> BranchReplacePolicy:
+        if source_branch_ref.is_dev and target_branch_ref.is_rel:
+            return DevToReleaseReplacePolicy(source_branch_ref, target_branch_ref)
+        raise ValueError(f"unsupported branch replace pair: {source_branch_ref} -> {target_branch_ref}")
 
-    def cleanup_scope_refs(self, branch_service, project_id: int) -> list[ScopeRef]:
+    def cleanup_branch_refs(self, branch_service, project_id: int) -> list[BranchRef]:
         return []
 
 
 @dataclass(frozen=True)
-class DevToReleaseSyncPolicy(ScopeSyncPolicy):
-    def cleanup_scope_refs(self, branch_service, project_id: int) -> list[ScopeRef]:
-        branch = branch_service.get_dev_branch(self.source_scope_ref.scope_value, project_id)
+class DevToReleaseReplacePolicy(BranchReplacePolicy):
+    def cleanup_branch_refs(self, branch_service, project_id: int) -> list[BranchRef]:
+        branch = branch_service.get_dev_branch(self.source_branch_ref.branch_value, project_id)
         return [
-            branch_service.dev_scope(version)
-            for version in branch_service.versions_in_line(branch["version_line"], project_id)
+            branch_service.dev_branch(version)
+            for version in branch_service.versions_in_series(branch["version_series"], project_id)
         ]
