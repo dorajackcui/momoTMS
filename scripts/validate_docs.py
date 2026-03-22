@@ -18,6 +18,7 @@ ACTIVE_DOCS = [
 ]
 MARKDOWN_SCAN_DIRS = [
     Path("docs"),
+    Path("design"),
     Path("archive"),
 ]
 REQUIRED_TEMPLATE_HEADINGS = [
@@ -37,7 +38,7 @@ FENCED_CODE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
 REPO_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_./-])("
     r"README\.md|AGENTS\.md|PLANS\.md|code_review\.md|"
-    r"(?:app|docs|archive|tests|frontend|scripts)/[A-Za-z0-9_./-]+"
+    r"(?:app|docs|design|archive|tests|frontend|scripts)/[A-Za-z0-9_./-]+"
     r")"
 )
 
@@ -196,7 +197,7 @@ def main() -> int:
         return 1
 
     print(f"Documentation validation passed for {len(ACTIVE_DOCS)} active docs and {len(files)} checked Markdown files.")
-    print("- scanned repo-root Markdown plus Markdown under docs/ and archive/")
+    print("- scanned repo-root Markdown plus Markdown under docs/, design/, and archive/")
     print(f"- docs/ contains exactly the {len(ACTIVE_DOCS)} active owner docs")
     print("- each active doc has the owner-template headings")
     print("- local Markdown links resolved")

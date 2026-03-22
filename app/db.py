@@ -237,6 +237,9 @@ def get_conn(db_path: Path | str | None = None) -> Iterator[sqlite3.Connection]:
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

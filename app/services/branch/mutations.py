@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import sqlite3
 from time import perf_counter
 from typing import Any
 
@@ -11,7 +12,9 @@ from app.services.branch.service import BranchService
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.io import normalize_content_map, normalize_non_content_map, normalize_non_content_value
-from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
+from app.services.variant.bindings import BindingCommandService, BindingLookupService
+from app.services.variant.entries import EntryService
+from app.services.variant.variants import VariantCatalogService
 
 MUTATION_STATUSES = (
     "UPDATED_BOUND_VARIANT",
@@ -28,7 +31,9 @@ class BranchMutationService:
         self.branch = BranchService()
         self.entries = EntryService()
         self.catalog = VariantCatalogService()
-        self.bindings = ScopeBindingService()
+        self.binding_commands = BindingCommandService()
+        self.bindings = self.binding_commands
+        self.binding_lookup = BindingLookupService()
         self.imports = ImportService()
         self.projects = ProjectService()
 
@@ -42,17 +47,26 @@ class BranchMutationService:
         policy = BranchMutationPolicy.for_branch(branch_ref)
         input_kind = str(input_payload["kind"])
         policy.validate_input_kind(input_kind)
-        if branch_ref.is_dev:
-            mark_as_candidate = input_payload.get("mark_as_candidate_release")
-            self.branch.ensure_dev_branch(branch_ref.branch_value, mark_as_candidate, project_id)
-        if input_kind == "direct":
-            return self._apply_direct(branch_ref, input_payload["changes"], policy, project_id)
-        return self._apply_import_batch(
-            branch_ref,
-            int(input_payload["import_batch_id"]),
-            bool(input_payload.get("mark_as_candidate_release", True)),
-            project_id,
-        )
+        with get_conn() as conn:
+            dev_branch = None
+            if branch_ref.is_dev:
+                mark_as_candidate = input_payload.get("mark_as_candidate_release")
+                dev_branch = self.branch.ensure_dev_branch(
+                    branch_ref.branch_value,
+                    mark_as_candidate,
+                    project_id,
+                    conn=conn,
+                )
+            if input_kind == "direct":
+                return self._apply_direct(branch_ref, input_payload["changes"], policy, project_id, conn=conn)
+            return self._apply_import_batch(
+                branch_ref,
+                int(input_payload["import_batch_id"]),
+                bool(input_payload.get("mark_as_candidate_release", True)),
+                project_id,
+                conn=conn,
+                version_series=(dev_branch or {}).get("version_series"),
+            )
 
     def _apply_direct(
         self,
@@ -60,13 +74,14 @@ class BranchMutationService:
         changes: list[dict[str, Any]],
         policy: BranchMutationPolicy,
         project_id: int,
+        conn: sqlite3.Connection,
     ) -> dict[str, Any]:
         started = perf_counter()
         status_counts: Counter[str] = Counter()
         report_rows: list[dict[str, Any]] = []
         created_entry_count = 0
         for change in changes:
-            row = self._apply_direct_change(branch_ref, change, policy, project_id)
+            row = self._apply_direct_change(branch_ref, change, policy, project_id, conn=conn)
             created_entry_count += int(row.pop("created_entry", False))
             status_counts.update([row["status"]])
             report_rows.append(row)
@@ -96,19 +111,20 @@ class BranchMutationService:
         import_batch_id: int,
         mark_as_candidate_release: bool,
         project_id: int,
+        conn: sqlite3.Connection,
+        version_series: str | None = None,
     ) -> dict[str, Any]:
         started = perf_counter()
         self.imports.require_batch_project(import_batch_id, project_id)
-        with get_conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT import_row_id, file_path, sheet_name, row_index, payload_json
-                FROM import_rows
-                WHERE import_batch_id = ? AND status = 'ok'
-                ORDER BY import_row_id
-                """,
-                (import_batch_id,),
-            ).fetchall()
+        rows = conn.execute(
+            """
+            SELECT import_row_id, file_path, sheet_name, row_index, payload_json
+            FROM import_rows
+            WHERE import_batch_id = ? AND status = 'ok'
+            ORDER BY import_row_id
+            """,
+            (import_batch_id,),
+        ).fetchall()
         payload_rows = [
             {
                 "import_row_id": int(row["import_row_id"]),
@@ -120,13 +136,13 @@ class BranchMutationService:
             for row in rows
         ]
         business_keys = [row["payload"]["business_key"] for row in payload_rows]
-        existing_entries_by_key = self.entries.get_entries_by_keys(business_keys, project_id=project_id)
+        existing_entries_by_key = self.entries.get_entries_by_keys(business_keys, project_id=project_id, conn=conn)
         missing_entry_keys = {key for key in business_keys if key not in existing_entries_by_key}
-        entries_by_key = self.entries.ensure_entries(business_keys, project_id=project_id)
+        entries_by_key = self.entries.ensure_entries(business_keys, project_id=project_id, conn=conn)
         entry_ids = [int(entry["entry_id"]) for entry in entries_by_key.values()]
-        variants_by_entry = self.catalog.list_variants_for_entries(entry_ids, include_trashed=False)
+        variants_by_entry = self.catalog.list_variants_for_entries(entry_ids, include_trashed=False, conn=conn)
         binding_rows_by_entry = {
-            entry_id: self.bindings.list_bindings_for_entry(entry_id)
+            entry_id: self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn)
             for entry_id in entry_ids
         }
 
@@ -143,6 +159,7 @@ class BranchMutationService:
                 branch_ref,
                 binding_rows_by_entry,
                 variants_by_entry,
+                conn=conn,
             )
             status_counts.update([status])
             report_rows.append(
@@ -155,13 +172,12 @@ class BranchMutationService:
                 }
             )
 
-        branch = self.branch.get_dev_branch(branch_ref.branch_value, project_id)
         summary = {
             "branch_ref": str(branch_ref),
             "input_kind": "import_batch",
             "import_batch_id": import_batch_id,
             "mark_as_candidate_release": mark_as_candidate_release,
-            "version_series": branch["version_series"],
+            "version_series": version_series,
             "processed_count": len(report_rows),
             "created_entry_count": len(set(missing_entry_keys)),
             **self._status_summary(status_counts),
@@ -185,6 +201,7 @@ class BranchMutationService:
         change: dict[str, Any],
         policy: BranchMutationPolicy,
         project_id: int,
+        conn: sqlite3.Connection,
     ) -> dict[str, Any]:
         business_key = normalize_non_content_value(change.get("business_key"))
         if not business_key:
@@ -192,10 +209,10 @@ class BranchMutationService:
         for lang in (change.get("translations_by_lang") or {}).keys():
             self.projects.require_language(lang, project_id)
 
-        entry = self.entries.get_entry(business_key, project_id=project_id)
+        entry = self.entries.get_entry(business_key, project_id=project_id, conn=conn)
         created_entry = False
         if entry is None and change.get("source") is not None and policy.allow_missing_entry_creation():
-            entry = self.entries.get_or_create_entry(business_key, project_id=project_id)
+            entry = self.entries.get_or_create_entry(business_key, project_id=project_id, conn=conn)
             created_entry = True
         if entry is None:
             return {
@@ -206,9 +223,9 @@ class BranchMutationService:
             }
 
         entry_id = int(entry["entry_id"])
-        current_binding = self.bindings.get_binding(entry_id, branch_ref)
+        current_binding = self.binding_lookup.get_binding(entry_id, branch_ref, conn=conn)
         current_variant = (
-            self.catalog.get_variant(int(current_binding["variant_id"]))
+            self.catalog.get_variant(int(current_binding["variant_id"]), conn=conn)
             if current_binding is not None
             else None
         )
@@ -238,7 +255,7 @@ class BranchMutationService:
                     "created_entry": created_entry,
                 }
             bound_branch_refs = self._bound_branch_refs_for_variant(
-                self.bindings.list_bindings_for_entry(entry_id),
+                self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
             )
             if not policy.can_update_hit_variant(branch_ref, bound_branch_refs):
@@ -251,10 +268,8 @@ class BranchMutationService:
                 }
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
-                file_name=merged["file_name"],
-                source=merged["source"],
-                translations=merged["translations"],
-                remarks=merged["remarks"],
+                merged,
+                conn=conn,
             )
             return {
                 "business_key": business_key,
@@ -278,7 +293,7 @@ class BranchMutationService:
                     "created_entry": created_entry,
                 }
             bound_branch_refs = self._bound_branch_refs_for_variant(
-                self.bindings.list_bindings_for_entry(entry_id),
+                self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
             )
             if not policy.can_update_hit_variant(branch_ref, bound_branch_refs):
@@ -291,10 +306,8 @@ class BranchMutationService:
                 }
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
-                file_name=merged["file_name"],
-                source=merged["source"],
-                translations=merged["translations"],
-                remarks=merged["remarks"],
+                merged,
+                conn=conn,
             )
             return {
                 "business_key": business_key,
@@ -304,7 +317,12 @@ class BranchMutationService:
                 "created_entry": created_entry,
             }
 
-        target_variant = self.catalog.find_variant_by_source(entry_id, requested_source, include_trashed=False)
+        target_variant = self.catalog.find_variant_by_source(
+            entry_id,
+            requested_source,
+            include_trashed=False,
+            conn=conn,
+        )
         content_base = current_variant or target_variant
         merged = self._merged_variant_payload(content_base, change, requested_source)
         if target_variant is None:
@@ -317,12 +335,10 @@ class BranchMutationService:
                 }
             variant_id = self.catalog.create_variant(
                 entry_id,
-                file_name=merged["file_name"],
-                source=merged["source"],
-                translations=merged["translations"],
-                remarks=merged["remarks"],
+                merged,
+                conn=conn,
             )
-            self.bindings.bind_scope(entry_id, branch_ref, variant_id)
+            self.binding_commands.bind_scope(entry_id, branch_ref, variant_id, conn=conn)
             return {
                 "business_key": business_key,
                 "branch_ref": str(branch_ref),
@@ -334,7 +350,7 @@ class BranchMutationService:
         target_variant_id = int(target_variant["variant_id"])
         current_matches_target = current_binding is not None and int(current_binding["variant_id"]) == target_variant_id
         bound_branch_refs = self._bound_branch_refs_for_variant(
-            self.bindings.list_bindings_for_entry(entry_id),
+            self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
             target_variant_id,
         )
         if not policy.can_update_hit_variant(branch_ref, bound_branch_refs):
@@ -346,7 +362,7 @@ class BranchMutationService:
                     "status": "NOOP",
                     "created_entry": created_entry,
                 }
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id)
+            self.binding_commands.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
             return {
                 "business_key": business_key,
                 "branch_ref": str(branch_ref),
@@ -365,7 +381,7 @@ class BranchMutationService:
                 "created_entry": created_entry,
             }
         if payload_matches_target:
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id)
+            self.binding_commands.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
             return {
                 "business_key": business_key,
                 "branch_ref": str(branch_ref),
@@ -376,13 +392,11 @@ class BranchMutationService:
 
         self.catalog.update_variant(
             target_variant_id,
-            file_name=merged["file_name"],
-            source=merged["source"],
-            translations=merged["translations"],
-            remarks=merged["remarks"],
+            merged,
+            conn=conn,
         )
         if not current_matches_target:
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id)
+            self.binding_commands.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
             status = "UPDATED_AND_BOUND_EXISTING_VARIANT"
         else:
             status = "UPDATED_BOUND_VARIANT"
@@ -401,6 +415,7 @@ class BranchMutationService:
         target_branch: BranchRef,
         binding_rows_by_entry: dict[int, list[dict[str, Any]]],
         variants_by_entry: dict[int, list[dict[str, Any]]],
+        conn: sqlite3.Connection,
     ) -> str:
         bindings = binding_rows_by_entry.get(entry_id, [])
         variants = variants_by_entry.get(entry_id, [])
@@ -410,13 +425,16 @@ class BranchMutationService:
         if source_variant is None:
             variant_id = self.catalog.create_variant(
                 entry_id,
-                file_name=payload.get("file_name"),
-                source=payload["source"],
-                translations=payload.get("translations", {}),
-                remarks=payload.get("remarks", {}),
+                self.catalog.build_content(
+                    payload.get("file_name"),
+                    payload["source"],
+                    payload.get("translations", {}),
+                    payload.get("remarks", {}),
+                ),
+                conn=conn,
             )
-            self.bindings.bind_scope(entry_id, target_branch, variant_id)
-            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+            self.binding_commands.bind_scope(entry_id, target_branch, variant_id, conn=conn)
+            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
             return "CREATED_AND_BOUND_VARIANT"
 
         variant_id = int(source_variant["variant_id"])
@@ -425,31 +443,34 @@ class BranchMutationService:
         if not BranchMutationPolicy.for_branch(target_branch).can_update_hit_variant(target_branch, bound_branch_refs):
             if current_matches:
                 return "NOOP"
-            self.bindings.bind_scope(entry_id, target_branch, variant_id)
-            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+            self.binding_commands.bind_scope(entry_id, target_branch, variant_id, conn=conn)
+            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
             return "BOUND_EXISTING_VARIANT"
 
         payload_matches = self._payload_matches_variant(source_variant, payload)
         if payload_matches:
             if current_matches:
                 return "NOOP"
-            self.bindings.bind_scope(entry_id, target_branch, variant_id)
-            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+            self.binding_commands.bind_scope(entry_id, target_branch, variant_id, conn=conn)
+            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
             return "BOUND_EXISTING_VARIANT"
 
         self.catalog.update_variant(
             variant_id,
-            file_name=payload.get("file_name"),
-            source=payload["source"],
-            translations=payload.get("translations", {}),
-            remarks=payload.get("remarks", {}),
+            self.catalog.build_content(
+                payload.get("file_name"),
+                payload["source"],
+                payload.get("translations", {}),
+                payload.get("remarks", {}),
+            ),
+            conn=conn,
         )
         if current_matches:
             status = "UPDATED_BOUND_VARIANT"
         else:
-            self.bindings.bind_scope(entry_id, target_branch, variant_id)
+            self.binding_commands.bind_scope(entry_id, target_branch, variant_id, conn=conn)
             status = "UPDATED_AND_BOUND_EXISTING_VARIANT"
-        self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry)
+        self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
         return status
 
     def _merged_variant_payload(
@@ -498,9 +519,10 @@ class BranchMutationService:
         entry_id: int,
         binding_rows_by_entry: dict[int, list[dict[str, Any]]],
         variants_by_entry: dict[int, list[dict[str, Any]]],
+        conn: sqlite3.Connection,
     ) -> None:
-        binding_rows_by_entry[entry_id] = self.bindings.list_bindings_for_entry(entry_id)
-        variants_by_entry[entry_id] = self.catalog.list_variants(entry_id, include_trashed=False)
+        binding_rows_by_entry[entry_id] = self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn)
+        variants_by_entry[entry_id] = self.catalog.list_variants(entry_id, include_trashed=False, conn=conn)
 
     def _find_binding(self, bindings: list[dict[str, Any]], branch_ref: BranchRef) -> dict[str, Any] | None:
         scope_type, scope_value = branch_ref.as_tuple()
@@ -533,9 +555,15 @@ class BranchMutationService:
         ]
 
     def _payload_matches_variant(self, variant: dict[str, Any], payload: dict[str, Any]) -> bool:
+        normalized_payload = self.catalog.build_content(
+            payload.get("file_name"),
+            payload["source"],
+            payload.get("translations", {}),
+            payload.get("remarks", {}),
+        )
         return (
-            variant["file_name"] == normalize_non_content_value(payload.get("file_name"))
-            and variant["source"] == normalize_non_content_value(payload["source"])
-            and dict(variant["translations"]) == normalize_content_map(payload.get("translations", {}))
-            and dict(variant["remarks"]) == normalize_non_content_map(payload.get("remarks", {}))
+            variant["file_name"] == normalized_payload["file_name"]
+            and variant["source"] == normalized_payload["source"]
+            and dict(variant["translations"]) == normalized_payload["translations"]
+            and dict(variant["remarks"]) == normalized_payload["remarks"]
         )

@@ -26,6 +26,13 @@ class VariantRecord(TypedDict):
     updated_at: str
 
 
+class VariantContent(TypedDict):
+    file_name: str
+    source: str
+    translations: dict[str, str]
+    remarks: dict[str, str]
+
+
 class BindingRecord(TypedDict):
     scope_type: str
     scope_value: str

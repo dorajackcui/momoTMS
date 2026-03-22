@@ -16,12 +16,22 @@ class ProjectStateService:
         self.job_service = JobService()
 
     def get_state(self, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+        project = self.project_service.require_project(project_id)
+        dev_branches = self.branch_service.list_dev_branches(
+            project_id=project_id,
+            active_only=True,
+            skip_project_check=True,
+        )
         return {
-            "project": self.project_service.require_project(project_id),
+            "project": project,
             "schema": self.project_service.get_schema(project_id),
-            "release_summary": self.branch_service.release_summary(project_id),
-            "candidate_dev_branch": self.branch_service.get_candidate_dev_branch(project_id),
-            "dev_branches": self.branch_service.list_dev_branches(project_id=project_id, active_only=True),
+            "release_summary": self.branch_service.release_summary(project_id, skip_project_check=True),
+            "candidate_dev_branch": self.branch_service.get_candidate_dev_branch(
+                project_id,
+                active_branches=dev_branches,
+                skip_project_check=True,
+            ),
+            "dev_branches": dev_branches,
             "imports": self.import_service.list_batches(project_id=project_id),
             "jobs": self.job_service.list_jobs(project_id=project_id),
         }

@@ -27,6 +27,12 @@
 
 - package responsibilities, boundaries, tables, lifecycle rules, or canonical-source semantics change
 
+## Related Design Workspace
+
+- use [../design/README.md](../design/README.md) for design-process guidance, current-state review, and design-gap tracking
+- the `design/` folder supplements architecture work; it does not override runtime facts in `docs/`
+- when a design note becomes a stable runtime fact, update this file or the matching owner doc under `docs/`
+
 ## Runtime Boundaries
 
 - `/app` is the only operator-facing product surface
@@ -117,9 +123,9 @@ Domain services:
 
 - `app/services/project/`: project creation, schema loading, bootstrap assembly, and workbook header resolution
 - `app/services/imports/`: import batch parsing and persistence
-- `app/services/branch/`: scope refs, mutation policy, sync policy, and dev branch metadata
-- `app/services/variant/`: repositories, canonical variant catalog, bindings, lifecycle workflows, and inspection assembly
-- `app/services/read_models/`: projection services for branch summary, compare, queue, and master query
+- `app/services/branch/`: scope refs, mutation policy, sync policy, dev branch metadata, dedicated branch query repositories, and rich branch entry views used by workflows and candidate-branch detail
+- `app/services/variant/`: variant-domain only package split by responsibility: `entries.py` owns `entries` access, `variants.py` owns canonical same-source variant persistence, `bindings.py` owns binding commands and lookups, `lifecycle.py` owns orphan or trash state transitions, and `assemblers.py` plus `inspection.py` plus `workflows.py` assemble DTOs and operator workflows; `__init__.py` is the only stable package-level export surface
+- `app/services/read_models/`: the read-side entry point for branch summary, compare, queue, and master query; dedicated projection query repositories own lightweight branch and scope reads instead of the variant package
 - `app/services/workflows/`: job orchestration for mutation, sync, fill, and QA
 - `app/services/shared/`: IO helpers, job storage, and utility helpers
 - `app/services/demo/`: demo seeding and sample workbook generation
@@ -157,11 +163,12 @@ Branch mutation:
 Read models:
 
 1. routers parse scope refs and filters
-2. repository helpers load lightweight scope projections
-3. read-model services compute compare state and queue priority
-4. only the current page is hydrated into full row payloads
+2. branch and read-model query repositories load lightweight scope projections and branch summary rows
+3. read-model services compute compare state and queue priority from those projections
+4. only the current page is hydrated into full row payloads for compare or master-style detail
 
 Bootstrap:
 
 1. `/app` calls `ProjectStateService`
-2. the service assembles the product bootstrap directly from project-scoped state
+2. the service validates the project once, then assembles project metadata, schema, lightweight release summary, active dev branch metadata, imports, and jobs directly from project-scoped state
+3. candidate dev branch detail reuses the active branch metadata list and only hydrates branch entries for the candidate branch when one exists

@@ -108,6 +108,8 @@ Current policy:
 
 Mutation rules:
 
+- each mutation request executes in one DB transaction
+- unhandled errors roll back the whole request rather than committing per-row partial progress
 - if `source` is omitted, mutation requires an existing binding in the target scope and updates the currently bound variant in place
 - if `source` is provided and matches the currently bound variant, mutation updates that bound variant in place
 - if `source` is provided and differs, mutation resolves or creates the target same-source canonical variant and rebinds the scope when needed
@@ -126,12 +128,15 @@ Mutation rules:
 ## Trash And Restore Rules
 
 - delete is project-scoped and takes `branch_ref` plus `business_keys[]`
+- delete executes in one DB transaction per request
 - delete removes the active binding in the selected branch
 - if the affected variant no longer has any active bindings, delete moves that variant into `trashed`
 - if other branches still bind the same variant, delete only removes the selected branch binding
 - restore is project-scoped and takes `variant_ids[]`
+- restore executes in one DB transaction per request
 - restore clears trashed state for the selected variants only; it does not rebind scopes automatically
 - restore may fail with `SOURCE_CONFLICT` when the same entry already has another live same-source variant
+- business-result rows such as `MISSING`, `NOT_BOUND_IN_SCOPE`, `NOT_TRASHED`, and `SOURCE_CONFLICT` stay request-local report statuses; only unhandled errors roll back the whole request
 
 ## Fill Rules
 

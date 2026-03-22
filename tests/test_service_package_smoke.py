@@ -1,3 +1,4 @@
+import app.services.variant as variant_package
 from app.main import app
 from app.services.branch import BranchKind, BranchMutationService, BranchRef, BranchReplaceService, BranchService
 from app.services.demo.service import DemoService
@@ -6,16 +7,26 @@ from app.services.project.service import ProjectService
 from app.services.shared.io import normalize_non_content_value
 from app.services.shared.jobs import JobService
 from app.services.shared.utils import now_iso
-from app.services.variant.records import EntryVariantView
-from app.services.variant.repositories import VariantRepository
-from app.services.variant.services import EntryService, EntryVariantViewAssembler
-from app.services.variant.workflows import VariantWorkflowService
+from app.services.variant import (
+    BindingCommandService,
+    BindingLookupService,
+    EntryService,
+    EntryVariantView,
+    EntryVariantViewAssembler,
+    ScopeBindingCommandRepository,
+    ScopeBindingQueryRepository,
+    VariantCatalogService,
+    VariantCommandRepository,
+    VariantQueryRepository,
+    VariantWorkflowService,
+)
 from app.services.workflows.fill import FillService
 from app.services.workflows.qa import QaScanService
 from app.services.workflows.workbench import WorkflowService
 
 
 def test_new_service_paths_import_and_expose_expected_symbols() -> None:
+    assert variant_package.EntryService is EntryService
     assert callable(now_iso)
     assert normalize_non_content_value(" x ") == "x"
     assert DemoService is not None
@@ -27,7 +38,13 @@ def test_new_service_paths_import_and_expose_expected_symbols() -> None:
     assert BranchKind is not None
     assert EntryService is not None
     assert EntryVariantViewAssembler is not None
-    assert VariantRepository is not None
+    assert BindingCommandService is not None
+    assert BindingLookupService is not None
+    assert VariantCatalogService is not None
+    assert VariantCommandRepository is not None
+    assert VariantQueryRepository is not None
+    assert ScopeBindingCommandRepository is not None
+    assert ScopeBindingQueryRepository is not None
     assert ImportService is not None
     assert FillService is not None
     assert QaScanService is not None

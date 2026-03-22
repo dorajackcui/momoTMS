@@ -141,7 +141,7 @@ Docs regression:
 
 Docs validator coverage:
 
-- scans repo-root Markdown plus all Markdown under `docs/` and `archive/`
+- scans repo-root Markdown plus all Markdown under `docs/`, `design/`, and `archive/`
 - auto-checks local Markdown links, repo-relative file and directory references in code spans and fenced command examples, documented npm scripts, referenced test files, and the route inventory in `docs/contracts.md`
 - does not prove wording, owner-doc selection, or behavior claims; manually verify those against current code and [docs/README.md](README.md)
 

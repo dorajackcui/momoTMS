@@ -1,49 +1,63 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
-from app.db import get_conn
 from app.services.branch.models import BranchRef
-from app.services.project.service import DEFAULT_PROJECT_ID
-from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
+from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
+from app.services.read_models.queries import ReadModelProjectionRepository
+from app.services.variant.assemblers import ScopeEntryHydrator
+from app.services.variant.entries import EntryService
 
 
 class ReadModelService:
     def __init__(self) -> None:
+        self.projects = ProjectService()
         self.entries = EntryService()
-        self.bindings = ScopeBindingService()
-        self.catalog = VariantCatalogService()
-        self.binding_repo = self.bindings.bindings
-        self.variant_repo = self.catalog.variants
+        self.queries = ReadModelProjectionRepository()
+        self.scope_entry_hydrator = ScopeEntryHydrator()
 
     def branch_summary(self, project_id: int = DEFAULT_PROJECT_ID, lang: str | None = None) -> dict[str, Any]:
-        rel_branch = BranchRef.rel_current()
-        rel_projection = self._branch_projection_map(rel_branch, project_id, lang)
-        branches = [
-            {
-                "branch_ref": str(rel_branch),
-                "entry_count": len(rel_projection),
-                "status_counts": {
-                    "aligned": len(rel_projection),
+        self.projects.require_project(project_id)
+        rows = self.queries.list_active_branch_projections(project_id, lang=lang)
+        branch_order: list[str] = []
+        branch_meta: dict[str, dict[str, Any]] = {}
+        projections_by_branch: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+        for row in rows:
+            branch_ref = row["branch_ref"]
+            if branch_ref not in branch_meta:
+                branch_order.append(branch_ref)
+                branch_meta[branch_ref] = {
+                    "version_series": row["version_series"],
+                    "is_candidate_release": row["is_candidate_release"],
+                }
+            if row["variant_id"] is None or not row["business_key"]:
+                continue
+            projections_by_branch[branch_ref][row["business_key"]] = self._projection_row(row)
+
+        rel_branch_ref = str(BranchRef.rel_current())
+        rel_projection = projections_by_branch.get(rel_branch_ref, {})
+        branches: list[dict[str, Any]] = []
+        for branch_ref in branch_order:
+            projection = projections_by_branch.get(branch_ref, {})
+            if branch_ref == rel_branch_ref:
+                status_counts = {
+                    "aligned": len(projection),
                     "diverged": 0,
                     "base_only": 0,
                     "target_only": 0,
-                },
-            }
-        ]
-        for version in self._list_dev_versions(project_id=project_id, active_only=True):
-            branch_ref = BranchRef.dev(version["version"])
-            members = self._branch_projection_map(branch_ref, project_id, lang)
-            compare = self._build_compare_rows(rel_projection, members, lang)
-            branches.append(
-                {
-                    "branch_ref": str(branch_ref),
-                    "entry_count": len(members),
-                    "status_counts": compare["status_counts"],
-                    "version_series": version["version_series"],
-                    "is_candidate_release": version["is_candidate_release"],
                 }
-            )
+            else:
+                status_counts = self._build_compare_rows(rel_projection, projection, lang)["status_counts"]
+            item = {
+                "branch_ref": branch_ref,
+                "entry_count": len(projection),
+                "status_counts": status_counts,
+            }
+            if branch_meta[branch_ref]["version_series"] is not None:
+                item["version_series"] = branch_meta[branch_ref]["version_series"]
+                item["is_candidate_release"] = branch_meta[branch_ref]["is_candidate_release"]
+            branches.append(item)
         return {"branches": branches}
 
     def compare_branches(
@@ -59,6 +73,7 @@ class ReadModelService:
         page: int = 1,
         page_size: int | None = None,
     ) -> dict[str, Any]:
+        self.projects.require_project(project_id)
         base_projection = self._branch_projection_map(base_branch_ref, project_id, lang)
         target_projection = self._branch_projection_map(target_branch_ref, project_id, lang)
         compare = self._build_compare_rows(
@@ -89,6 +104,7 @@ class ReadModelService:
         page: int = 1,
         page_size: int | None = None,
     ) -> dict[str, Any]:
+        self.projects.require_project(project_id)
         compare = self.compare_branches(
             BranchRef.rel_current(),
             target_branch_ref,
@@ -114,40 +130,23 @@ class ReadModelService:
         }
 
     def master_entry(self, business_key: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+        self.projects.require_project(project_id)
         entry = self.entries.get_entry(business_key, project_id)
         if not entry:
             raise KeyError(f"entry not found: {business_key}")
-        bindings = self.bindings.list_bindings_for_entry(int(entry["entry_id"]))
-        active_results = []
-        for binding in bindings:
-            variant = self.catalog.get_variant(int(binding["variant_id"]))
-            if variant["trashed_at"] is not None:
-                continue
-            active_results.append(
-                {
-                    "business_key": entry["business_key"],
-                    "branch_ref": f"{binding['scope_type']}/{binding['scope_value']}",
-                    "variant_id": int(variant["variant_id"]),
-                    "file_name": variant["file_name"],
-                    "source": variant["source"],
-                    "translations": variant["translations"],
-                    "remarks": variant["remarks"],
-                }
-            )
+        rows = self.queries.list_master_entry_rows(project_id, business_key)
+        results = [self._search_row(item) for item in self.scope_entry_hydrator.hydrate(rows)]
         return {
             "business_key": entry["business_key"],
             "entry_id": int(entry["entry_id"]),
-            "results": active_results,
+            "results": results,
         }
 
     def master_search(self, source: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+        self.projects.require_project(project_id)
         results = [
             self._search_row(item)
-            for item in self.binding_repo.search_active_by_source(
-                project_id,
-                source,
-                self.variant_repo,
-            )
+            for item in self.scope_entry_hydrator.hydrate(self.queries.search_active_source_rows(project_id, source))
         ]
         return {"source": source, "results": results}
 
@@ -160,7 +159,7 @@ class ReadModelService:
         scope_type, scope_value = branch_ref.as_tuple()
         return {
             item["business_key"]: item
-            for item in self.binding_repo.list_scope_projection(project_id, scope_type, scope_value, lang)
+            for item in self.queries.list_scope_projection(project_id, scope_type, scope_value, lang)
         }
 
     def _search_row(self, item: dict[str, Any]) -> dict[str, Any]:
@@ -223,32 +222,30 @@ class ReadModelService:
         _, _, paged_priority_rows = self._paginate(filtered_priority_rows, page, page_size)
 
         paged_rows = paged_rows_meta
-        if (
-            project_id is not None
-            and base_branch_ref is not None
-            and target_branch_ref is not None
-        ):
+        if project_id is not None and base_branch_ref is not None and target_branch_ref is not None:
             page_keys = [row["business_key"] for row in paged_rows_meta]
             base_scope_type, base_scope_value = base_branch_ref.as_tuple()
             base_full_map = {
                 item["business_key"]: item
-                for item in self.binding_repo.list_scope_entries_for_keys(
-                    project_id,
-                    base_scope_type,
-                    base_scope_value,
-                    page_keys,
-                    self.variant_repo,
+                for item in self.scope_entry_hydrator.hydrate(
+                    self.queries.list_scope_variant_rows_for_keys(
+                        project_id,
+                        base_scope_type,
+                        base_scope_value,
+                        page_keys,
+                    )
                 )
             }
             target_scope_type, target_scope_value = target_branch_ref.as_tuple()
             target_full_map = {
                 item["business_key"]: item
-                for item in self.binding_repo.list_scope_entries_for_keys(
-                    project_id,
-                    target_scope_type,
-                    target_scope_value,
-                    page_keys,
-                    self.variant_repo,
+                for item in self.scope_entry_hydrator.hydrate(
+                    self.queries.list_scope_variant_rows_for_keys(
+                        project_id,
+                        target_scope_type,
+                        target_scope_value,
+                        page_keys,
+                    )
                 )
             }
             paged_rows = [
@@ -397,27 +394,17 @@ class ReadModelService:
             return ""
         return item["lang_target_text"]
 
-    def _list_dev_versions(
-        self,
-        project_id: int,
-        active_only: bool,
-    ) -> list[dict[str, Any]]:
-        query = """
-            SELECT version, version_line, is_candidate_release
-            FROM dev_versions
-            WHERE project_id = ?
-        """
-        params: list[Any] = [project_id]
-        if active_only:
-            query += " AND promoted_at IS NULL"
-        query += " ORDER BY created_at DESC, version DESC"
-        with get_conn() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [
-            {
-                "version": row["version"],
-                "version_series": row["version_line"],
-                "is_candidate_release": bool(row["is_candidate_release"]),
-            }
-            for row in rows
-        ]
+    def _projection_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "entry_id": int(row["entry_id"]),
+            "project_id": int(row["project_id"]),
+            "business_key": row["business_key"],
+            "scope_type": row["scope_type"],
+            "scope_value": row["scope_value"],
+            "variant_id": int(row["variant_id"]),
+            "file_name": row["file_name"],
+            "source": row["source"],
+            "lang_target_text": row["lang_target_text"],
+            "translations_fingerprint": row["translations_fingerprint"],
+            "remarks_fingerprint": row["remarks_fingerprint"],
+        }

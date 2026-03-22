@@ -13,7 +13,9 @@ from app.db import get_db_path, init_db
 from app.demo_fixtures import SAMPLES
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.jobs import JobService
-from app.services.variant.services import EntryService, ScopeBindingService, VariantCatalogService
+from app.services.variant.bindings import BindingCommandService
+from app.services.variant.entries import EntryService
+from app.services.variant.variants import VariantCatalogService
 
 DEMO_ROOT = Path("data/demo_samples")
 DEMO_ROOT_ENV_VAR = "MOMO_TMS_DEMO_ROOT"
@@ -33,7 +35,7 @@ class DemoService:
         self.jobs = JobService()
         self.projects = ProjectService()
         self.entries = EntryService()
-        self.bindings = ScopeBindingService()
+        self.binding_commands = BindingCommandService()
         self.catalog = VariantCatalogService()
 
     def list_samples(self) -> list[dict[str, Any]]:
@@ -83,16 +85,18 @@ class DemoService:
             entry = self.entries.get_or_create_entry(item["business_key"], project_id=project_id)
             string_id = self.catalog.create_variant(
                 int(entry["entry_id"]),
-                file_name=item.get("file_name"),
-                source=item["source"],
-                translations=item.get("translations", {}),
-                remarks=item.get("remarks", {}),
+                self.catalog.build_content(
+                    item.get("file_name"),
+                    item["source"],
+                    item.get("translations", {}),
+                    item.get("remarks", {}),
+                ),
             )
             for membership in item.get("memberships", []):
                 if membership == "rel":
-                    self.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), string_id)
+                    self.binding_commands.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), string_id)
                 elif membership.startswith("dev:"):
-                    self.bindings.bind_scope(
+                    self.binding_commands.bind_scope(
                         int(entry["entry_id"]),
                         BranchRef.dev(membership.split(":", 1)[1]),
                         string_id,

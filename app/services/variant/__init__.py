@@ -1,27 +1,28 @@
+from app.services.variant.assemblers import EntryVariantViewAssembler, ScopeEntryHydrator
+from app.services.variant.bindings import (
+    BindingCommandService,
+    BindingLookupService,
+    ScopeBindingCommandRepository,
+    ScopeBindingQueryRepository,
+)
+from app.services.variant.entries import EntryRepository, EntryService
 from app.services.variant.inspection import VariantInspectionService
+from app.services.variant.lifecycle import VariantLifecycleService
 from app.services.variant.records import (
     BindingRecord,
     BindingSummary,
     EntryVariantView,
     EntryRecord,
     ScopeEntryRecord,
+    VariantContent,
     VariantRecord,
 )
-from app.services.variant.repositories import (
-    EntryRepository,
-    ScopeBindingRepository,
-    VariantRepository,
-)
-from app.services.variant.services import (
-    EntryService,
-    EntryVariantViewAssembler,
-    ScopeBindingService,
-    VariantCatalogService,
-    VariantLifecycleService,
-)
+from app.services.variant.variants import VariantCatalogService, VariantCommandRepository, VariantQueryRepository
 from app.services.variant.workflows import VariantWorkflowService
 
 __all__ = [
+    "BindingCommandService",
+    "BindingLookupService",
     "BindingRecord",
     "BindingSummary",
     "EntryVariantView",
@@ -29,13 +30,16 @@ __all__ = [
     "EntryRepository",
     "EntryService",
     "EntryVariantViewAssembler",
+    "ScopeEntryHydrator",
     "VariantInspectionService",
-    "ScopeBindingRepository",
-    "ScopeBindingService",
+    "ScopeBindingCommandRepository",
+    "ScopeBindingQueryRepository",
     "ScopeEntryRecord",
+    "VariantContent",
     "VariantCatalogService",
     "VariantLifecycleService",
     "VariantWorkflowService",
     "VariantRecord",
-    "VariantRepository",
+    "VariantCommandRepository",
+    "VariantQueryRepository",
 ]

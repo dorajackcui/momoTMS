@@ -78,7 +78,7 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
     def fail_cleanup(*args, **kwargs):
         raise RuntimeError("promote cleanup failed")
 
-    monkeypatch.setattr(replace_service.bindings.bindings, "remove_scope_bindings", fail_cleanup)
+    monkeypatch.setattr(replace_service.binding_commands, "remove_scope_binding_rows", fail_cleanup)
 
     with pytest.raises(RuntimeError, match="promote cleanup failed"):
         replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
@@ -91,6 +91,82 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
     assert dev_keys_after == dev_keys_before
     assert any(branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches(active_only=True))
     assert read_service.get_dev_branch(sample["dev_version"])["promoted_at"] is None
+
+
+def test_direct_mutation_rolls_back_on_failure(monkeypatch) -> None:
+    reset_demo()
+    mutation_service = BranchMutationService()
+    read_service = BranchService()
+    original_bind_scope = mutation_service.bindings.bind_scope
+    call_count = {"value": 0}
+
+    def fail_on_second_bind(*args, **kwargs):
+        call_count["value"] += 1
+        if call_count["value"] == 2:
+            raise RuntimeError("direct mutation failed")
+        return original_bind_scope(*args, **kwargs)
+
+    monkeypatch.setattr(mutation_service.bindings, "bind_scope", fail_on_second_bind)
+
+    with pytest.raises(RuntimeError, match="direct mutation failed"):
+        mutation_service.apply(
+            BranchRef.dev("2.4.3"),
+            {
+                "kind": "direct",
+                "changes": [
+                    {
+                        "business_key": "tx.direct.one",
+                        "source": "Direct source one",
+                        "translations_by_lang": {"fr": "Direct target one"},
+                        "remarks_by_key": {"context": "tx"},
+                        "file_name": "tx-1.xlsx",
+                    },
+                    {
+                        "business_key": "tx.direct.two",
+                        "source": "Direct source two",
+                        "translations_by_lang": {"fr": "Direct target two"},
+                        "remarks_by_key": {"context": "tx"},
+                        "file_name": "tx-2.xlsx",
+                    },
+                ],
+            },
+        )
+
+    assert read_service.entries.get_entry("tx.direct.one") is None
+    assert read_service.entries.get_entry("tx.direct.two") is None
+    assert not any(branch["version"] == "2.4.3" for branch in read_service.list_dev_branches(active_only=True))
+
+
+def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
+    sample = reset_demo()
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+    mutation_service = BranchMutationService()
+    read_service = BranchService()
+    original_bind_scope = mutation_service.bindings.bind_scope
+    call_count = {"value": 0}
+
+    def fail_on_second_bind(*args, **kwargs):
+        call_count["value"] += 1
+        if call_count["value"] == 2:
+            raise RuntimeError("import batch failed")
+        return original_bind_scope(*args, **kwargs)
+
+    monkeypatch.setattr(mutation_service.bindings, "bind_scope", fail_on_second_bind)
+
+    with pytest.raises(RuntimeError, match="import batch failed"):
+        mutation_service.apply(
+            BranchRef.dev(sample["dev_version"]),
+            {
+                "kind": "import_batch",
+                "import_batch_id": batch["import_batch_id"],
+                "mark_as_candidate_release": True,
+            },
+        )
+
+    assert read_service.entries.get_entry("dev.new.entry") is None
+    assert not any(
+        branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches(active_only=True)
+    )
 
 
 def test_release_hotfix_and_trash_restore_round_trip() -> None:
@@ -144,6 +220,46 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     assert restored_variant["restored_at"] is not None
 
 
+def test_delete_rolls_back_on_failure(monkeypatch) -> None:
+    reset_demo()
+    variant_service = VariantWorkflowService()
+    read_service = BranchService()
+
+    def fail_trash_variant(*args, **kwargs):
+        raise RuntimeError("trash delete failed")
+
+    monkeypatch.setattr(variant_service.lifecycle, "trash_variant", fail_trash_variant)
+
+    with pytest.raises(RuntimeError, match="trash delete failed"):
+        variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+
+    rel_keys = {item["business_key"] for item in read_service.list_branch_entries(BranchRef.rel_current())}
+    assert "common.welcome" in rel_keys
+
+
+def test_restore_rolls_back_on_failure(monkeypatch) -> None:
+    reset_demo()
+    variant_service = VariantWorkflowService()
+    inspection = VariantInspectionService()
+
+    target_variant_id = inspection.entry_variants("common.welcome")["variants"][0]["variant_id"]
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+
+    def fail_refresh(*args, **kwargs):
+        raise RuntimeError("restore refresh failed")
+
+    monkeypatch.setattr(variant_service.lifecycle, "refresh_orphan_states", fail_refresh)
+
+    with pytest.raises(RuntimeError, match="restore refresh failed"):
+        variant_service.restore([target_variant_id])
+
+    variant = next(
+        item for item in inspection.entry_variants("common.welcome")["variants"] if item["variant_id"] == target_variant_id
+    )
+    assert variant["trashed_at"] is not None
+    assert variant["restored_at"] is None
+
+
 def test_restore_variants_reports_source_conflicts_and_continues() -> None:
     reset_demo()
     read_service = BranchService()
@@ -157,20 +273,24 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
     conflict_variant = read_service.catalog.get_variant(conflicted_variant_id)
     replacement_variant_id = read_service.catalog.create_variant(
         int(conflict_entry["entry_id"]),
-        conflict_variant["file_name"],
-        conflict_variant["source"],
-        conflict_variant["translations"],
-        conflict_variant["remarks"],
+        read_service.catalog.build_content(
+            conflict_variant["file_name"],
+            conflict_variant["source"],
+            conflict_variant["translations"],
+            conflict_variant["remarks"],
+        ),
     )
     read_service.bindings.bind_scope(int(conflict_entry["entry_id"]), BranchRef.dev("2.4.1"), replacement_variant_id)
 
     restore_entry = read_service.entries.get_or_create_entry("restore.ok")
     restore_variant_id = read_service.catalog.create_variant(
         int(restore_entry["entry_id"]),
-        "restore.xlsx",
-        "Restore source",
-        {"fr": "Restore target"},
-        {"context": "restore"},
+        read_service.catalog.build_content(
+            "restore.xlsx",
+            "Restore source",
+            {"fr": "Restore target"},
+            {"context": "restore"},
+        ),
     )
     read_service.bindings.bind_scope(int(restore_entry["entry_id"]), BranchRef.rel_current(), restore_variant_id)
     variant_service.delete(BranchRef.rel_current(), ["restore.ok"])
@@ -235,10 +355,12 @@ def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> N
     entry = entries.get_or_create_entry("authority.series", project_id=1)
     variant_id = catalog.create_variant(
         int(entry["entry_id"]),
-        "authority.xlsx",
-        "Shared source",
-        {"fr": "Series owner"},
-        {"context": "authority"},
+        catalog.build_content(
+            "authority.xlsx",
+            "Shared source",
+            {"fr": "Series owner"},
+            {"context": "authority"},
+        ),
     )
     bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
 
@@ -266,10 +388,12 @@ def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None
     entry = service.entries.get_or_create_entry("authority.patch", project_id=1)
     variant_id = service.catalog.create_variant(
         int(entry["entry_id"]),
-        "authority.xlsx",
-        "Shared source",
-        {"fr": "Patch owner"},
-        {"context": "authority"},
+        service.catalog.build_content(
+            "authority.xlsx",
+            "Shared source",
+            {"fr": "Patch owner"},
+            {"context": "authority"},
+        ),
     )
     service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
 

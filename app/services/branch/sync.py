@@ -6,17 +6,20 @@ from typing import Any
 from app.db import get_conn
 from app.services.branch.models import BranchRef
 from app.services.branch.policy import BranchReplacePolicy
+from app.services.branch.queries import BranchQueryRepository
 from app.services.branch.service import BranchService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.utils import now_iso
-from app.services.variant.services import ScopeBindingService, VariantCatalogService, VariantLifecycleService
+from app.services.variant.bindings import BindingCommandService
+from app.services.variant.lifecycle import VariantLifecycleService
 
 
 class BranchReplaceService:
     def __init__(self) -> None:
         self.branch = BranchService()
-        self.bindings = ScopeBindingService()
-        self.catalog = VariantCatalogService()
+        self.branch_queries = BranchQueryRepository()
+        self.binding_commands = BindingCommandService()
+        self.bindings = self.binding_commands
         self.lifecycle = VariantLifecycleService()
 
     def preview(
@@ -35,7 +38,7 @@ class BranchReplaceService:
         removed = sorted(target_keys - source_keys)
         cleanup_branch_refs = policy.cleanup_branch_refs(self.branch, project_id)
         cleanup_binding_count = sum(
-            self.bindings.count_scope(branch_ref, project_id)
+            self.branch_queries.count_scope_entries(project_id, *branch_ref.as_tuple())
             for branch_ref in cleanup_branch_refs
         )
         report_rows = [
@@ -75,14 +78,13 @@ class BranchReplaceService:
         removed_binding_count = 0
         with get_conn() as conn:
             try:
-                source_members = self.bindings.bindings.list_scope_entries(
+                source_members = self.branch_queries.list_scope_rows(
                     project_id,
                     source_scope_type,
                     source_scope_value,
-                    self.catalog.variants,
                     conn=conn,
                 )
-                removed_target_bindings = self.bindings.bindings.clear_scope(
+                removed_target_bindings = self.binding_commands.clear_scope_bindings(
                     project_id,
                     target_scope_type,
                     target_scope_value,
@@ -92,11 +94,11 @@ class BranchReplaceService:
                 for item in source_members:
                     entry_id = int(item["entry_id"])
                     affected_entry_ids.add(entry_id)
-                    self.bindings.bindings.upsert(
+                    self.binding_commands.upsert_binding(
                         entry_id,
                         target_scope_type,
                         target_scope_value,
-                        int(item["variant"]["variant_id"]),
+                        int(item["variant_id"]),
                         timestamp,
                         conn=conn,
                     )
@@ -144,7 +146,7 @@ class BranchReplaceService:
         removed_binding_rows: list[dict[str, Any]] = []
         for scope_type, scope_values in grouped_scope_values.items():
             removed_binding_rows.extend(
-                self.bindings.bindings.remove_scope_bindings(
+                self.binding_commands.remove_scope_binding_rows(
                     project_id,
                     scope_type,
                     scope_values,
