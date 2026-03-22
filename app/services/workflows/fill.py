@@ -9,8 +9,6 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import load_workbook
 
-from app.services.branch.models import BranchRef
-from app.services.branch.service import BranchService
 from app.services.shared.io import (
     has_valid_fill_combined_key,
     is_blank_value,
@@ -19,12 +17,14 @@ from app.services.shared.io import (
     normalize_non_content_value,
 )
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
+from app.services.variant.records import FillCandidateRecord
+from app.services.workflows.fill_queries import FillQueryService
 
 
 class FillService:
     def __init__(self) -> None:
-        self.branches = BranchService()
         self.projects = ProjectService()
+        self.fill_queries = FillQueryService()
 
     def fill_and_export(
         self,
@@ -40,14 +40,8 @@ class FillService:
         if not root.exists() or not root.is_dir():
             raise ValueError(f"fill source directory not found: {source_dir}")
 
-        rel_entries = self.branches.list_branch_entries(BranchRef.rel_current(), project_id)
-        strings_by_key = {
-            normalize_non_content_value(item["business_key"]): item for item in rel_entries
-        }
-        strings_by_combo = {
-            normalize_fill_combined_key(item["business_key"], item["source"]): item
-            for item in rel_entries
-        }
+        candidates = self.fill_queries.list_fill_candidates(project_id, lang)
+        keys_in_project, strings_by_combo = self._build_fill_indexes(candidates)
 
         export_dir = Path(work_dir) if work_dir else root.parent / f"{root.name}_filled"
         if export_dir.exists():
@@ -94,9 +88,8 @@ class FillService:
                         current_target = self._cell_content(sheet, row_index, target_column)
                         if not is_blank_value(current_target):
                             kept += 1
-                        candidate_content = normalize_content_value(
-                            candidate["translations"].get(lang)
-                        )
+                        candidate_content = candidate["target_text"]
+                        candidate_state = self._candidate_state(candidate)
                         if is_blank_value(candidate_content) and not allow_blank_write:
                             skipped_blank += 1
                             report_rows.append(
@@ -106,7 +99,8 @@ class FillService:
                                     "row_index": row_index,
                                     "business_key": business_key,
                                     "status": "SKIPPED_BLANK_CONTENT",
-                                    "from_branch": "rel/current",
+                                    "match_variant_id": candidate["variant_id"],
+                                    "match_variant_state": candidate_state,
                                 }
                             )
                             continue
@@ -119,11 +113,12 @@ class FillService:
                                 "row_index": row_index,
                                 "business_key": business_key,
                                 "status": "FILLED",
-                                "from_branch": "rel/current",
+                                "match_variant_id": candidate["variant_id"],
+                                "match_variant_state": candidate_state,
                             }
                         )
                         continue
-                    if business_key not in strings_by_key:
+                    if business_key not in keys_in_project:
                         miss += 1
                         report_rows.append(
                             {
@@ -131,7 +126,7 @@ class FillService:
                                 "sheet_name": sheet.title,
                                 "row_index": row_index,
                                 "business_key": business_key,
-                                "status": "MISSING_KEY_IN_BASE",
+                                "status": "MISSING_KEY_IN_PROJECT",
                             }
                         )
                         continue
@@ -152,7 +147,17 @@ class FillService:
         report_path = export_dir / "fill_report.csv"
         with report_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
-            writer.writerow(["file_path", "sheet_name", "row_index", "business_key", "status", "from_branch"])
+            writer.writerow(
+                [
+                    "file_path",
+                    "sheet_name",
+                    "row_index",
+                    "business_key",
+                    "status",
+                    "match_variant_id",
+                    "match_variant_state",
+                ]
+            )
             for row in report_rows:
                 writer.writerow(
                     [
@@ -161,7 +166,8 @@ class FillService:
                         row.get("row_index"),
                         row.get("business_key"),
                         row.get("status"),
-                        row.get("from_branch", ""),
+                        row.get("match_variant_id", ""),
+                        row.get("match_variant_state", ""),
                     ]
                 )
 
@@ -206,3 +212,46 @@ class FillService:
             return ""
         value = sheet.cell(row=row_index, column=column_index).value
         return normalize_content_value(value)
+
+    def _build_fill_indexes(
+        self,
+        candidates: list[FillCandidateRecord],
+    ) -> tuple[set[str], dict[tuple[str, str], FillCandidateRecord]]:
+        keys_in_project: set[str] = set()
+        candidates_by_combo: dict[tuple[str, str], list[FillCandidateRecord]] = {}
+        for candidate in candidates:
+            business_key = normalize_non_content_value(candidate["business_key"])
+            source = normalize_non_content_value(candidate["source"])
+            keys_in_project.add(business_key)
+            candidates_by_combo.setdefault((business_key, source), []).append(candidate)
+
+        best_candidates: dict[tuple[str, str], FillCandidateRecord] = {}
+        for combined_key, grouped_candidates in candidates_by_combo.items():
+            best_candidates[combined_key] = self._pick_best_candidate(combined_key, grouped_candidates)
+        return keys_in_project, best_candidates
+
+    def _pick_best_candidate(
+        self,
+        combined_key: tuple[str, str],
+        candidates: list[FillCandidateRecord],
+    ) -> FillCandidateRecord:
+        live_candidates = [candidate for candidate in candidates if candidate["trashed_at"] is None]
+        if len(live_candidates) > 1:
+            raise RuntimeError(
+                "duplicate non-trashed fill candidates found for "
+                f"business_key={combined_key[0]!r}, source={combined_key[1]!r}"
+            )
+        if live_candidates:
+            return live_candidates[0]
+        return sorted(
+            candidates,
+            key=lambda candidate: (candidate["updated_at"], candidate["variant_id"]),
+            reverse=True,
+        )[0]
+
+    def _candidate_state(self, candidate: FillCandidateRecord) -> str:
+        if candidate["trashed_at"] is not None:
+            return "trashed"
+        if candidate["orphaned_at"] is not None:
+            return "orphan"
+        return "active"

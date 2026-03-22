@@ -14,8 +14,8 @@ from app.demo_fixtures import SAMPLES
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.jobs import JobService
 from app.services.variant.bindings import BindingCommandService
+from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
-from app.services.variant.variants import VariantCatalogService
 
 DEMO_ROOT = Path("data/demo_samples")
 DEMO_ROOT_ENV_VAR = "MOMO_TMS_DEMO_ROOT"

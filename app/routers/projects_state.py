@@ -5,8 +5,8 @@ from fastapi import APIRouter
 from app.routers.common import handle_errors
 from app.schemas import CreateProjectRequest, ProductStateResponse, ProjectSummary
 from app.services.demo.service import DemoService
+from app.services.project.bootstrap import ProjectBootstrapService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.project.state import ProjectStateService
 
 router = APIRouter()
 
@@ -31,13 +31,13 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
 
 @router.get("/api/projects/{project_id}/state", response_model=ProductStateResponse)
 def project_state(project_id: int) -> ProductStateResponse:
-    return handle_errors(lambda: ProductStateResponse(**ProjectStateService().get_state(project_id)))
+    return handle_errors(lambda: ProductStateResponse(**ProjectBootstrapService().get_state(project_id)))
 
 
 @router.post("/api/demo/reset", response_model=ProductStateResponse)
 def demo_reset() -> ProductStateResponse:
     def run() -> ProductStateResponse:
         DemoService().reset()
-        return ProductStateResponse(**ProjectStateService().get_state(DEFAULT_PROJECT_ID))
+        return ProductStateResponse(**ProjectBootstrapService().get_state(DEFAULT_PROJECT_ID))
 
     return handle_errors(run)

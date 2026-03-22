@@ -5,7 +5,7 @@ import sqlite3
 
 from app.services.shared.utils import now_iso
 from app.services.variant.bindings import BindingLookupService
-from app.services.variant.variants import VariantCommandRepository, VariantQueryRepository
+from app.services.variant.repositories import VariantCommandRepository, VariantQueryRepository
 
 
 class VariantLifecycleService:

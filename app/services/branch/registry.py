@@ -8,22 +8,12 @@ from app.services.branch.models import BranchRef, derive_version_series
 from app.services.branch.queries import BranchQueryRepository
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.utils import now_iso
-from app.services.variant.assemblers import EntryVariantViewAssembler, ScopeEntryHydrator
-from app.services.variant.bindings import BindingCommandService, BindingLookupService
-from app.services.variant.entries import EntryService
-from app.services.variant.variants import VariantCatalogService
 
 
-class BranchService:
+class BranchRegistryService:
     def __init__(self) -> None:
         self.projects = ProjectService()
-        self.entries = EntryService()
-        self.catalog = VariantCatalogService()
-        self.bindings = BindingCommandService()
-        self.binding_lookup = BindingLookupService()
         self.branch_queries = BranchQueryRepository()
-        self.scope_entry_hydrator = ScopeEntryHydrator()
-        self.assembler = EntryVariantViewAssembler()
 
     def release_branch(self) -> BranchRef:
         return BranchRef.rel_current()
@@ -56,7 +46,7 @@ class BranchService:
                     project_id=project_id,
                     conn=local_conn,
                 )
-            return self.get_dev_branch(version, project_id)
+            return self.get_dev_branch_metadata(version, project_id)
 
         existing = conn.execute(
             """
@@ -121,14 +111,11 @@ class BranchService:
             """,
             (project_id, version),
         ).fetchone()
-        branch = {
-            "is_candidate_release": bool(branch_row["is_candidate_release"]) if branch_row else False,
-        }
         return {
             "project_id": project_id,
             "version": version,
             "version_series": version_series,
-            "is_candidate_release": branch["is_candidate_release"],
+            "is_candidate_release": bool(branch_row["is_candidate_release"]) if branch_row else False,
             "branch_ref": str(self.dev_branch(version)),
         }
 
@@ -187,33 +174,12 @@ class BranchService:
             for row in rows
         ]
 
-    def get_dev_branch(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+    def get_dev_branch_metadata(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.projects.require_project(project_id)
         for branch in self.list_dev_branches(project_id=project_id, active_only=False, skip_project_check=True):
             if branch["version"] == version:
-                branch["entries"] = self.list_branch_entries(self.dev_branch(version), project_id)
                 return branch
         raise KeyError(f"dev branch not found: {version}")
-
-    def get_candidate_dev_branch(
-        self,
-        project_id: int = DEFAULT_PROJECT_ID,
-        active_branches: list[dict[str, Any]] | None = None,
-        skip_project_check: bool = False,
-    ) -> dict[str, Any] | None:
-        if not skip_project_check:
-            self.projects.require_project(project_id)
-        branches = (
-            active_branches
-            if active_branches is not None
-            else self.list_dev_branches(project_id=project_id, skip_project_check=True)
-        )
-        for branch in branches:
-            if branch["is_candidate_release"]:
-                branch_detail = dict(branch)
-                branch_detail["entries"] = self.list_branch_entries(self.dev_branch(branch["version"]), project_id)
-                return branch_detail
-        return None
 
     def versions_in_series(self, version_series: str, project_id: int = DEFAULT_PROJECT_ID) -> list[str]:
         with get_conn() as conn:
@@ -227,24 +193,3 @@ class BranchService:
                 (project_id, version_series),
             ).fetchall()
         return [row["version"] for row in rows]
-
-    def list_branch_entries(
-        self,
-        branch_ref: BranchRef,
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> list[dict[str, Any]]:
-        scope_type, scope_value = branch_ref.as_tuple()
-        rows = self.branch_queries.list_scope_rows(project_id, scope_type, scope_value)
-        results = self.scope_entry_hydrator.hydrate(rows)
-        bindings_by_entry = self.binding_lookup.list_bindings_for_entries([int(item["entry_id"]) for item in results])
-        return [
-            self.assembler.assemble(
-                item,
-                [
-                    binding
-                    for binding in bindings_by_entry.get(int(item["entry_id"]), [])
-                    if int(binding["variant_id"]) == int(item["variant"]["variant_id"])
-                ],
-            )
-            for item in results
-        ]

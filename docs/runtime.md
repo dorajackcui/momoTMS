@@ -117,7 +117,7 @@ API and routing regression:
 
 ```bash
 . .venv/bin/activate
-python -m pytest -q tests/test_variant_api.py tests/test_service_package_smoke.py
+python -m pytest -q tests/test_variant_api.py tests/test_services_architecture.py
 ```
 
 Branch workflow regression:
@@ -163,7 +163,7 @@ PLAYWRIGHT_BROWSERS_PATH=.playwright npm run test:e2e
 Use this section after selecting the owner doc from [docs/README.md](README.md); the other owner docs do not repeat validation commands.
 
 - backend or domain changes: run `python -m pytest -q`
-- API or routing changes: run `tests/test_variant_api.py` and `tests/test_service_package_smoke.py`
+- API or routing changes: run `tests/test_variant_api.py` and `tests/test_services_architecture.py`
 - branch workflow changes: run `tests/test_branch_service.py` and `tests/test_io_flows.py`
 - frontend `/app` changes: run `npm run build:app`, then E2E when user-visible flows changed
 - docs-only changes: run `.venv/bin/python scripts/validate_docs.py` to catch local links, repo paths, npm scripts, test refs, and active contract routes, then manually verify wording, ownership, and behavior claims the validator cannot prove

@@ -8,10 +8,11 @@ from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.io import normalize_non_content_value
 from app.services.variant.bindings import BindingLookupService
 from app.services.variant.entries import EntryService
-from app.services.variant.variants import VariantCatalogService, VariantQueryRepository
+from app.services.variant.catalog import VariantCatalogService
+from app.services.variant.repositories import VariantQueryRepository
 
 
-class VariantInspectionQueryRepository:
+class InspectionQueryRepository:
     def list_orphan_variant_rows(self, project_id: int) -> list[dict[str, Any]]:
         with get_conn() as conn:
             rows = conn.execute(
@@ -57,14 +58,14 @@ class VariantInspectionQueryRepository:
         ]
 
 
-class VariantInspectionService:
+class InspectionReadService:
     def __init__(self) -> None:
         self.projects = ProjectService()
         self.entries = EntryService()
         self.binding_lookup = BindingLookupService()
         self.catalog = VariantCatalogService()
         self.variant_queries = VariantQueryRepository()
-        self.queries = VariantInspectionQueryRepository()
+        self.queries = InspectionQueryRepository()
 
     def entry_variants(
         self,

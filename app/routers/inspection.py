@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.routers.common import handle_errors
 from app.schemas import EntryVariantsResponse, OrphanVariantsResponse
-from app.services.variant.inspection import VariantInspectionService
+from app.services.read_models.inspection import InspectionReadService
 
 router = APIRouter()
 
@@ -13,7 +13,7 @@ router = APIRouter()
 def entry_variants(project_id: int, business_key: str) -> EntryVariantsResponse:
     return handle_errors(
         lambda: EntryVariantsResponse(
-            **VariantInspectionService().entry_variants(
+            **InspectionReadService().entry_variants(
                 business_key,
                 project_id=project_id,
             )
@@ -25,6 +25,6 @@ def entry_variants(project_id: int, business_key: str) -> EntryVariantsResponse:
 def orphan_variants(project_id: int) -> OrphanVariantsResponse:
     return handle_errors(
         lambda: OrphanVariantsResponse(
-            **VariantInspectionService().orphan_variants(project_id=project_id)
+            **InspectionReadService().orphan_variants(project_id=project_id)
         )
     )

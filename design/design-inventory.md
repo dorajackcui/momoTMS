@@ -22,6 +22,7 @@
 | branch authority 与 version-series 规则 | `app/services/branch/models.py`、`app/services/branch/policy.py`、`docs/system.md` | Partial | 规则存在，但 rationale 和扩展方式还没沉淀成单独设计文档 | branch authority note 或 ADR |
 | 契约单一事实来源 | `app/schemas.py` 与 `frontend/src/product-app/types.ts` 双份维护 | Partial | 需要决定是 codegen、shared schema 还是显式同步约定 | contract ownership note |
 | 错误语义与 job/report taxonomy | `docs/contracts.md`、`docs/workflows.md`、job/report 代码 | Partial | 需要统一 business status、HTTP error、job failure 的分类和命名规则 | error taxonomy note |
+| pivot language 拓扑与异步漂移 | [pivot-language-design.md](pivot-language-design.md)、当前 fill/mutation 代码与讨论记录 | Partial | 需要按设计落地 schema 配置、variant sync state、Fill report，以及 active docs follow-through | pivot language system note |
 | 数据演进与兼容策略 | `AGENTS.md`、`docs/runtime.md` 明确 reset 优先 | Partial | 需要补“什么时候 reset 就够，什么时候必须 migration”的决策标准 | change compatibility policy note |
 | 非功能需求 | archive 中有 performance 相关材料，但 active docs 较少 | Missing | 需要明确数据规模、性能预算、并发假设、可观测性目标 | non-functional targets note |
 | ADR / decision log 机制 | archive 里有旧 ADR，active 工作流里没有 | Missing | 需要重新建立 active ADR 入口和生命周期规则 | ADR index and template |

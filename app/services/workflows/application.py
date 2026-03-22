@@ -4,16 +4,16 @@ from typing import Any, Callable
 
 from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
-from app.services.branch.sync import BranchReplaceService
+from app.services.branch.replace import BranchReplaceService
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.jobs import JobService
-from app.services.variant.workflows import VariantWorkflowService
+from app.services.workflows.trash_restore import TrashRestoreService
 from app.services.workflows.fill import FillService
 from app.services.workflows.qa import QaScanService
 
 
-class WorkflowService:
+class WorkflowApplicationService:
     def __init__(self) -> None:
         self.branch_mutation_service = BranchMutationService()
         self.branch_replace_service = BranchReplaceService()
@@ -21,7 +21,7 @@ class WorkflowService:
         self.import_service = ImportService()
         self.job_service = JobService()
         self.qa_scan_service = QaScanService()
-        self.variant_workflow_service = VariantWorkflowService()
+        self.trash_restore_service = TrashRestoreService()
 
     def import_directory(self, input_dir: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         return self._run_job(
@@ -128,7 +128,7 @@ class WorkflowService:
             "trash_delete",
             {"branch_ref": branch_ref, "business_keys": business_keys, "project_id": project_id},
             lambda _job_id: self._wrap_report(
-                self.variant_workflow_service.delete(
+                self.trash_restore_service.delete(
                     BranchRef.parse(branch_ref),
                     business_keys,
                     project_id=project_id,
@@ -146,7 +146,7 @@ class WorkflowService:
             "trash_restore",
             {"variant_ids": variant_ids, "project_id": project_id},
             lambda _job_id: self._wrap_report(
-                self.variant_workflow_service.restore(
+                self.trash_restore_service.restore(
                     variant_ids,
                     project_id=project_id,
                 )

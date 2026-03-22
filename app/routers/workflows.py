@@ -15,15 +15,16 @@ from app.schemas import (
     ScopedTrashDeleteRequest,
     VariantTrashRestoreRequest,
 )
-from app.services.branch.service import BranchService
-from app.services.workflows.workbench import WorkflowService
+from app.services.branch.details import BranchDetailService
+from app.services.branch.registry import BranchRegistryService
+from app.services.workflows.application import WorkflowApplicationService
 
 router = APIRouter()
 
 
 @router.post("/api/projects/{project_id}/branches/mutations", response_model=JobDetail)
 def project_branch_mutation(project_id: int, payload: BranchMutationRequest) -> JobDetail:
-    service = WorkflowService()
+    service = WorkflowApplicationService()
     return handle_errors(
         lambda: JobDetail(
             **service.branch_mutation(
@@ -38,20 +39,23 @@ def project_branch_mutation(project_id: int, payload: BranchMutationRequest) -> 
 @router.get("/api/projects/{project_id}/branches/dev", response_model=list[DevBranchSummary])
 def project_list_dev_branches(project_id: int) -> list[DevBranchSummary]:
     return handle_errors(
-        lambda: [DevBranchSummary(**item) for item in BranchService().list_dev_branches(project_id=project_id, active_only=True)]
+        lambda: [
+            DevBranchSummary(**item)
+            for item in BranchRegistryService().list_dev_branches(project_id=project_id, active_only=True)
+        ]
     )
 
 
 @router.get("/api/projects/{project_id}/branches/dev/{version}", response_model=DevBranchDetail)
 def project_get_dev_branch(project_id: int, version: str) -> DevBranchDetail:
-    return handle_errors(lambda: DevBranchDetail(**BranchService().get_dev_branch(version, project_id)))
+    return handle_errors(lambda: DevBranchDetail(**BranchDetailService().get_dev_branch(version, project_id)))
 
 
 @router.post("/api/projects/{project_id}/branches/replace/preview", response_model=BranchReplacePreview)
 def project_branch_replace_preview(project_id: int, payload: BranchReplaceRequest) -> BranchReplacePreview:
     return handle_errors(
         lambda: BranchReplacePreview(
-            **WorkflowService().branch_replace_preview(
+            **WorkflowApplicationService().branch_replace_preview(
                 payload.source_branch_ref,
                 payload.target_branch_ref,
                 project_id,
@@ -64,7 +68,7 @@ def project_branch_replace_preview(project_id: int, payload: BranchReplaceReques
 def project_branch_replace_execute(project_id: int, payload: BranchReplaceRequest) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowService().branch_replace_execute(
+            **WorkflowApplicationService().branch_replace_execute(
                 payload.source_branch_ref,
                 payload.target_branch_ref,
                 project_id,
@@ -77,7 +81,7 @@ def project_branch_replace_execute(project_id: int, payload: BranchReplaceReques
 def project_trash_delete(project_id: int, payload: ScopedTrashDeleteRequest) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowService().trash_delete(
+            **WorkflowApplicationService().trash_delete(
                 payload.branch_ref,
                 payload.business_keys,
                 project_id=project_id,
@@ -90,7 +94,7 @@ def project_trash_delete(project_id: int, payload: ScopedTrashDeleteRequest) -> 
 def project_trash_restore(project_id: int, payload: VariantTrashRestoreRequest) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowService().trash_restore(
+            **WorkflowApplicationService().trash_restore(
                 payload.variant_ids,
                 project_id=project_id,
             )
@@ -100,7 +104,7 @@ def project_trash_restore(project_id: int, payload: VariantTrashRestoreRequest) 
 
 @router.post("/api/projects/{project_id}/fill", response_model=JobDetail)
 def project_fill(project_id: int, payload: FillRequest) -> JobDetail:
-    service = WorkflowService()
+    service = WorkflowApplicationService()
     return handle_errors(lambda: JobDetail(**service.fill(payload.source_dir, payload.lang, payload.output_name, project_id)))
 
 
@@ -112,7 +116,7 @@ def project_fill_upload_folder(
     files: list[UploadFile] = File(...),
     relative_paths: list[str] = Form(...),
 ) -> JobDetail:
-    service = WorkflowService()
+    service = WorkflowApplicationService()
     return handle_errors(
         lambda: JobDetail(
             **service.fill_uploaded_folder(
@@ -127,7 +131,7 @@ def project_fill_upload_folder(
 
 @router.post("/api/projects/{project_id}/qa", response_model=JobDetail)
 def project_qa(project_id: int, payload: QaRequest) -> JobDetail:
-    return handle_errors(lambda: JobDetail(**WorkflowService().qa(payload.source_dir, payload.lang, project_id)))
+    return handle_errors(lambda: JobDetail(**WorkflowApplicationService().qa(payload.source_dir, payload.lang, project_id)))
 
 
 @router.post("/api/projects/{project_id}/qa/upload-folder", response_model=JobDetail)
@@ -139,7 +143,7 @@ def project_qa_upload_folder(
 ) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowService().qa_uploaded_folder(
+            **WorkflowApplicationService().qa_uploaded_folder(
                 read_folder_upload(files, relative_paths),
                 lang,
                 project_id=project_id,

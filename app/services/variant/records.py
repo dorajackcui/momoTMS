@@ -26,6 +26,16 @@ class VariantRecord(TypedDict):
     updated_at: str
 
 
+class FillCandidateRecord(TypedDict):
+    business_key: str
+    source: str
+    target_text: str
+    variant_id: int
+    orphaned_at: str | None
+    trashed_at: str | None
+    updated_at: str
+
+
 class VariantContent(TypedDict):
     file_name: str
     source: str

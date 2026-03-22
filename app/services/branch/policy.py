@@ -85,15 +85,15 @@ class BranchReplacePolicy:
             return DevToReleaseReplacePolicy(source_branch_ref, target_branch_ref)
         raise ValueError(f"unsupported branch replace pair: {source_branch_ref} -> {target_branch_ref}")
 
-    def cleanup_branch_refs(self, branch_service, project_id: int) -> list[BranchRef]:
+    def cleanup_branch_refs(self, branch_registry, branch_details, project_id: int) -> list[BranchRef]:
         return []
 
 
 @dataclass(frozen=True)
 class DevToReleaseReplacePolicy(BranchReplacePolicy):
-    def cleanup_branch_refs(self, branch_service, project_id: int) -> list[BranchRef]:
-        branch = branch_service.get_dev_branch(self.source_branch_ref.branch_value, project_id)
+    def cleanup_branch_refs(self, branch_registry, branch_details, project_id: int) -> list[BranchRef]:
+        branch = branch_details.get_dev_branch(self.source_branch_ref.branch_value, project_id)
         return [
-            branch_service.dev_branch(version)
-            for version in branch_service.versions_in_series(branch["version_series"], project_id)
+            branch_registry.dev_branch(version)
+            for version in branch_registry.versions_in_series(branch["version_series"], project_id)
         ]

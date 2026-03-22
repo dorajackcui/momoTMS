@@ -44,8 +44,8 @@
 
 - [../docs/workflows.md](../docs/workflows.md)
 - [../app/services/branch/mutations.py](../app/services/branch/mutations.py)
-- [../app/services/branch/sync.py](../app/services/branch/sync.py)
-- [../app/services/workflows/workbench.py](../app/services/workflows/workbench.py)
+- [../app/services/branch/replace.py](../app/services/branch/replace.py)
+- [../app/services/workflows/application.py](../app/services/workflows/application.py)
 
 评价：
 
@@ -108,9 +108,9 @@
 
 证据：
 
-- [../app/services/variant/variants.py](../app/services/variant/variants.py)
+- [../app/services/variant/store.py](../app/services/variant/store.py)
 - [../app/services/variant/bindings.py](../app/services/variant/bindings.py)
-- [../app/services/read_models/service.py](../app/services/read_models/service.py)
+- [../app/services/read_models/_support.py](../app/services/read_models/_support.py)
 - [../app/services/branch/mutations.py](../app/services/branch/mutations.py) 当前约 567 行
 
 风险：

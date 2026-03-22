@@ -6,18 +6,18 @@ from typing import Any
 from app.services.branch.models import BranchRef
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.read_models.queries import ReadModelProjectionRepository
-from app.services.variant.assemblers import ScopeEntryHydrator
+from app.services.read_models.hydration import ScopeEntryHydrator
 from app.services.variant.entries import EntryService
 
 
-class ReadModelService:
+class ReadModelSupport:
     def __init__(self) -> None:
         self.projects = ProjectService()
         self.entries = EntryService()
         self.queries = ReadModelProjectionRepository()
         self.scope_entry_hydrator = ScopeEntryHydrator()
 
-    def branch_summary(self, project_id: int = DEFAULT_PROJECT_ID, lang: str | None = None) -> dict[str, Any]:
+    def _branch_summary(self, project_id: int = DEFAULT_PROJECT_ID, lang: str | None = None) -> dict[str, Any]:
         self.projects.require_project(project_id)
         rows = self.queries.list_active_branch_projections(project_id, lang=lang)
         branch_order: list[str] = []
@@ -60,7 +60,7 @@ class ReadModelService:
             branches.append(item)
         return {"branches": branches}
 
-    def compare_branches(
+    def _compare_branches(
         self,
         base_branch_ref: BranchRef,
         target_branch_ref: BranchRef,
@@ -94,7 +94,7 @@ class ReadModelService:
         compare["target_branch_ref"] = str(target_branch_ref)
         return compare
 
-    def translation_queue(
+    def _translation_queue(
         self,
         target_branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
@@ -105,7 +105,7 @@ class ReadModelService:
         page_size: int | None = None,
     ) -> dict[str, Any]:
         self.projects.require_project(project_id)
-        compare = self.compare_branches(
+        compare = self._compare_branches(
             BranchRef.rel_current(),
             target_branch_ref,
             project_id=project_id,
@@ -129,7 +129,7 @@ class ReadModelService:
             "page_size": compare["page_size"],
         }
 
-    def master_entry(self, business_key: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+    def _master_entry(self, business_key: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.projects.require_project(project_id)
         entry = self.entries.get_entry(business_key, project_id)
         if not entry:
@@ -142,7 +142,7 @@ class ReadModelService:
             "results": results,
         }
 
-    def master_search(self, source: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
+    def _master_search(self, source: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.projects.require_project(project_id)
         results = [
             self._search_row(item)

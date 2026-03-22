@@ -106,7 +106,7 @@ Live states:
 - `orphan`: no active binding but still reusable for future same-source hits
 - `trashed`: explicitly deleted from normal runtime usage
 
-Default product reads use active variants only. Orphan and trashed variants are excluded from normal overview, compare, queue, master query, fill, and QA flows.
+Default product reads use active variants only. Orphan and trashed variants are excluded from normal overview, compare, queue, master query, and QA flows. `fill` is the main exception: it matches against the project's full variant history, preferring non-trashed same-source variants and only falling back to trashed history when no live same-source candidate remains.
 
 ## Package Map
 
@@ -121,12 +121,12 @@ HTTP routers:
 
 Domain services:
 
-- `app/services/project/`: project creation, schema loading, bootstrap assembly, and workbook header resolution
+- `app/services/project/`: project creation and schema loading live in `service.py`; `/app` bootstrap assembly lives in `bootstrap.py`
 - `app/services/imports/`: import batch parsing and persistence
-- `app/services/branch/`: scope refs, mutation policy, sync policy, dev branch metadata, dedicated branch query repositories, and rich branch entry views used by workflows and candidate-branch detail
-- `app/services/variant/`: variant-domain only package split by responsibility: `entries.py` owns `entries` access, `variants.py` owns canonical same-source variant persistence, `bindings.py` owns binding commands and lookups, `lifecycle.py` owns orphan or trash state transitions, and `assemblers.py` plus `inspection.py` plus `workflows.py` assemble DTOs and operator workflows; `__init__.py` is the only stable package-level export surface
-- `app/services/read_models/`: the read-side entry point for branch summary, compare, queue, and master query; dedicated projection query repositories own lightweight branch and scope reads instead of the variant package
-- `app/services/workflows/`: job orchestration for mutation, sync, fill, and QA
+- `app/services/branch/`: scope refs and policy live with branch write or replace orchestration; `registry.py` owns dev branch metadata and release summary, `details.py` owns branch entry hydration, `replace.py` owns branch replace execution, and `mutations.py` coordinates branch-scoped writes
+- `app/services/variant/`: pure variant-domain package only. `entries.py` owns entry access, `store.py` plus `repositories.py` own canonical same-source persistence, `catalog.py` owns variant content rules, `bindings.py` owns raw binding commands and lookups, `state_coordinator.py` composes binding writes with orphan refresh, and `lifecycle.py` owns orphan or trash state transitions. Operator-facing inspection, hydration, and workflow orchestration are not part of this package.
+- `app/services/read_models/`: the only operator-facing read side. `summary.py`, `compare.py`, `queue.py`, and `master.py` expose use-case-specific read services; `hydration.py` and `inspection.py` own row hydration and historical inspection reads; `queries.py` owns lightweight projection queries
+- `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, `fill_queries.py` owns fill-specific candidate reads, and `trash_restore.py`, `fill.py`, and `qa.py` execute workflow behavior
 - `app/services/shared/`: IO helpers, job storage, and utility helpers
 - `app/services/demo/`: demo seeding and sample workbook generation
 
@@ -169,6 +169,6 @@ Read models:
 
 Bootstrap:
 
-1. `/app` calls `ProjectStateService`
+1. `/app` calls `ProjectBootstrapService`
 2. the service validates the project once, then assembles project metadata, schema, lightweight release summary, active dev branch metadata, imports, and jobs directly from project-scoped state
 3. candidate dev branch detail reuses the active branch metadata list and only hydrates branch entries for the candidate branch when one exists

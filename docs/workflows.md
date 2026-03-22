@@ -33,7 +33,7 @@
 - normalization helpers: `app/services/shared/io.py`
 - import parsing and persistence: `app/services/imports/service.py`
 - branch mutation and sync policy: `app/services/branch/`
-- variant trash or restore workflows: `app/services/variant/workflows.py`
+- variant trash or restore workflows: `app/services/workflows/trash_restore.py`
 - fill and QA orchestration: `app/services/workflows/`
 
 ## Normalization Rules
@@ -142,7 +142,12 @@ Mutation rules:
 
 - fill matches workbook rows by normalized `business_key + source`
 - if either value becomes empty, the row is not a valid fill candidate
-- runtime content still comes from active branch bindings, not from workbook rows alone
+- fill candidate lookup is project-scoped and reads all recorded variants for that project, including `active`, `orphan`, and `trashed`
+- when the same `business_key + source` has both non-trashed and trashed candidates, fill always prefers the non-trashed candidate
+- when only trashed same-source history remains, fill uses the candidate with the newest `updated_at`
+- `SRC_MISMATCH` means the `business_key` exists in the project but no variant in project history matches the workbook `source`
+- `MISSING_KEY_IN_PROJECT` means the `business_key` does not exist anywhere in the project history
+- fill report rows record `match_variant_id` and `match_variant_state` (`active`, `orphan`, or `trashed`) instead of a branch label
 - fill writes translations back to workbook artifacts through a job
 
 Implication:

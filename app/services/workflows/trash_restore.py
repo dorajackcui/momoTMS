@@ -7,10 +7,10 @@ from app.services.variant.bindings import BindingCommandService, BindingLookupSe
 from app.services.variant.entries import EntryService
 from app.services.variant.lifecycle import VariantLifecycleService
 from app.services.variant.normalization import normalize_business_keys, normalize_variant_ids
-from app.services.variant.variants import VariantCatalogService
+from app.services.variant.catalog import VariantCatalogService
 
 
-class VariantWorkflowService:
+class TrashRestoreService:
     def __init__(self) -> None:
         self.projects = ProjectService()
         self.entries = EntryService()

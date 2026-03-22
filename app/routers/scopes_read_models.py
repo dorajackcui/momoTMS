@@ -4,14 +4,17 @@ from fastapi import APIRouter, Query
 
 from app.routers.common import handle_errors, parse_branch_ref
 from app.schemas import BranchCompareResponse, BranchListResponse, BranchQueueResponse, MasterEntryResponse, MasterSearchResponse
-from app.services.read_models.service import ReadModelService
+from app.services.read_models.compare import BranchCompareReadService
+from app.services.read_models.master import MasterQueryReadService
+from app.services.read_models.queue import TranslationQueueReadService
+from app.services.read_models.summary import BranchSummaryReadService
 
 router = APIRouter()
 
 
 @router.get("/api/projects/{project_id}/branches", response_model=BranchListResponse)
 def project_branch_summary(project_id: int, lang: str | None = Query(default=None)) -> BranchListResponse:
-    return handle_errors(lambda: BranchListResponse(**ReadModelService().branch_summary(project_id=project_id, lang=lang)))
+    return handle_errors(lambda: BranchListResponse(**BranchSummaryReadService().branch_summary(project_id=project_id, lang=lang)))
 
 
 @router.get("/api/projects/{project_id}/branches/compare", response_model=BranchCompareResponse)
@@ -29,7 +32,7 @@ def project_branch_compare(
 ) -> BranchCompareResponse:
     return handle_errors(
         lambda: BranchCompareResponse(
-            **ReadModelService().compare_branches(
+            **BranchCompareReadService().compare_branches(
                 parse_branch_ref(base_branch_ref),
                 parse_branch_ref(target_branch_ref),
                 project_id=project_id,
@@ -57,7 +60,7 @@ def project_branch_queue(
 ) -> BranchQueueResponse:
     return handle_errors(
         lambda: BranchQueueResponse(
-            **ReadModelService().translation_queue(
+            **TranslationQueueReadService().translation_queue(
                 parse_branch_ref(target_branch_ref),
                 project_id=project_id,
                 lang=lang,
@@ -72,9 +75,9 @@ def project_branch_queue(
 
 @router.get("/api/projects/{project_id}/branches/master/entries/{business_key}", response_model=MasterEntryResponse)
 def project_master_entry(project_id: int, business_key: str) -> MasterEntryResponse:
-    return handle_errors(lambda: MasterEntryResponse(**ReadModelService().master_entry(business_key, project_id)))
+    return handle_errors(lambda: MasterEntryResponse(**MasterQueryReadService().master_entry(business_key, project_id)))
 
 
 @router.get("/api/projects/{project_id}/branches/master/search", response_model=MasterSearchResponse)
 def project_master_search(project_id: int, source: str = Query(...)) -> MasterSearchResponse:
-    return handle_errors(lambda: MasterSearchResponse(**ReadModelService().master_search(source, project_id)))
+    return handle_errors(lambda: MasterSearchResponse(**MasterQueryReadService().master_search(source, project_id)))

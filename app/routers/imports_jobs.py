@@ -9,14 +9,16 @@ from app.routers.common import handle_errors, parse_column_mapping_json, read_fo
 from app.schemas import ImportBatchSummary, ImportDirectoryRequest, ImportUploadPreview, JobDetail, JobSummary, ReportPayload
 from app.services.imports.service import ImportService
 from app.services.shared.jobs import JobService
-from app.services.workflows.workbench import WorkflowService
+from app.services.workflows.application import WorkflowApplicationService
 
 router = APIRouter()
 
 
 @router.post("/api/projects/{project_id}/imports/directory", response_model=JobDetail)
 def project_import_directory(project_id: int, payload: ImportDirectoryRequest) -> JobDetail:
-    return handle_errors(lambda: JobDetail(**WorkflowService().import_directory(payload.input_dir, project_id=project_id)))
+    return handle_errors(
+        lambda: JobDetail(**WorkflowApplicationService().import_directory(payload.input_dir, project_id=project_id))
+    )
 
 
 @router.post("/api/projects/{project_id}/imports/upload-folder", response_model=JobDetail)
@@ -28,7 +30,7 @@ def project_import_upload_folder(
 ) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowService().import_uploaded_folder(
+            **WorkflowApplicationService().import_uploaded_folder(
                 read_folder_upload(files, relative_paths),
                 project_id=project_id,
                 mapping_overrides=parse_column_mapping_json(column_mapping_json),
@@ -45,7 +47,7 @@ def project_import_upload_folder_preview(
 ) -> ImportUploadPreview:
     return handle_errors(
         lambda: ImportUploadPreview(
-            **WorkflowService().preview_import_uploaded_folder(
+            **WorkflowApplicationService().preview_import_uploaded_folder(
                 read_folder_upload(files, relative_paths),
                 project_id=project_id,
             )
@@ -74,7 +76,7 @@ def project_list_jobs(project_id: int) -> list[JobSummary]:
 
 @router.get("/api/projects/{project_id}/jobs/{job_id}", response_model=JobDetail)
 def project_job_detail(project_id: int, job_id: int) -> JobDetail:
-    return handle_errors(lambda: JobDetail(**WorkflowService().get_job_detail(job_id, project_id=project_id)))
+    return handle_errors(lambda: JobDetail(**WorkflowApplicationService().get_job_detail(job_id, project_id=project_id)))
 
 
 @router.get("/api/projects/{project_id}/jobs/{job_id}/report", response_model=ReportPayload)

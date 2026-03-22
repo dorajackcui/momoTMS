@@ -2,13 +2,24 @@ from __future__ import annotations
 
 from collections import defaultdict
 import sqlite3
+from typing import Any
 
 from app.db import get_conn
-from app.services.branch.models import BranchRef
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.utils import now_iso
 from app.services.variant.records import BindingRecord
-from app.services.variant.variants import VariantCommandRepository, VariantQueryRepository
+from app.services.variant.repositories import VariantCommandRepository, VariantQueryRepository
+
+
+def _scope_tuple(scope_ref: Any) -> tuple[str, str]:
+    if hasattr(scope_ref, "as_tuple"):
+        return scope_ref.as_tuple()
+    if isinstance(scope_ref, tuple) and len(scope_ref) == 2:
+        return str(scope_ref[0]), str(scope_ref[1])
+    if isinstance(scope_ref, str) and "/" in scope_ref:
+        scope_type, scope_value = scope_ref.split("/", 1)
+        return scope_type, scope_value
+    raise TypeError(f"unsupported scope reference: {scope_ref!r}")
 
 
 class _ScopeBindingStore:
@@ -503,19 +514,19 @@ class BindingLookupService:
     def get_binding(
         self,
         entry_id: int,
-        branch_ref: BranchRef,
+        scope_ref: Any,
         conn: sqlite3.Connection | None = None,
     ) -> BindingRecord | None:
-        scope_type, scope_value = branch_ref.as_tuple()
+        scope_type, scope_value = _scope_tuple(scope_ref)
         return self._binding_queries.get(entry_id, scope_type, scope_value, conn=conn)
 
     def get_bindings_for_entries(
         self,
         entry_ids: list[int],
-        branch_ref: BranchRef,
+        scope_ref: Any,
         conn: sqlite3.Connection | None = None,
     ) -> dict[int, BindingRecord]:
-        scope_type, scope_value = branch_ref.as_tuple()
+        scope_type, scope_value = _scope_tuple(scope_ref)
         return self._binding_queries.get_for_entries(entry_ids, scope_type, scope_value, conn=conn)
 
     def list_bindings_for_entries(
@@ -550,21 +561,11 @@ class BindingCommandService:
         variant_queries: VariantQueryRepository | None = None,
         binding_commands: ScopeBindingCommandRepository | None = None,
         binding_lookup: BindingLookupService | None = None,
-        lifecycle: "VariantLifecycleService | None" = None,
     ) -> None:
         self._variant_commands = variant_commands or VariantCommandRepository()
         self._variant_queries = variant_queries or VariantQueryRepository()
         self._binding_commands = binding_commands or ScopeBindingCommandRepository()
         self._binding_lookup = binding_lookup or BindingLookupService()
-        if lifecycle is None:
-            from app.services.variant.lifecycle import VariantLifecycleService
-
-            lifecycle = VariantLifecycleService(
-                variant_commands=self._variant_commands,
-                variant_queries=self._variant_queries,
-                binding_lookup=self._binding_lookup,
-            )
-        self._lifecycle = lifecycle
 
     def upsert_binding(
         self,
@@ -598,12 +599,12 @@ class BindingCommandService:
     def bind_scope(
         self,
         entry_id: int,
-        branch_ref: BranchRef,
+        scope_ref: Any,
         variant_id: int,
         conn: sqlite3.Connection | None = None,
         timestamp: str | None = None,
     ) -> None:
-        scope_type, scope_value = branch_ref.as_tuple()
+        scope_type, scope_value = _scope_tuple(scope_ref)
         marker = timestamp or now_iso()
         self._binding_commands.upsert(
             entry_id,
@@ -614,44 +615,38 @@ class BindingCommandService:
             conn=conn,
         )
         self._variant_commands.clear_orphaned_at(variant_id, marker, conn=conn)
-        self._lifecycle.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
 
     def clear_scope(
         self,
-        branch_ref: BranchRef,
+        scope_ref: Any,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> None:
-        scope_type, scope_value = branch_ref.as_tuple()
-        removed = self._binding_commands.clear_scope(project_id, scope_type, scope_value)
-        for row in removed:
-            self._lifecycle.refresh_orphan_states(int(row["entry_id"]))
+        scope_type, scope_value = _scope_tuple(scope_ref)
+        self._binding_commands.clear_scope(project_id, scope_type, scope_value)
 
     def remove_scope_bindings(
         self,
-        branch_refs: list[BranchRef],
+        scope_refs: list[Any],
         project_id: int = DEFAULT_PROJECT_ID,
         conn: sqlite3.Connection | None = None,
     ) -> int:
         grouped_scope_values: dict[str, list[str]] = {}
-        for branch_ref in branch_refs:
-            scope_type, scope_value = branch_ref.as_tuple()
+        for scope_ref in scope_refs:
+            scope_type, scope_value = _scope_tuple(scope_ref)
             grouped_scope_values.setdefault(scope_type, []).append(scope_value)
         removed: list[BindingRecord] = []
         for scope_type, scope_values in grouped_scope_values.items():
             removed.extend(self.remove_scope_binding_rows(project_id, scope_type, scope_values, conn=conn))
-        for row in removed:
-            self._lifecycle.refresh_orphan_states(int(row["entry_id"]), conn=conn)
         return len(removed)
 
     def remove_binding(
         self,
         entry_id: int,
-        branch_ref: BranchRef,
+        scope_ref: Any,
         conn: sqlite3.Connection | None = None,
     ) -> BindingRecord | None:
-        scope_type, scope_value = branch_ref.as_tuple()
+        scope_type, scope_value = _scope_tuple(scope_ref)
         removed = self._binding_commands.delete(entry_id, scope_type, scope_value, conn=conn)
         if removed is None:
             return None
-        self._lifecycle.refresh_orphan_states(int(removed["entry_id"]), conn=conn)
         return removed

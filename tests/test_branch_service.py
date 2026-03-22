@@ -6,12 +6,12 @@ from app.db import get_db_path
 from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
 from app.services.branch.policy import AuthorityPolicy
-from app.services.branch.service import BranchService
-from app.services.branch.sync import BranchReplaceService
+from app.services.branch.replace import BranchReplaceService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
-from app.services.variant.inspection import VariantInspectionService
-from app.services.variant.workflows import VariantWorkflowService
+from app.services.read_models.inspection import InspectionReadService
+from app.services.workflows.trash_restore import TrashRestoreService
+from tests.service_helpers import branch_services
 
 
 def reset_demo() -> dict:
@@ -25,7 +25,7 @@ def reset_demo() -> dict:
 def test_branch_import_paths_and_promote_cleanup() -> None:
     sample = reset_demo()
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
-    read_service = BranchService()
+    read_service = branch_services()
     mutation_service = BranchMutationService()
     replace_service = BranchReplaceService()
 
@@ -58,7 +58,7 @@ def test_branch_import_paths_and_promote_cleanup() -> None:
 def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
     sample = reset_demo()
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
-    read_service = BranchService()
+    read_service = branch_services()
     mutation_service = BranchMutationService()
     replace_service = BranchReplaceService()
     mutation_service.apply(
@@ -96,7 +96,7 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
 def test_direct_mutation_rolls_back_on_failure(monkeypatch) -> None:
     reset_demo()
     mutation_service = BranchMutationService()
-    read_service = BranchService()
+    read_service = branch_services()
     original_bind_scope = mutation_service.bindings.bind_scope
     call_count = {"value": 0}
 
@@ -141,7 +141,7 @@ def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
     sample = reset_demo()
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
     mutation_service = BranchMutationService()
-    read_service = BranchService()
+    read_service = branch_services()
     original_bind_scope = mutation_service.bindings.bind_scope
     call_count = {"value": 0}
 
@@ -172,7 +172,7 @@ def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
 def test_release_hotfix_and_trash_restore_round_trip() -> None:
     sample = reset_demo()
     mutation_service = BranchMutationService()
-    variant_service = VariantWorkflowService()
+    variant_service = TrashRestoreService()
 
     active = mutation_service.apply(
         BranchRef.rel_current(),
@@ -207,7 +207,7 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     )
     assert passive["report_rows"][0]["status"] in {"CREATED_AND_BOUND_VARIANT", "UPDATED_AND_BOUND_EXISTING_VARIANT"}
 
-    before_delete = VariantInspectionService().entry_variants("common.welcome")
+    before_delete = InspectionReadService().entry_variants("common.welcome")
     target_variant_id = before_delete["variants"][0]["variant_id"]
     delete_result = variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     assert delete_result["summary"]["trashed_variant_count"] == 1
@@ -215,15 +215,15 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     restore_result = variant_service.restore([target_variant_id])
     assert restore_result["summary"]["restored_count"] == 1
 
-    after_restore = VariantInspectionService().entry_variants("common.welcome")
+    after_restore = InspectionReadService().entry_variants("common.welcome")
     restored_variant = next(item for item in after_restore["variants"] if item["variant_id"] == target_variant_id)
     assert restored_variant["restored_at"] is not None
 
 
 def test_delete_rolls_back_on_failure(monkeypatch) -> None:
     reset_demo()
-    variant_service = VariantWorkflowService()
-    read_service = BranchService()
+    variant_service = TrashRestoreService()
+    read_service = branch_services()
 
     def fail_trash_variant(*args, **kwargs):
         raise RuntimeError("trash delete failed")
@@ -239,8 +239,8 @@ def test_delete_rolls_back_on_failure(monkeypatch) -> None:
 
 def test_restore_rolls_back_on_failure(monkeypatch) -> None:
     reset_demo()
-    variant_service = VariantWorkflowService()
-    inspection = VariantInspectionService()
+    variant_service = TrashRestoreService()
+    inspection = InspectionReadService()
 
     target_variant_id = inspection.entry_variants("common.welcome")["variants"][0]["variant_id"]
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
@@ -262,9 +262,9 @@ def test_restore_rolls_back_on_failure(monkeypatch) -> None:
 
 def test_restore_variants_reports_source_conflicts_and_continues() -> None:
     reset_demo()
-    read_service = BranchService()
-    variant_service = VariantWorkflowService()
-    inspection = VariantInspectionService()
+    read_service = branch_services()
+    variant_service = TrashRestoreService()
+    inspection = InspectionReadService()
 
     conflicted_variant_id = inspection.entry_variants("common.welcome")["variants"][0]["variant_id"]
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
@@ -309,7 +309,7 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
 def test_direct_dev_mutation_reuses_rel_owned_variant_and_creates_missing_entries() -> None:
     reset_demo()
     mutation_service = BranchMutationService()
-    read_service = BranchService()
+    read_service = branch_services()
 
     result = mutation_service.apply(
         BranchRef.dev("2.4.3"),
@@ -347,9 +347,10 @@ def test_branch_authority_prefers_higher_series_and_later_patch() -> None:
 
 def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> None:
     reset_demo()
-    entries = BranchService().entries
-    bindings = BranchService().bindings
-    catalog = BranchService().catalog
+    service = branch_services()
+    entries = service.entries
+    bindings = service.bindings
+    catalog = service.catalog
     mutation_service = BranchMutationService()
 
     entry = entries.get_or_create_entry("authority.series", project_id=1)
@@ -384,7 +385,7 @@ def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> N
 
 def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None:
     reset_demo()
-    service = BranchService()
+    service = branch_services()
     entry = service.entries.get_or_create_entry("authority.patch", project_id=1)
     variant_id = service.catalog.create_variant(
         int(entry["entry_id"]),

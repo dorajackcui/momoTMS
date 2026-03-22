@@ -5,7 +5,7 @@ from typing import Any
 
 from app.services.branch.models import BranchRef
 from app.services.variant.records import BindingRecord, BindingSummary, EntryVariantView, ScopeEntryRecord
-from app.services.variant.variants import VariantQueryRepository
+from app.services.variant.repositories import VariantQueryRepository
 
 
 class ScopeEntryHydrator:

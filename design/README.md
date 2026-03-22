@@ -17,6 +17,7 @@
 - [design-process.md](design-process.md): recommended design steps and the content to produce at each step
 - [current-state-review.md](current-state-review.md): review of the current repo's design strengths, risks, and suggested priorities
 - [design-inventory.md](design-inventory.md): checklist and matrix of what is already designed and what still needs to be filled in
+- [pivot-language-design.md](pivot-language-design.md): pivot topology, async drift model, and Fill-facing design for dependent translation languages
 
 ## Suggested Workflow
 
