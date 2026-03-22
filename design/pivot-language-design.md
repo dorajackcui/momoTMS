@@ -5,10 +5,20 @@
 - `pivot` 需要拆成两层来设计：
   - `pivot topology`：语言之间的依赖方向，属于 project schema，例如 `fr -> en`
   - `pivot drift`：同一 `variant` 内部 child 语言相对 parent 语言的同步状态
-- V1 的目标不是改变 Fill 的 `(business_key, source)` 命中规则，而是在保持现有命中语义的前提下，让 branch-scoped Fill 能读取“目标语言是否相对 pivot parent 失同步”的 runtime 信号。
-- V1 的第一个消费者是 branch-scoped Fill，而不是固定读取 `rel/current` 的旧 Fill 行为。
+- `pivot` 系统本身是 variant-level 设计，与 branch 正交；它关心的是同一 `variant` 内部不同语言之间的同步关系，而不是哪些 branch 指向这个 `variant`
+- V1 的目标不是改变 Fill 的 `(business_key, source)` 命中规则，而是在保持现有命中语义的前提下，让 Fill 能读取“命中的 target 译文是否相对 pivot parent 失同步”的 runtime 信号
+- V1 的第一个消费者可以是 Fill，但 Fill 只是消费者，不是 `pivot` 状态的定义者
 - 这份设计支持 many-to-one：多个 child 可以共享同一个 pivot parent，例如 8 种语言都依赖 `en`。
 - 这份设计不支持 multi-parent 或链式依赖：每个 child 最多一个 pivot parent，任何被别人指向的 parent 自己不能再配置 pivot。
+
+## Agent Start Here
+
+这份文档是给实现 agent 的开工说明，不是现状描述稿。实现时优先按下面这个顺序理解：
+
+1. `pivot topology` 是 project schema
+2. `pivot drift` 是 variant-level runtime state
+3. Fill/QA/queue/compare 都只是未来可能的消费者
+4. branch 只在某个 workflow 明确要“读取某条 branch 当前 active variant”时才需要参与；它不是 `pivot` 模型本身的一部分
 
 ## Why This Needs A Dedicated Design
 
@@ -30,19 +40,38 @@
 
 ## Current Runtime Mismatch
 
-当前 live runtime 里的 Fill 仍然是 release-scoped：
+当前 live runtime 里还没有 `pivot` 系统，但这个缺口主要不在 branch，而在 “variant-level drift 还没有被建模并持久化”。
 
 - [`FillRequest`](../app/schemas.py) 还没有 `branch_ref`
-- [`/api/projects/{project_id}/fill`](../app/routers/workflows.py) 也没有 branch 参数
-- [`FillService`](../app/services/workflows/fill.py) 当前硬编码读取 `rel/current`
+- [`/api/projects/{project_id}/fill`](../app/routers/workflows.py) 和 upload-folder Fill 也都只有目录或上传文件、`lang`、`output_name`
+- 当前入口是 [`WorkflowApplicationService`](../app/services/workflows/application.py) -> [`FillService`](../app/services/workflows/fill.py) -> [`FillQueryService`](../app/services/workflows/fill_queries.py)
+- 当前查询是 project-scoped：`FillQueryService.list_fill_candidates(project_id, lang)` 直接扫描项目下所有 recorded variants
+- 当前匹配仍然按 `(business_key, source)` 建索引，并优先 live variant，只有没有 live same-source 候选时才回退到 trashed history
+- 当前 runtime 里没有 `translation_pivots`
+- 当前 runtime 里也没有 variant-level 的 pivot sync checkpoint 或 drift state
 
 所以这份设计稿不是在描述“现状已经如此”，而是在定义 pivot V1 要求 runtime 升级到什么目标形态：
 
-- Fill 需要变成 branch-scoped workflow
-- `branch_ref` 需要成为必填 contract
-- pivot drift 需要从 branch 选中的 active variant 上读取，而不是永远从 `rel/current` 读取
+- project schema 需要表达稳定的 `child -> parent` 依赖关系
+- variant write path 需要维护 child 相对 parent 的 sync checkpoint
+- Fill 之类的 workflow 需要能读取命中 variant 上的 pivot drift
 
 如果这一步不做，下面的 pivot 设计即使落到存储层，也无法被当前 Fill 正确消费。
+
+## Current Contract Vs Planned Contract
+
+当前 contract：
+
+- Fill 请求里没有 `branch_ref`
+- project schema / bootstrap 里没有 `translation_pivots`
+- Fill report 里只有 `match_variant_id` 和 `match_variant_state`，没有 pivot 专属字段
+
+计划中的 contract：
+
+- project create / bootstrap 需要暴露 `translation_pivots`
+- variant runtime 需要持久化 pivot sync checkpoint
+- Fill report 至少可以增加 `pivot_lang`、`pivot_sync_status`
+- `branch_ref` 不是 pivot 模型本身的必要字段；只有当某个 workflow 明确要求“按 branch 当前 active variant 消费”时，才需要额外进入 contract
 
 ## Goals
 
@@ -50,7 +79,7 @@
 - 在同一 `variant` 上表达 child 语言相对 pivot parent 的同步或失同步状态
 - 保持现有 `Entry / Variant / Scope Binding` 身份与 canonical same-source 规则不变
 - 保持 Fill 仍按 `(business_key, source)` 命中 candidate variant
-- 让 Fill 从 branch 选中的 active binding 消费 pivot drift
+- 让 Fill 能消费命中 variant 上的 pivot drift
 - 支持 many-to-one pivot fan-out，例如多个目标语言共同依赖 `en`
 - 为将来的 queue、compare、QA 复用这套 runtime 信号预留清晰边界
 
@@ -58,6 +87,7 @@
 
 - 不把 `pivot` 放进 `variant` 身份或 canonical-source 去重规则
 - 不让 `pivot` 参与 branch authority、replace、trash/restore、scope binding 逻辑
+- 不要求 V1 为 `pivot` 引入 branch-scoped 语义
 - 不支持 multi-parent
 - 不支持链式依赖
 - 不支持 schema edit after create
@@ -157,7 +187,7 @@ project schema 新增：
 
 现有 `translation_columns_json` 继续负责语言顺序，不需要被替换成更复杂的结构。
 
-实现落地时，project create/bootstrap 最终都需要把 `translation_pivots` 和 `translation_columns` 一起暴露出来；这份设计稿先定义语义边界。
+按当前服务边界，`translation_pivots` 的落点应该跟 project schema 一起进入 [`ProjectService`](../app/services/project/service.py) 的 schema 读写，再由 [`ProjectBootstrapService`](../app/services/project/bootstrap.py) 负责向 `/api/projects/{project_id}/state` 暴露；它不应该先塞进 workflow 层。
 
 ### Variant Sync Checkpoint
 
@@ -184,9 +214,21 @@ project schema 新增：
 - 当前实现里的 translation 写入是整包重写
 - 仅靠时间戳很容易把“哪些语言真的变了”与“哪些语言只是被重写了”混淆
 
+按当前 `app/services` 分层，这张表虽然应该靠近 variant-domain persistence，但状态迁移计算不应该塞进最底层的 [`_VariantStore`](../app/services/variant/store.py) 里。更合理的边界是：
+
+- 原始持久化仍归 `variant` 包的 repository / store 边界
+- checkpoint 刷新与 drift 迁移规则运行在高于 raw store 的协调层
+- 当前写入口仍然主要经过 [`DirectMutationApplier`](../app/services/branch/direct_mutation.py) 和 [`ImportBatchMutationApplier`](../app/services/branch/import_batch_mutation.py) 这类 branch mutation applier，但它们只是现有写路径入口，不应反过来把 `pivot` 定义成 branch-level 模型
+
 ## Why Current Translation Writes Are Not Enough
 
-当前 [`app/services/variant/store.py`](../app/services/variant/store.py) 的 `overwrite_translations()` 会删除并重写整个 translation map。
+当前真实写路径是：
+
+- [`VariantCatalogService.create_variant()`](../app/services/variant/catalog.py) / [`VariantCatalogService.update_variant()`](../app/services/variant/catalog.py)
+- -> [`VariantCommandRepository`](../app/services/variant/repositories.py)
+- -> [`_VariantStore.overwrite_translations()`](../app/services/variant/store.py)
+
+而 [`_VariantStore.overwrite_translations()`](../app/services/variant/store.py) 会删除并重写整个 translation map。
 
 这意味着：
 
@@ -194,7 +236,7 @@ project schema 新增：
 - `fr`、`de`、`ja` 这些没有语义变化的语言行也会一起被重写
 - per-language `updated_at` 不能直接作为 “谁真的变了” 的可靠依据
 
-所以实现时必须先做一个语义层的 changed-set：
+所以实现时必须先做一个语义层的 changed-set，而且这个 changed-set 必须发生在 catalog / repository 写边界之前或之中，而不能在 raw store 重写完成之后再倒推：
 
 - 先把 old translations 和 new translations 逐语言做规范化比较
 - 得到“真正变化的语言集合”
@@ -271,65 +313,78 @@ project schema 新增：
 
 Fill 不负责推导 pivot drift，它只负责消费。
 
+这里要先明确一个原则：
+
+- `pivot drift` 是 variant-level 信号
+- Fill 只是读取“这次命中的 variant”的 pivot 状态
+- 是否再叠加 branch-scoped 选择，是独立的 workflow 设计问题，不是 `pivot` 核心模型的一部分
+
+按当前服务拆分，Fill 侧的未来落点应该明确成：
+
+- [`FillService`](../app/services/workflows/fill.py) 继续保留 workbook 遍历、报告生成、artifact 输出
+- Fill 专属读查询仍由 [`FillQueryService`](../app/services/workflows/fill_queries.py) 承担
+- pivot 相关读取发生在“Fill 已经命中 candidate variant”之后，而不是让 Fill 重新定义 variant identity
+
 因此 V1 Fill 的语义应该是：
 
-1. `branch_ref` 是必填 contract
-2. Fill 仍然按 `(business_key, source)` 命中 candidate variant
-3. candidate variant 来自 `branch_ref` 选中的 active binding，而不是固定来自 `rel/current`
-4. 目标语言回填逻辑保持不变
-5. 如果本次 `lang` 配置了 `pivot_lang`
-6. 则额外读取 candidate variant 上该 child 语言的 sync checkpoint
-7. 根据 checkpoint 与当前 parent fingerprint 的比较结果，输出 runtime pivot 状态
+1. Fill 仍然按 `(business_key, source)` 命中 candidate variant
+2. 目标语言回填逻辑保持不变
+3. 如果本次 `lang` 配置了 `pivot_lang`
+4. 则额外读取 candidate variant 上该 child 语言的 sync checkpoint
+5. 根据 checkpoint 与当前 parent fingerprint 的比较结果，输出 runtime pivot 状态
 
 建议的 Fill 请求与上传语义：
 
-- `FillRequest` 需要 `branch_ref`
-- upload-folder Fill 也需要 `branch_ref`
+- `FillRequest` 可以保持现有最小 contract，不必为了 `pivot` 强制引入 `branch_ref`
+- upload-folder Fill 同理
+- 如果未来产品明确要做 “按某条 branch 当前 active variant 执行 Fill”，那应作为单独 workflow contract 再设计，而不是混入 `pivot` 基础模型
 
 建议的 Fill 报告字段：
 
 - `pivot_lang`
 - `pivot_sync_status`
-- `pivot_branch_text`
 
 其中：
 
 - `pivot_sync_status` 只表达 child 相对 parent 的 runtime 状态，如 `PIVOT_IN_SYNC` / `PIVOT_OUT_OF_SYNC` / `MISSING_CHILD` / `MISSING_PARENT`
-- 主 `status` 仍然维持 `FILLED` / `MISSING_KEY_IN_BASE` / `SRC_MISMATCH` / `SKIPPED_*`
+- 主 `status` 仍然维持 `FILLED` / `MISSING_KEY_IN_PROJECT` / `SRC_MISMATCH` / `SKIPPED_*`
 
-### Example: `dev/2.4.2` -> `dev/2.4.3`
+### Example: Same Variant, No Branch Semantics Required
 
 假设：
 
 - `fr -> en`
-- `dev/2.4.2` 里已有 10 条旧条目，且 `fr` 和 `en` 都存在
-- `dev/2.4.3` 先导入 `en`
-- 旧条目 10 条里，`(key, source)` 都不变，但其中 5 条的 `en` 文本变了
-- 同时 `dev/2.4.3` 新增 5 条只有 `en` 的新条目
-- 当前执行的是 `branch_ref = dev/2.4.3` 上的 `fr` Fill
+- 某个 `variant` 上 `source = Hello`
+- 初始时：
+  - `en = Hello`
+  - `fr = Bonjour`
+  - 所以 `fr` 相对 `en` 是 `PIVOT_IN_SYNC`
+- 之后同一个 `variant` 被更新：
+  - `en` 改成 `Hello there`
+  - `fr` 仍然是 `Bonjour`
 
-那么在 `dev/2.4.3` 上执行 `fr` Fill 时：
+那么此时：
 
-- 旧 10 条里，`en` 没变的 5 条：
-  - exact match
-  - `fr` 可以正常 fill
-  - `pivot_sync_status = PIVOT_IN_SYNC`
-- 旧 10 条里，`en` 已变但 `fr` 未同步的 5 条：
-  - 仍然是 exact match，因为 `(key, source)` 没变
-  - `fr` 仍然可以被 fill
-  - 但 fill 出来的是 stale `fr`
-  - `pivot_sync_status = PIVOT_OUT_OF_SYNC`
-- 新增的 5 条：
-  - 如果 `en` 已存在而 `fr` 为空
-  - 则 child 是缺失状态
-  - `pivot_sync_status = MISSING_CHILD`
+- 这个 `variant` 上 `fr` 的状态变成 `PIVOT_OUT_OF_SYNC`
+- 这个判断只依赖同一 `variant` 里的 `fr` 与 `en`
+- 无论当前有 0 条、1 条还是 3 条 branch 指向这个 `variant`，这个状态都不变
+
+如果之后同一个 `variant` 再被更新为：
+
+- `en = Hello there`
+- `fr = Bonjour a tous`
+
+那么：
+
+- child 与 parent 再次对齐
+- `fr` 回到 `PIVOT_IN_SYNC`
 
 这个例子说明：
 
 - `PIVOT_IN_SYNC / PIVOT_OUT_OF_SYNC / MISSING_CHILD / MISSING_PARENT` 不是 parent 的状态
 - 它们始终是 child 语言相对 parent 的状态
 - 同一个 parent 变化，可以同时影响多个 child，但状态仍分别记在各个 child 上
-- Fill 读取的是目标 branch 的 active binding，而不是历史 branch 或固定 release branch
+- branch 是否指向这个 `variant`，不会改变这个 `variant` 自己的 pivot drift
 
 ## Keep Runtime Drift Separate From Workbook Freshness
 
@@ -362,8 +417,9 @@ V1 不要求 queue、compare、QA 立刻消费 pivot drift，但设计上应该�
 这意味着：
 
 - pivot drift 的持久化位置应该靠近 variant write model
-- 不应把它写死在 `FillService` 里
+- 不应把它写死在 `FillService` 或 `FillQueryService` 里
 - Fill 只是第一个消费者，不应该成为唯一事实来源
+- 如果未来 queue、compare、QA 需要按 branch 展示 pivot 信息，那是“在已有 variant-level drift 之上增加 branch 选择视角”，不是把 drift 本体改造成 branch-level
 
 ## Risks And Deferred Decisions
 
@@ -404,9 +460,14 @@ many-to-one 合法以后，parent 一次变化会导致多个 child 状态失效
 
 一旦开始实现，至少还需要同步更新：
 
-- `docs/contracts.md`：Fill contract、bootstrap schema 字段
-- `docs/workflows.md`：branch-scoped Fill 语义、pivot 报告字段
-- 可能还有 `docs/system.md`：schema 与 variant runtime 状态的系统级不变量
+- [`docs/contracts.md`](../docs/contracts.md)：Fill contract、bootstrap schema 字段
+- [`docs/workflows.md`](../docs/workflows.md)：Fill 消费 pivot drift 的语义、pivot 报告字段
+- 可能还有 [`docs/system.md`](../docs/system.md)：schema 与 variant runtime 状态的系统级不变量
+
+更新这些 active docs 时，应继续把当前 runtime 事实锚定在现有实现和 guardrail tests 上，例如：
+
+- [`tests/test_services_architecture.py`](../tests/test_services_architecture.py)：保证当前 package 边界和 Fill 查询归属不回退
+- [`tests/test_io_flows.py`](../tests/test_io_flows.py)：保证当前 Fill 的 project-history 候选读取和 live/trashed 选择语义
 
 ## Design Summary
 
@@ -414,7 +475,7 @@ many-to-one 合法以后，parent 一次变化会导致多个 child 状态失效
 
 - project schema 上，谁依赖谁
 - variant runtime 上，谁已经相对谁失同步
-- branch-scoped Fill 如何消费这套 runtime drift
+- Fill 等 workflow 如何消费这套 runtime drift
 
 因此，最小正确设计应当包含：
 
@@ -422,7 +483,7 @@ many-to-one 合法以后，parent 一次变化会导致多个 child 状态失效
 - variant 级 sync checkpoint
 - 基于真实 changed-set 的状态迁移规则
 - child-owned 的 `PIVOT_IN_SYNC / PIVOT_OUT_OF_SYNC / MISSING_CHILD / MISSING_PARENT` 状态模型
-- branch-scoped Fill 对 runtime drift 的消费，而不是临时推断
+- workflow 对 runtime drift 的消费，而不是临时推断
 
 如果后续实现严格遵守这些点，就能稳妥覆盖：
 
@@ -430,4 +491,4 @@ many-to-one 合法以后，parent 一次变化会导致多个 child 状态失效
 - 8 种语言都依赖 `en`
 - 同一 variant 下 parent 静默变化而多个 child 未同步
 - parent 缺失与 child 缺失分开的状态语义
-- `dev/2.4.3` 这类目标 branch 上的 Fill 消费场景
+- Fill 报告 matched variant 的 pivot 状态
