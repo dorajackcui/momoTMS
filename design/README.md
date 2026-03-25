@@ -14,6 +14,7 @@
 
 ## File Map
 
+- [frontend-current-api-redesign.md](frontend-current-api-redesign.md): new `/app` IA and page redesign based on current project-scoped APIs, without frontend compatibility constraints
 - [pivot-language-design.md](pivot-language-design.md): pivot topology, async drift model, and Fill-facing design for dependent translation languages
 
 ## Suggested Workflow

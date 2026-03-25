@@ -52,12 +52,21 @@ async function stopServer(server) {
   }
 }
 
-test("shows no-project empty state and can create the first project", async ({ page, request }) => {
+function resolveVenvPython() {
+  return process.platform === "win32"
+    ? path.join(process.cwd(), ".venv", "Scripts", "python.exe")
+    : path.join(process.cwd(), ".venv", "bin", "python");
+}
+
+test("redirects empty runtime to /app/project and can create the first project", async ({
+  page,
+  request,
+}) => {
   const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "momo-p2-empty-"));
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const server = spawn(
-    path.join(process.cwd(), ".venv", "bin", "python"),
+    resolveVenvPython(),
     ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port)],
     {
       cwd: process.cwd(),
@@ -74,19 +83,17 @@ test("shows no-project empty state and can create the first project", async ({ p
   try {
     await waitForServer(request, baseUrl);
     await page.goto(`${baseUrl}/app`);
-    await expect(page.getByTestId("app-empty-state")).toBeVisible();
-    await expect(page.getByTestId("app-empty-state")).toContainText("No projects are available yet");
+    await expect(page).toHaveURL(/\/app\/project(\?.*)?$/);
+    await expect(page.getByTestId("project-page")).toBeVisible();
 
-    await page.getByTestId("app-empty-create-project").click();
-    await expect(page).toHaveURL(`${baseUrl}/app/projects/new`);
-    await page.getByTestId("project-name-input").fill("First Project");
-    await page.getByTestId("project-translation-columns").fill("fr, en");
-    await page.getByTestId("project-remark-columns").fill("context");
+    await page.getByLabel("Project name").fill("First Project");
+    await page.getByLabel("Translation columns").fill("fr, en");
+    await page.getByLabel("Remark columns").fill("context");
     await page.getByTestId("project-create-button").click();
 
-    await expect(page).toHaveURL(`${baseUrl}/app/imports`);
-    await expect(page.getByTestId("imports-page")).toContainText("No import batches yet");
-    await expect(page.getByTestId("app-jobs-list")).toContainText("No jobs yet");
+    await expect(page).toHaveURL(/\/app\/overview\?/);
+    await expect(page.getByTestId("overview-page")).toBeVisible();
+    await expect(page.getByTestId("shell-project-select")).toHaveValue("1");
   } finally {
     await stopServer(server);
   }

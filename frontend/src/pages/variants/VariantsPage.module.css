@@ -1,0 +1,64 @@
+.layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.listButton {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 16px;
+  text-align: left;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+}
+
+.listButtonActive {
+  border-color: rgba(13, 106, 83, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(13, 106, 83, 0.18);
+}
+
+.timeline {
+  display: grid;
+  gap: 14px;
+}
+
+.card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}

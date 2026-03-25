@@ -9,6 +9,11 @@ export default defineConfig({
   root: frontendRoot,
   base: "/static/product-app/",
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(frontendRoot, "src"),
+    },
+  },
   build: {
     outDir: path.resolve(frontendRoot, "../app/static/product-app"),
     emptyOutDir: true,

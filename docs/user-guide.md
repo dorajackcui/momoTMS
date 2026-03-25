@@ -181,52 +181,46 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 ## 日常使用应该怎么理解页面
 
-### `Imports & Jobs`
+### `Overview`
 
-这里负责接收 Excel 内容，并把一次上传整理成可追踪的导入批次和任务记录。它解决的是“文件已经进来了，但还没真正进入某个版本”的阶段管理问题。
+这是新的默认入口。它把一个选中分支的活跃内容做成接近工作簿的扫描界面，适合先看“这一版当前到底在用什么”。选中 `dev/<version>` 时，你看到的是完整的开发分支数据面；选中 `rel/current` 时，会明确提示你这是采样摘要，而不是完整发布分支明细。
 
-### `Branch Compare`
+### `Intake`
 
-这里用来比较两个分支当前采用的内容差异。最常见的是比较 `dev/<version>` 和 `rel/current`，帮助你确认新版本到底改了什么，而不是只看文件层面的变动。
+这里专门处理 Excel 进入系统之前的阶段：上传文件夹、预览表头、确认字段映射、生成 import batch，以及查看导入报告。它不再负责后续分支执行，而是把“文件进系统”这件事做得更清楚。
 
-### `Translation Queue`
+### `Branch Ops`
 
-这里是工作队列。它不是简单列出所有文案，而是帮助你优先看到真正需要处理、确认或复核的项目。
+这里把所有分支相关读写操作集中起来，包括：
 
-### `Fill`
+- `Compare`：比较 `dev/<version>` 和 `rel/current` 的当前采用结果
+- `Queue`：查看真正需要处理或复核的队列
+- `Lookup`：按 `business_key` 或精确 `source` 查询当前命中结果
+- `Apply`：把 import batch 或 direct patch 应用到目标分支
+- `Replace`：先预览再执行 `dev/<version> -> rel/current`
+- `Trash / Restore`：按分支删除，或按已知 `variant_id` 恢复
 
-这里把项目里已经记录过的内容回填到输出文件。它会先优先使用当前仍然存活的内容版本；如果某条 `business_key + source` 只剩历史 `trashed` 版本，也会按最近一次历史记录回填。它解决的是“系统里已经确认过的内容，如何可靠地产出到文件里”。
+### `Runs`
 
-### `QA`
+这里统一承接所有 job-backed 操作的反馈。无论是导入、应用、替换、回填、QA，还是删除与恢复，最后都能在这里看到任务输入、执行阶段、摘要结果、预览报告和可下载产物。
 
-这里对文件进行规则检查并生成报告。它解决的是“在发布或交付前，怎样用统一规则发现问题”。
+### `Variants`
 
-### `Replace`
+这是读多写少的 `Variant Explorer`。它适合排查某个 `business_key` 的完整历史、查看 orphan variant，以及在明确知道 `variant_id` 的前提下执行 restore。
 
-这里把一个 `dev/<version>` 当前采用的内容提升到 `rel/current`。它不是复制一份新数据，而是把正式基线切换到已经准备好的版本结果上。
+### `Project`
 
-### `Master Query` 与 `Inspection`
-
-这两个页面主要用于解释和排查：
-
-- 一条文案现在在哪些分支生效
-- 同一个 `business_key` 曾经有哪些内容版本
-- 某个历史版本为什么没有出现在当前结果里
-
-### `Delete` 与 `Restore`
-
-这两个操作用于清理和恢复。它们的存在说明系统不是“一删就没”，而是把移除动作做成可追踪、可恢复的流程。
+这里负责项目级信息：项目切换、列结构摘要、发布基线摘要、当前 dev branch 列表，以及创建新项目。没有任何项目时，它会直接承担首屏入口。
 
 ## 推荐的日常使用路径
 
-1. 创建项目并确认列结构。
-2. 上传 Excel，生成 import batch。
-3. 将 import batch 应用到目标 `dev/<version>`。
-4. 使用 `Branch Compare` 对比它与 `rel/current` 的差异。
-5. 在 `Translation Queue` 中处理待翻译、待确认和待复核内容。
-6. 需要产出文件时运行 `Fill`，需要检查质量时运行 `QA`。
-7. 确认无误后执行 `Replace`，把该开发版本提升为新的正式基线。
-8. 只有在排查、清理或恢复时，再使用 `Master Query`、`Inspection`、`Delete` 和 `Restore`。
+1. 在 `Project` 中创建项目并确认列结构。
+2. 打开 `Overview`，先切到正在处理的分支，快速扫描这一版当前采用的内容。
+3. 去 `Intake` 上传 Excel，确认字段映射，生成 import batch。
+4. 去 `Branch Ops / Apply` 把 import batch 应用到目标 `dev/<version>`。
+5. 在 `Branch Ops / Compare` 和 `Branch Ops / Queue` 里确认差异、处理待翻译和待复核内容。
+6. 触发 `Fill`、`QA`、`Replace`、`Trash` 或 `Restore` 以后，统一去 `Runs` 查看任务执行和报告。
+7. 只有在排查历史、查看 orphan 或按 `variant_id` 恢复时，再进入 `Variants`。
 
 ## 一句话总结这套产品思路
 

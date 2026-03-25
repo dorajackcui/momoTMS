@@ -32,8 +32,9 @@
 Operator-facing product surface:
 
 - source: `frontend/`
-- stack: React 19 + TypeScript + Vite
-- entry: `frontend/src/App.tsx`
+- stack: React 19 + TypeScript + Vite + React Router + TanStack Query + React Data Grid
+- providers entry: `frontend/src/App.tsx`
+- router entry: `frontend/src/app/router.tsx`
 - build output: `app/static/product-app/`
 - serving route: `GET /app` through `app/routers/pages.py`
 
@@ -41,12 +42,11 @@ Current SPA routes:
 
 - `/app`
 - `/app/overview`
-- `/app/compare`
-- `/app/queue`
-- `/app/master`
-- `/app/imports`
-- `/app/inspection`
-- `/app/projects/new`
+- `/app/intake`
+- `/app/branches`
+- `/app/runs`
+- `/app/variants`
+- `/app/project`
 
 ## Route Policy
 
@@ -73,8 +73,9 @@ Response includes:
 
 Usage rules:
 
-- `/app` should bootstrap and refresh from project-scoped APIs only
-- frontend code should treat this payload as product state, not as a compatibility-shaped state blob
+- `/app` should bootstrap and refresh project shell state from project-scoped APIs only
+- frontend code should treat this payload as project shell state, not as a page-by-page compatibility blob
+- detailed page data should come from dedicated project-scoped queries such as branch detail, compare, queue, imports, jobs, and entry-variant inspection routes
 - project schema is fixed after project creation; bootstrap describes the current schema but does not imply schema-edit support
 - `schema.translation_pivots` is included as a full `lang -> pivot_lang | null` map; omitted pivot config is normalized to `null` per language
 
@@ -106,14 +107,18 @@ Import upload and job detail:
 
 The product app depends on:
 
-- project-scoped bootstrap data from `GET /api/projects/{project_id}/state`
-- paginated compare and queue APIs
+- project list plus project-scoped bootstrap data from `GET /api/projects` and `GET /api/projects/{project_id}/state`
+- branch summary plus `GET /api/projects/{project_id}/branches/dev/{version}` for the main dev-branch spreadsheet surface
+- paginated compare and queue APIs for branch operations and release-summary sampling
 - import preview data with `upload_session_id`, `available_headers`, `suggested_mapping`, and `missing_targets`
-- job detail, report, and artifact APIs
+- import-batch list and report APIs
+- job list, detail, report, and artifact APIs
 - canonical entry-variant and orphan inspection APIs
 - project-scoped branch mutation and sync routes plus fill and QA routes
 
-The product app stores the selected project id locally, clears it when no projects exist, and refreshes branch state from project-scoped APIs only.
+The product app uses URL state as the primary workspace contract for `project`, `lang`, `branch`, `tab`, `job`, and `business_key`. It may store the selected project id locally only as a fallback when the URL does not provide one, clears that fallback when no projects exist, and refreshes page state from project-scoped APIs only.
+
+Invalid or stale `project`, `lang`, or `branch` URL params are normalized to the nearest valid project-scoped workspace context before branch-scoped page queries run. The Apply page keeps its write target branch as local form state instead of treating it as the canonical URL branch.
 
 Import UI contract:
 
