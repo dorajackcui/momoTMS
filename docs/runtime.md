@@ -54,9 +54,19 @@ Primary code locations:
 
 Backend:
 
+macOS or Linux:
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
+python -m pip install -e '.[dev]'
+```
+
+Windows PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e '.[dev]'
 ```
 
@@ -76,8 +86,17 @@ npm run build:app
 
 Start the backend:
 
+macOS or Linux:
+
 ```bash
 . .venv/bin/activate
+uvicorn app.main:app --reload
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
 uvicorn app.main:app --reload
 ```
 
@@ -108,23 +127,44 @@ All commands assume the repo root is the current working directory.
 
 Backend regression suite:
 
+macOS or Linux:
+
 ```bash
-. .venv/bin/activate
-python -m pytest -q
+.venv/bin/python -m pytest -q
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 API and routing regression:
 
+macOS or Linux:
+
 ```bash
-. .venv/bin/activate
-python -m pytest -q tests/test_variant_api.py tests/test_services_architecture.py
+.venv/bin/python -m pytest -q tests/test_variant_api.py tests/test_services_architecture.py
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_variant_api.py tests/test_services_architecture.py
 ```
 
 Branch workflow regression:
 
+macOS or Linux:
+
 ```bash
-. .venv/bin/activate
-python -m pytest -q tests/test_branch_service.py tests/test_io_flows.py
+.venv/bin/python -m pytest -q tests/test_branch_service.py tests/test_io_flows.py
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_branch_service.py tests/test_io_flows.py
 ```
 
 Frontend build:
@@ -135,27 +175,51 @@ npm run build:app
 
 Docs regression:
 
+macOS or Linux:
+
 ```bash
 .venv/bin/python scripts/validate_docs.py
 ```
 
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\validate_docs.py
+```
+
 Docs validator coverage:
 
-- scans repo-root Markdown plus all Markdown under `docs/`, `design/`, and `archive/`
+- scans repo-root Markdown plus all Markdown under `docs/`
 - auto-checks local Markdown links, repo-relative file and directory references in code spans and fenced command examples, documented npm scripts, referenced test files, and the route inventory in `docs/contracts.md`
 - does not prove wording, owner-doc selection, or behavior claims; manually verify those against current code and [docs/README.md](README.md)
 
 End-to-end:
+
+Terminal 1, macOS or Linux:
 
 ```bash
 . .venv/bin/activate
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-In another terminal:
+Terminal 1, Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Terminal 2, macOS or Linux:
 
 ```bash
 PLAYWRIGHT_BROWSERS_PATH=.playwright npm run test:e2e
+```
+
+Terminal 2, Windows PowerShell:
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = ".playwright"
+npm run test:e2e
 ```
 
 ## Change-Type Guidance
@@ -166,4 +230,4 @@ Use this section after selecting the owner doc from [docs/README.md](README.md);
 - API or routing changes: run `tests/test_variant_api.py` and `tests/test_services_architecture.py`
 - branch workflow changes: run `tests/test_branch_service.py` and `tests/test_io_flows.py`
 - frontend `/app` changes: run `npm run build:app`, then E2E when user-visible flows changed
-- docs-only changes: run `.venv/bin/python scripts/validate_docs.py` to catch local links, repo paths, npm scripts, test refs, and active contract routes, then manually verify wording, ownership, and behavior claims the validator cannot prove
+- docs-only changes: run `.venv/bin/python scripts/validate_docs.py` on macOS or Linux, or `.\.venv\Scripts\python.exe scripts\validate_docs.py` on Windows PowerShell, to catch local links, repo paths, npm scripts, test refs, and active contract routes, then manually verify wording, ownership, and behavior claims the validator cannot prove

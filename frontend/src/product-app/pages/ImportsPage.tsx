@@ -98,7 +98,8 @@ export function ImportsPage(props: {
           </label>
           <p className="muted">
             After preview, choose the header for `business_key`, `source`,
-            translation columns, and remark columns for each sheet. Extra
+            and any translation or remark columns you want to update for each
+            sheet. Unmapped translation or remark fields stay unchanged. Extra
             columns are ignored.
           </p>
         </div>

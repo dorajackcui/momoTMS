@@ -128,6 +128,12 @@ export function JobDetailPanel(props: {
   const reportRows = props.jobDetail.report.rows.slice(0, 12);
   const artifactHref = buildArtifactHref(props.projectId, props.jobDetail.job);
   const reportHref = `/api/projects/${props.projectId}/jobs/${props.jobDetail.job.job_id}/report`;
+  const statusClass =
+    props.jobDetail.job.status === "success"
+      ? "accent"
+      : props.jobDetail.job.status === "failed"
+        ? "error"
+        : "warning";
   return (
     <div className="stack">
       <div className="mapping-card">
@@ -139,9 +145,7 @@ export function JobDetailPanel(props: {
             </h3>
           </div>
           <span
-            className={`badge ${
-              props.jobDetail.job.status === "done" ? "accent" : "warning"
-            }`}
+            className={`badge ${statusClass}`}
           >
             {props.jobDetail.job.status}
           </span>
@@ -218,7 +222,7 @@ export function JobDetailPanel(props: {
       ) : null}
 
       <div className="mapping-card">
-        <p className="eyebrow">report rows</p>
+        <p className="eyebrow">report preview</p>
         <ReportRowsPreview rows={reportRows} />
       </div>
     </div>

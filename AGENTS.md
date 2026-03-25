@@ -15,6 +15,13 @@ Use this file as the repo-level default for Codex and other coding agents.
 - Active runtime facts live in the six files under `docs/`.
 - Historical material lives under `archive/`.
 
+## Windows PowerShell Encoding
+
+- On Windows PowerShell, prefer explicit UTF-8 when reading or writing repo text files to avoid mojibake and misread content.
+- Use `Get-Content -Encoding utf8` when reading text files from the repo unless you already know a different encoding is required.
+- Use explicit UTF-8 for write commands such as `Set-Content -Encoding utf8` or `Out-File -Encoding utf8` when updating repo text files from PowerShell.
+- If Windows PowerShell 5.1 still renders UTF-8 text incorrectly in the console, set `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` before inspecting file contents.
+
 ## Active Vs Archived Docs
 
 - Treat files under `docs/` as active guidance for the current runtime.

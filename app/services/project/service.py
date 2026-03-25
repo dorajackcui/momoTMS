@@ -33,6 +33,7 @@ class ProjectService:
         name: str,
         translation_columns: list[str],
         remark_columns: list[str],
+        translation_pivots: dict[str, str | None] | None = None,
     ) -> dict[str, Any]:
         normalized_name = normalize_non_content_value(name)
         if not normalized_name:
@@ -51,6 +52,10 @@ class ProjectService:
         fixed_names = set(self.FIXED_COLUMNS.values())
         if fixed_names & set(normalized_translation_columns + normalized_remark_columns):
             raise ValueError("schema columns cannot reuse fixed business headers")
+        normalized_translation_pivots = self._normalize_translation_pivots(
+            translation_columns=normalized_translation_columns,
+            translation_pivots=translation_pivots,
+        )
 
         created_at = now_iso()
         with get_conn() as conn:
@@ -78,15 +83,17 @@ class ProjectService:
                     fixed_columns_json,
                     translation_columns_json,
                     remark_columns_json,
+                    translation_pivots_json,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
                     _json_dumps(self.FIXED_COLUMNS),
                     _json_dumps(normalized_translation_columns),
                     _json_dumps(normalized_remark_columns),
+                    _json_dumps(normalized_translation_pivots),
                     created_at,
                 ),
             )
@@ -124,7 +131,13 @@ class ProjectService:
         with get_conn() as conn:
             row = conn.execute(
                 """
-                SELECT schema_id, fixed_columns_json, translation_columns_json, remark_columns_json, created_at
+                SELECT
+                    schema_id,
+                    fixed_columns_json,
+                    translation_columns_json,
+                    remark_columns_json,
+                    translation_pivots_json,
+                    created_at
                 FROM project_schemas
                 WHERE project_id = ?
                 ORDER BY schema_id DESC
@@ -140,6 +153,10 @@ class ProjectService:
             "fixed_columns": dict(json_loads(row["fixed_columns_json"])),
             "translation_columns": list(json_loads(row["translation_columns_json"])),
             "remark_columns": list(json_loads(row["remark_columns_json"])),
+            "translation_pivots": self._coerce_translation_pivots(
+                translation_columns=list(json_loads(row["translation_columns_json"])),
+                translation_pivots=json_loads(row["translation_pivots_json"]),
+            ),
             "created_at": row["created_at"],
         }
 
@@ -165,12 +182,6 @@ class ProjectService:
             missing_targets.append("business_key")
         if not suggested_mapping["source"]:
             missing_targets.append("source")
-        for lang, header_name in suggested_mapping["translation_columns"].items():
-            if not header_name:
-                missing_targets.append(f"translation:{lang}")
-        for remark_key, header_name in suggested_mapping["remark_columns"].items():
-            if not header_name:
-                missing_targets.append(f"remark:{remark_key}")
         return {
             "schema": schema,
             "available_headers": available_headers,
@@ -202,8 +213,14 @@ class ProjectService:
             chosen = normalize_non_content_value(selected_header)
             if has_override:
                 header_name = chosen
-            else:
+            elif chosen:
+                header_name = chosen
+            elif required:
                 header_name = chosen or default_header
+            elif default_header in normalized:
+                header_name = default_header
+            else:
+                return None
             if not header_name:
                 if required:
                     raise ValueError(f"workbook missing required header mapping: {field_label}")
@@ -229,23 +246,27 @@ class ProjectService:
         translation_columns: dict[str, int] = {}
         override_translation = override.get("translation_columns") or {}
         for lang in schema["translation_columns"]:
-            translation_columns[lang] = resolve_header_name(
+            column_index = resolve_header_name(
                 field_label=f"translation:{lang}",
                 default_header=lang,
                 selected_header=override_translation.get(lang),
                 has_override=lang in override_translation,
-                required=True,
+                required=False,
             )
+            if column_index is not None:
+                translation_columns[lang] = column_index
         remark_columns: dict[str, int] = {}
         override_remark = override.get("remark_columns") or {}
         for remark_key in schema["remark_columns"]:
-            remark_columns[remark_key] = resolve_header_name(
+            column_index = resolve_header_name(
                 field_label=f"remark:{remark_key}",
                 default_header=remark_key,
                 selected_header=override_remark.get(remark_key),
                 has_override=remark_key in override_remark,
-                required=True,
+                required=False,
             )
+            if column_index is not None:
+                remark_columns[remark_key] = column_index
         return {
             "schema": schema,
             "file_name": None,
@@ -296,6 +317,55 @@ class ProjectService:
                 raise ValueError(f"{field_label} contains duplicate column: {item}")
             seen.add(item)
             normalized.append(item)
+        return normalized
+
+    def _normalize_translation_pivots(
+        self,
+        *,
+        translation_columns: list[str],
+        translation_pivots: dict[str, str | None] | None,
+    ) -> dict[str, str | None]:
+        normalized = self._coerce_translation_pivots(
+            translation_columns=translation_columns,
+            translation_pivots=translation_pivots or {},
+        )
+        translation_set = set(translation_columns)
+        parent_links = {child: parent for child, parent in normalized.items() if parent is not None}
+        referenced_parents = set(parent_links.values())
+        for child, parent in parent_links.items():
+            if child not in translation_set:
+                raise ValueError(f"translation_pivots contains unknown child language: {child}")
+            if parent not in translation_set:
+                raise ValueError(f"translation_pivots contains unknown parent language for {child}: {parent}")
+            if child == parent:
+                raise ValueError(f"translation_pivots cannot point a language to itself: {child}")
+        for parent in sorted(referenced_parents):
+            if normalized.get(parent) is not None:
+                raise ValueError(f"translation_pivots cannot assign a parent to referenced pivot parent: {parent}")
+        for child, parent in parent_links.items():
+            current = parent
+            seen = {child}
+            while current is not None:
+                if current in seen:
+                    raise ValueError(f"translation_pivots cannot contain chained dependencies starting at: {child}")
+                seen.add(current)
+                current = normalized.get(current)
+        return normalized
+
+    def _coerce_translation_pivots(
+        self,
+        *,
+        translation_columns: list[str],
+        translation_pivots: dict[str, str | None] | list[Any] | None,
+    ) -> dict[str, str | None]:
+        raw_map = translation_pivots if isinstance(translation_pivots, dict) else {}
+        normalized = {lang: None for lang in translation_columns}
+        for raw_child, raw_parent in raw_map.items():
+            child = normalize_non_content_value(raw_child)
+            if not child:
+                raise ValueError("translation_pivots contains a blank child language")
+            parent = normalize_non_content_value(raw_parent)
+            normalized[child] = parent or None
         return normalized
 
 

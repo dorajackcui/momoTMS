@@ -66,16 +66,6 @@ export function listMissingImportMappings(
     if (!mapping?.source) {
       missing.push("source");
     }
-    for (const lang of preview.schema.translation_columns || []) {
-      if (!mapping?.translation_columns?.[lang]) {
-        missing.push(`translation:${lang}`);
-      }
-    }
-    for (const remarkKey of preview.schema.remark_columns || []) {
-      if (!mapping?.remark_columns?.[remarkKey]) {
-        missing.push(`remark:${remarkKey}`);
-      }
-    }
     if (missing.length > 0) {
       issues.push({ sheet_key: sheet.sheet_key, missing });
     }

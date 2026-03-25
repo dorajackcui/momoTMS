@@ -87,7 +87,6 @@ export function App() {
   const [importMappings, setImportMappings] = useState<
     Record<string, ImportSheetMapping>
   >({});
-  const [pendingImportFiles, setPendingImportFiles] = useState<File[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [promotePreview, setPromotePreview] =
     useState<BranchReplacePreview | null>(null);
@@ -150,7 +149,6 @@ export function App() {
     setJobDetail(null);
     setImportPreview(null);
     setImportMappings({});
-    setPendingImportFiles([]);
     setShowImportModal(false);
     setPromotePreview(null);
     setPromoteVersion("");
@@ -577,51 +575,57 @@ export function App() {
         `/api/projects/${selectedProjectId}/imports/upload-folder/preview`,
         files,
       );
-      setPendingImportFiles(files);
       setImportPreview(preview);
       setImportMappings(buildInitialImportMappings(preview));
       setShowImportModal(true);
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
     }
   }
 
   async function confirmImportBatch() {
-    if (!selectedProjectId || !importPreview || pendingImportFiles.length === 0) {
+    if (!selectedProjectId || !importPreview) {
       return;
     }
     if (importMappingIssues.length > 0) {
       setFlash({
         message:
-          "Import mapping is incomplete. Choose headers for every required field before continuing.",
+          "Import mapping is incomplete. Choose headers for business_key and source before continuing.",
         error: true,
       });
       return;
     }
     try {
-      const result = await postFolderForm<JobDetail>(
+      const result = await fetchJson<JobDetail>(
         `/api/projects/${selectedProjectId}/imports/upload-folder`,
-        pendingImportFiles,
-        { column_mapping_json: JSON.stringify(importMappings) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            upload_session_id: importPreview.upload_session_id,
+            column_mapping_json: JSON.stringify(importMappings),
+          }),
+        },
       );
-      setSelectedJobId(result.job.job_id);
-      setJobDetail(result);
       setShowImportModal(false);
       setImportPreview(null);
       setImportMappings({});
-      setPendingImportFiles([]);
-      if (importInputRef.current) {
-        importInputRef.current.value = "";
-      }
-      const importBatchId = (result.job.summary as { import_batch_id?: number })
+      const finalResult = await settleJob(
+        result,
+        `Import job #${result.job.job_id} started`,
+        (detail) => {
+          const importBatchId = (detail.job.summary as { import_batch_id?: number })
+            .import_batch_id;
+          return `Import batch #${importBatchId || detail.job.job_id} created`;
+        },
+      );
+      const importBatchId = (finalResult.job.summary as { import_batch_id?: number })
         .import_batch_id;
       if (importBatchId) {
         setSelectedImportBatch(String(importBatchId));
       }
-      await refreshProjectState(
-        selectedProjectId,
-        `Import batch #${importBatchId || result.job.job_id} created`,
-      );
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
     }
@@ -683,12 +687,13 @@ export function App() {
       return;
     }
     try {
+      const branchRef = `dev/${devVersionInput.trim()}`;
       const result = await fetchJson<JobDetail>(
         `/api/projects/${selectedProjectId}/branches/mutations`,
         {
           method: "POST",
           body: JSON.stringify({
-            branch_ref: `dev/${devVersionInput.trim()}`,
+            branch_ref: branchRef,
             input: {
               kind: "import_batch",
               import_batch_id: Number(selectedImportBatch),
@@ -697,13 +702,12 @@ export function App() {
           }),
         },
       );
-      setTargetScope(`dev/${devVersionInput.trim()}`);
-      setQueueTargetScope(`dev/${devVersionInput.trim()}`);
-      setSelectedJobId(result.job.job_id);
-      setJobDetail(result);
-      await refreshProjectState(
-        selectedProjectId,
-        `Job #${result.job.job_id} finished`,
+      setTargetScope(branchRef);
+      setQueueTargetScope(branchRef);
+      await settleJob(
+        result,
+        `Job #${result.job.job_id} started`,
+        (detail) => `Job #${detail.job.job_id} finished`,
       );
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -768,11 +772,10 @@ export function App() {
           }),
         },
       );
-      setSelectedJobId(result.job.job_id);
-      setJobDetail(result);
-      await refreshProjectState(
-        selectedProjectId,
-        `Job #${result.job.job_id} finished`,
+      await settleJob(
+        result,
+        `Job #${result.job.job_id} started`,
+        (detail) => `Job #${detail.job.job_id} finished`,
       );
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -791,11 +794,10 @@ export function App() {
           lang: selectedLang,
         },
       );
-      setSelectedJobId(result.job.job_id);
-      setJobDetail(result);
-      await refreshProjectState(
-        selectedProjectId,
-        `Fill job #${result.job.job_id} finished`,
+      await settleJob(
+        result,
+        `Fill job #${result.job.job_id} started`,
+        (detail) => `Fill job #${detail.job.job_id} finished`,
       );
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -814,11 +816,10 @@ export function App() {
           lang: selectedLang,
         },
       );
-      setSelectedJobId(result.job.job_id);
-      setJobDetail(result);
-      await refreshProjectState(
-        selectedProjectId,
-        `QA job #${result.job.job_id} finished`,
+      await settleJob(
+        result,
+        `QA job #${result.job.job_id} started`,
+        (detail) => `QA job #${detail.job.job_id} finished`,
       );
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
@@ -838,6 +839,39 @@ export function App() {
     } catch (error) {
       setFlash({ message: asMessage(error), error: true });
     }
+  }
+
+  async function settleJob(
+    detail: JobDetail,
+    startedMessage: string,
+    successMessage: (detail: JobDetail) => string,
+  ): Promise<JobDetail> {
+    if (!selectedProjectId) {
+      return detail;
+    }
+    setSelectedJobId(detail.job.job_id);
+    setJobDetail(detail);
+    await refreshProjectState(selectedProjectId, startedMessage);
+
+    let finalDetail = detail;
+    while (finalDetail.job.status === "running") {
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      finalDetail = await fetchJson<JobDetail>(
+        `/api/projects/${selectedProjectId}/jobs/${finalDetail.job.job_id}`,
+      );
+      setSelectedJobId(finalDetail.job.job_id);
+      setJobDetail(finalDetail);
+    }
+
+    const completionMessage =
+      finalDetail.job.status === "failed"
+        ? finalDetail.job.error_message || `Job #${finalDetail.job.job_id} failed`
+        : successMessage(finalDetail);
+    await refreshProjectState(selectedProjectId, completionMessage);
+    if (finalDetail.job.status === "failed") {
+      setFlash({ message: completionMessage, error: true });
+    }
+    return finalDetail;
   }
 
   if (noProjects && route !== "project-new") {

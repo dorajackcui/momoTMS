@@ -160,6 +160,7 @@ export type ImportSheetPreview = {
 };
 
 export type ImportPreview = {
+  upload_session_id: string;
   schema: { translation_columns: string[]; remark_columns: string[] };
   file_count: number;
   sheet_count: number;

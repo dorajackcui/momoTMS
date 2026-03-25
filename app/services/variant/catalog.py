@@ -9,6 +9,7 @@ from app.services.shared.io import (
 )
 from app.services.shared.utils import now_iso
 from app.services.variant.normalization import require_non_content_value
+from app.services.variant.pivot import VariantPivotCoordinator
 from app.services.variant.records import VariantContent, VariantRecord
 from app.services.variant.repositories import VariantCommandRepository, VariantQueryRepository
 
@@ -18,9 +19,11 @@ class VariantCatalogService:
         self,
         variant_commands: VariantCommandRepository | None = None,
         variant_queries: VariantQueryRepository | None = None,
+        pivot: VariantPivotCoordinator | None = None,
     ) -> None:
         self._commands = variant_commands or VariantCommandRepository()
         self._queries = variant_queries or VariantQueryRepository()
+        self._pivot = pivot or VariantPivotCoordinator(variant_queries=self._queries)
 
     def build_content(
         self,
@@ -52,6 +55,12 @@ class VariantCatalogService:
         )
         self._commands.overwrite_translations(variant_id, content["translations"], timestamp, conn=conn)
         self._commands.overwrite_remarks(variant_id, content["remarks"], timestamp, conn=conn)
+        self._pivot.initialize_variant(
+            entry_id=entry_id,
+            variant_id=variant_id,
+            translations=content["translations"],
+            conn=conn,
+        )
         return variant_id
 
     def update_variant(
@@ -61,6 +70,7 @@ class VariantCatalogService:
         restore_if_trashed: bool = False,
         conn: sqlite3.Connection | None = None,
     ) -> None:
+        previous_variant = self.get_variant(variant_id, conn=conn)
         timestamp = now_iso()
         self._commands.update(
             variant_id,
@@ -72,6 +82,12 @@ class VariantCatalogService:
         )
         self._commands.overwrite_translations(variant_id, content["translations"], timestamp, conn=conn)
         self._commands.overwrite_remarks(variant_id, content["remarks"], timestamp, conn=conn)
+        self._pivot.refresh_variant(
+            variant_id=variant_id,
+            old_variant=previous_variant,
+            new_translations=content["translations"],
+            conn=conn,
+        )
 
     def get_variant(self, variant_id: int, conn: sqlite3.Connection | None = None) -> VariantRecord:
         variant = self._queries.get(variant_id, conn=conn)

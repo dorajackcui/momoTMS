@@ -57,6 +57,7 @@
 
 - fixed columns: `business_key`, `source`
 - project-defined translation columns and remark columns
+- optional `translation_pivots` topology stored alongside the schema as a full `lang -> pivot_lang | null` map
 - `file_name` is runtime metadata derived from workbook path, not a schema column
 
 `Entry`
@@ -70,6 +71,7 @@
 - current identity is the parent entry plus canonical `source`
 - runtime keeps one canonical non-trashed same-source variant under an entry
 - carries `file_name`, `source`, `translations`, `remarks`, and lifecycle timestamps
+- may also carry per-child pivot sync checkpoints through `variant_translation_sync_state`; the checkpoint is variant-level, not branch-level
 
 `Scope Binding`
 
@@ -124,7 +126,7 @@ Domain services:
 - `app/services/project/`: project creation and schema loading live in `service.py`; `/app` bootstrap assembly lives in `bootstrap.py`
 - `app/services/imports/`: import batch parsing and persistence
 - `app/services/branch/`: scope refs and policy live with branch write or replace orchestration; `registry.py` owns dev branch metadata and release summary, `details.py` owns branch entry hydration, `replace.py` owns branch replace execution, and `mutations.py` coordinates branch-scoped writes
-- `app/services/variant/`: pure variant-domain package only. `entries.py` owns entry access, `store.py` plus `repositories.py` own canonical same-source persistence, `catalog.py` owns variant content rules, `bindings.py` owns raw binding commands and lookups, `state_coordinator.py` composes binding writes with orphan refresh, and `lifecycle.py` owns orphan or trash state transitions. Operator-facing inspection, hydration, and workflow orchestration are not part of this package.
+- `app/services/variant/`: pure variant-domain package only. `entries.py` owns entry access, `store.py` plus `repositories.py` own canonical same-source persistence, `catalog.py` owns variant content rules, `pivot.py` owns variant-level pivot checkpoint coordination, `bindings.py` owns raw binding commands and lookups, `state_coordinator.py` composes binding writes with orphan refresh, and `lifecycle.py` owns orphan or trash state transitions. Operator-facing inspection, hydration, and workflow orchestration are not part of this package.
 - `app/services/read_models/`: the only operator-facing read side. `summary.py`, `compare.py`, `queue.py`, and `master.py` expose use-case-specific read services; `hydration.py` and `inspection.py` own row hydration and historical inspection reads; `queries.py` owns lightweight projection queries
 - `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, `fill_queries.py` owns fill-specific candidate reads, and `trash_restore.py`, `fill.py`, and `qa.py` execute workflow behavior
 - `app/services/shared/`: IO helpers, job storage, and utility helpers
@@ -132,7 +134,7 @@ Domain services:
 
 ## Database Tables
 
-Current schema version: `variant-v5`
+Current schema version: `variant-v6`
 
 Live tables:
 
@@ -141,6 +143,7 @@ Live tables:
 - `entries`
 - `variants`
 - `variant_translations`
+- `variant_translation_sync_state`
 - `variant_remarks`
 - `scope_bindings`
 - `dev_versions`

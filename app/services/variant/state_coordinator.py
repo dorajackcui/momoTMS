@@ -40,10 +40,22 @@ class VariantStateCoordinator:
         variant_id: int,
         conn: sqlite3.Connection | None = None,
         timestamp: str | None = None,
+        refresh_orphan_states: bool = True,
     ) -> None:
         marker = timestamp or now_iso()
         self._binding_commands.bind_scope(entry_id, scope_ref, variant_id, conn=conn, timestamp=marker)
-        self._lifecycle.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
+        if refresh_orphan_states:
+            self._lifecycle.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
+
+    def refresh_orphan_states(
+        self,
+        entry_ids: list[int],
+        conn: sqlite3.Connection | None = None,
+        timestamp: str | None = None,
+    ) -> None:
+        marker = timestamp or now_iso()
+        for entry_id in sorted(set(entry_ids)):
+            self._lifecycle.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
 
     def clear_scope(
         self,

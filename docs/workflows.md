@@ -72,9 +72,11 @@ Content fields:
 
 - project schema defines the fixed columns `business_key` and `source`
 - translation columns and remark columns are project-defined
+- project creation may also define `translation_pivots`; when omitted, every translation column defaults to `null` pivot
+- `translation_pivots` is validated against the project translation columns, stored as a full map, and stays fixed after project creation
 - header matching is schema-driven
-- every configured translation column is required
-- every configured remark column is required
+- import mapping always requires `business_key` and `source`
+- translation and remark mappings may be omitted for import; omitted fields are treated as "keep existing value"
 - `file_name` is derived from workbook relative path, not from a sheet column
 - upload preview is sheet-based and returns suggested mappings per sheet
 
@@ -85,10 +87,17 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - read only `.xlsx` files
 - skip temporary files whose names start with `~$`
 - each sheet uses row `1` as the header row
+- upload preview stages incoming files into an upload session and returns `upload_session_id`
+- confirm import reuses `upload_session_id` plus optional `column_mapping_json`; it does not upload the same workbook bundle twice
 - rows missing normalized `business_key` are invalid
 - rows missing normalized `source` are invalid
+- import parsing uses `openpyxl.load_workbook(..., read_only=True, data_only=True)` and iterates workbook rows sequentially
+- import persistence writes `import_rows` in chunks instead of building one giant in-memory batch
+- persisted import row payloads are sparse patches: only mapped translation and remark fields are stored
+- an omitted translation or remark field means "leave the current value unchanged"; an explicitly provided blank cell still clears that field to `""`
 - import results are persisted row by row in `imports` and `import_rows`
 - upload preview returns `available_headers`, `suggested_mapping`, and `missing_targets`
+- import jobs are async: preview uploads once, confirm starts a job, and clients poll job status separately
 
 ## Scope Mutation Rules
 
@@ -116,6 +125,10 @@ Mutation rules:
 - `dev` policy keeps rel-owned canonical content authoritative when same-source hits a rel-bound variant
 - `dev` policy may create missing entries when `source` is present
 - `rel` policy always starts from the currently bound rel variant and never creates a missing business key from scratch
+- `import_batch` applies persisted sparse patches using the same merge rules as direct mutation: only provided translations and remarks overwrite existing content
+- `import_batch + dev/<version>` runs as a job and streams report rows into job storage instead of returning the full apply result inline
+- `import_batch + rel/current` remains invalid
+- import-batch apply reads persisted `import_rows` in chunks, batches entry or variant or binding hydration, and refreshes orphan state once per touched entry set instead of once per row
 
 ## Scope Sync Rules
 
@@ -148,6 +161,10 @@ Mutation rules:
 - `SRC_MISMATCH` means the `business_key` exists in the project but no variant in project history matches the workbook `source`
 - `MISSING_KEY_IN_PROJECT` means the `business_key` does not exist anywhere in the project history
 - fill report rows record `match_variant_id` and `match_variant_state` (`active`, `orphan`, or `trashed`) instead of a branch label
+- fill still requires the workbook to include the selected target language column; import-only sparse mapping rules do not apply to fill
+- when the selected fill language has a configured pivot parent, fill also reports `pivot_lang` and `pivot_sync_status`
+- `pivot_sync_status` is derived from variant-level checkpoint state, not from workbook freshness or branch selection
+- unmatched rows keep `pivot_sync_status = null`; matched rows use one of `PIVOT_IN_SYNC`, `PIVOT_OUT_OF_SYNC`, `MISSING_CHILD`, or `MISSING_PARENT`
 - fill writes translations back to workbook artifacts through a job
 
 Implication:
@@ -160,5 +177,6 @@ Implication:
 
 - QA is schema-driven and read-only
 - it reads source and selected target language columns from workbook input
+- QA still requires the workbook to include the selected target language column; import-only sparse mapping rules do not apply to QA
 - it validates row-level source and target content
 - it does not mutate runtime scope bindings

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import sqlite3
 from time import perf_counter
-from typing import Any
+from typing import Any, Generator
 
 from app.db import json_loads
 from app.services.branch.models import BranchRef
@@ -18,6 +18,8 @@ from app.services.branch.variant_resolution import VariantResolutionService
 
 
 class ImportBatchMutationApplier:
+    READ_CHUNK_SIZE = 1000
+
     def __init__(
         self,
         *,
@@ -44,63 +46,83 @@ class ImportBatchMutationApplier:
         conn: sqlite3.Connection,
         version_series: str | None = None,
     ) -> dict[str, Any]:
+        report_rows: list[dict[str, Any]] = []
+        row_stream = self.iter_apply(
+            branch_ref,
+            import_batch_id,
+            mark_as_candidate_release,
+            project_id,
+            conn,
+            version_series=version_series,
+        )
+        iterator = iter(row_stream)
+        while True:
+            try:
+                report_rows.append(next(iterator))
+            except StopIteration as stop:
+                summary = dict((stop.value or {}).get("summary", {}))
+                break
+        return {"summary": summary, "report_rows": report_rows}
+
+    def iter_apply(
+        self,
+        branch_ref: BranchRef,
+        import_batch_id: int,
+        mark_as_candidate_release: bool,
+        project_id: int,
+        conn: sqlite3.Connection,
+        version_series: str | None = None,
+    ) -> Generator[dict[str, Any], None, dict[str, Any]]:
         started = perf_counter()
         self.imports.require_batch_project(import_batch_id, project_id)
-        rows = conn.execute(
-            """
-            SELECT import_row_id, file_path, sheet_name, row_index, payload_json
-            FROM import_rows
-            WHERE import_batch_id = ? AND status = 'ok'
-            ORDER BY import_row_id
-            """,
-            (import_batch_id,),
-        ).fetchall()
-        payload_rows = [
-            {
-                "import_row_id": int(row["import_row_id"]),
-                "file_path": row["file_path"],
-                "sheet_name": row["sheet_name"],
-                "row_index": int(row["row_index"]),
-                "payload": json_loads(row["payload_json"]),
-            }
-            for row in rows
-        ]
-        business_keys = [row["payload"]["business_key"] for row in payload_rows]
-        existing_entries_by_key = self.entries.get_entries_by_keys(business_keys, project_id=project_id, conn=conn)
-        missing_entry_keys = {key for key in business_keys if key not in existing_entries_by_key}
-        entries_by_key = self.entries.ensure_entries(business_keys, project_id=project_id, conn=conn)
-        entry_ids = [int(entry["entry_id"]) for entry in entries_by_key.values()]
-        variants_by_entry = self.catalog.list_variants_for_entries(entry_ids, include_trashed=False, conn=conn)
-        binding_rows_by_entry = {
-            entry_id: self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn)
-            for entry_id in entry_ids
-        }
 
+        entries_by_key: dict[str, dict[str, Any]] = {}
+        variants_by_entry: dict[int, list[dict[str, Any]]] = {}
+        binding_rows_by_entry: dict[int, list[dict[str, Any]]] = {}
+        created_entry_keys: set[str] = set()
         status_counts: Counter[str] = Counter()
-        report_rows: list[dict[str, Any]] = []
-        for row in payload_rows:
-            payload = row["payload"]
-            entry = entries_by_key[payload["business_key"]]
-            entry_id = int(entry["entry_id"])
-            variants_by_entry.setdefault(entry_id, [])
-            status = self._apply_row_cached(
-                entry_id,
-                payload,
-                branch_ref,
-                binding_rows_by_entry,
-                variants_by_entry,
+
+        processed_count = 0
+        last_import_row_id = 0
+        while True:
+            payload_rows = self._load_chunk(import_batch_id, last_import_row_id, conn=conn)
+            if not payload_rows:
+                break
+            last_import_row_id = payload_rows[-1]["import_row_id"]
+            self._prime_chunk_cache(
+                payload_rows,
+                project_id=project_id,
                 conn=conn,
+                entries_by_key=entries_by_key,
+                variants_by_entry=variants_by_entry,
+                binding_rows_by_entry=binding_rows_by_entry,
+                created_entry_keys=created_entry_keys,
             )
-            status_counts.update([status])
-            report_rows.append(
-                {
+            touched_entry_ids: set[int] = set()
+            for row in payload_rows:
+                payload = row["payload"]
+                entry = entries_by_key[payload["business_key"]]
+                entry_id = int(entry["entry_id"])
+                status = self._apply_row_cached(
+                    entry_id,
+                    payload,
+                    branch_ref,
+                    binding_rows_by_entry,
+                    variants_by_entry,
+                    touched_entry_ids=touched_entry_ids,
+                    conn=conn,
+                )
+                status_counts.update([status])
+                processed_count += 1
+                yield {
                     "business_key": payload["business_key"],
                     "file_path": row["file_path"],
                     "sheet_name": row["sheet_name"],
                     "row_index": row["row_index"],
                     "status": status,
                 }
-            )
+            if touched_entry_ids:
+                self.bindings.refresh_orphan_states(list(touched_entry_ids), conn=conn)
 
         summary = {
             "branch_ref": str(branch_ref),
@@ -108,8 +130,8 @@ class ImportBatchMutationApplier:
             "import_batch_id": import_batch_id,
             "mark_as_candidate_release": mark_as_candidate_release,
             "version_series": version_series,
-            "processed_count": len(report_rows),
-            "created_entry_count": len(set(missing_entry_keys)),
+            "processed_count": processed_count,
+            "created_entry_count": len(created_entry_keys),
             **self._status_summary(status_counts),
             "stages": [
                 {
@@ -118,12 +140,12 @@ class ImportBatchMutationApplier:
                     "meta": {
                         "branch_ref": str(branch_ref),
                         "input_kind": "import_batch",
-                        "processed_count": len(report_rows),
+                        "processed_count": processed_count,
                     },
                 }
             ],
         }
-        return {"summary": summary, "report_rows": report_rows}
+        return {"summary": summary}
 
     def _apply_row_cached(
         self,
@@ -132,26 +154,59 @@ class ImportBatchMutationApplier:
         target_branch: BranchRef,
         binding_rows_by_entry: dict[int, list[dict[str, Any]]],
         variants_by_entry: dict[int, list[dict[str, Any]]],
+        touched_entry_ids: set[int],
         conn: sqlite3.Connection,
     ) -> str:
         bindings = binding_rows_by_entry.get(entry_id, [])
         variants = variants_by_entry.get(entry_id, [])
         current_binding = self._find_binding(bindings, target_branch)
-        source_variant = self.resolution.find_source_variant_in_cache(entry_id, variants, payload["source"])
+        current_variant = self._find_variant_by_id(
+            variants,
+            int(current_binding["variant_id"]),
+        ) if current_binding is not None else None
+        change = {
+            "business_key": payload["business_key"],
+            "source": payload["source"],
+            "translations_by_lang": payload.get("translations", {}),
+            "remarks_by_key": payload.get("remarks", {}),
+            "file_name": payload.get("file_name"),
+        }
+        requested_source = payload["source"]
+
+        if current_variant is not None and requested_source == current_variant["source"]:
+            merged = self.resolution.merged_variant_payload(current_variant, change, requested_source)
+            if self.resolution.variant_matches(current_variant, merged):
+                return "NOOP"
+            bound_branch_refs = self.resolution.bound_branch_refs_for_variant(
+                bindings,
+                int(current_variant["variant_id"]),
+            )
+            if not BranchMutationPolicy.for_branch(target_branch).can_update_hit_variant(target_branch, bound_branch_refs):
+                return "NOOP"
+            self.catalog.update_variant(int(current_variant["variant_id"]), merged, conn=conn)
+            self._update_variant_cache(variants, int(current_variant["variant_id"]), merged)
+            return "UPDATED_BOUND_VARIANT"
+
+        source_variant = self.resolution.find_source_variant_in_cache(entry_id, variants, requested_source)
+        content_base = source_variant
+        merged = self.resolution.merged_variant_payload(content_base, change, requested_source)
 
         if source_variant is None:
             variant_id = self.catalog.create_variant(
                 entry_id,
-                self.catalog.build_content(
-                    payload.get("file_name"),
-                    payload["source"],
-                    payload.get("translations", {}),
-                    payload.get("remarks", {}),
-                ),
+                merged,
                 conn=conn,
             )
-            self.bindings.bind_scope(entry_id, target_branch, variant_id, conn=conn)
-            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
+            self._append_variant_cache(variants, entry_id, variant_id, merged)
+            self.bindings.bind_scope(
+                entry_id,
+                target_branch,
+                variant_id,
+                conn=conn,
+                refresh_orphan_states=False,
+            )
+            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
+            touched_entry_ids.add(entry_id)
             return "CREATED_AND_BOUND_VARIANT"
 
         variant_id = int(source_variant["variant_id"])
@@ -160,34 +215,46 @@ class ImportBatchMutationApplier:
         if not BranchMutationPolicy.for_branch(target_branch).can_update_hit_variant(target_branch, bound_branch_refs):
             if current_matches:
                 return "NOOP"
-            self.bindings.bind_scope(entry_id, target_branch, variant_id, conn=conn)
-            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
+            self.bindings.bind_scope(
+                entry_id,
+                target_branch,
+                variant_id,
+                conn=conn,
+                refresh_orphan_states=False,
+            )
+            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
+            touched_entry_ids.add(entry_id)
             return "BOUND_EXISTING_VARIANT"
 
-        payload_matches = self.resolution.payload_matches_variant(source_variant, payload)
-        if payload_matches:
+        if self.resolution.variant_matches(source_variant, merged):
             if current_matches:
                 return "NOOP"
-            self.bindings.bind_scope(entry_id, target_branch, variant_id, conn=conn)
-            self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
+            self.bindings.bind_scope(
+                entry_id,
+                target_branch,
+                variant_id,
+                conn=conn,
+                refresh_orphan_states=False,
+            )
+            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
+            touched_entry_ids.add(entry_id)
             return "BOUND_EXISTING_VARIANT"
 
-        self.catalog.update_variant(
-            variant_id,
-            self.catalog.build_content(
-                payload.get("file_name"),
-                payload["source"],
-                payload.get("translations", {}),
-                payload.get("remarks", {}),
-            ),
-            conn=conn,
-        )
+        self.catalog.update_variant(variant_id, merged, conn=conn)
+        self._update_variant_cache(variants, variant_id, merged)
         if current_matches:
             status = "UPDATED_BOUND_VARIANT"
         else:
-            self.bindings.bind_scope(entry_id, target_branch, variant_id, conn=conn)
+            self.bindings.bind_scope(
+                entry_id,
+                target_branch,
+                variant_id,
+                conn=conn,
+                refresh_orphan_states=False,
+            )
+            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
             status = "UPDATED_AND_BOUND_EXISTING_VARIANT"
-        self._refresh_entry_cache(entry_id, binding_rows_by_entry, variants_by_entry, conn=conn)
+            touched_entry_ids.add(entry_id)
         return status
 
     def _status_summary(self, status_counts: Counter[str]) -> dict[str, int]:
@@ -200,15 +267,157 @@ class ImportBatchMutationApplier:
             "noop_count": status_counts["NOOP"],
         }
 
-    def _refresh_entry_cache(
+    def _load_chunk(
         self,
-        entry_id: int,
-        binding_rows_by_entry: dict[int, list[dict[str, Any]]],
-        variants_by_entry: dict[int, list[dict[str, Any]]],
+        import_batch_id: int,
+        after_import_row_id: int,
         conn: sqlite3.Connection,
+    ) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT import_row_id, file_path, sheet_name, row_index, payload_json
+            FROM import_rows
+            WHERE import_batch_id = ?
+              AND status = 'ok'
+              AND import_row_id > ?
+            ORDER BY import_row_id
+            LIMIT ?
+            """,
+            (import_batch_id, after_import_row_id, self.READ_CHUNK_SIZE),
+        ).fetchall()
+        return [
+            {
+                "import_row_id": int(row["import_row_id"]),
+                "file_path": row["file_path"],
+                "sheet_name": row["sheet_name"],
+                "row_index": int(row["row_index"]),
+                "payload": json_loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+
+    def _prime_chunk_cache(
+        self,
+        payload_rows: list[dict[str, Any]],
+        *,
+        project_id: int,
+        conn: sqlite3.Connection,
+        entries_by_key: dict[str, dict[str, Any]],
+        variants_by_entry: dict[int, list[dict[str, Any]]],
+        binding_rows_by_entry: dict[int, list[dict[str, Any]]],
+        created_entry_keys: set[str],
     ) -> None:
-        binding_rows_by_entry[entry_id] = self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn)
-        variants_by_entry[entry_id] = self.catalog.list_variants(entry_id, include_trashed=False, conn=conn)
+        business_keys = sorted({row["payload"]["business_key"] for row in payload_rows})
+        missing_lookup_keys = [key for key in business_keys if key not in entries_by_key]
+        if missing_lookup_keys:
+            existing = self.entries.get_entries_by_keys(
+                missing_lookup_keys,
+                project_id=project_id,
+                conn=conn,
+            )
+            entries_by_key.update(existing)
+            missing_create_keys = [key for key in missing_lookup_keys if key not in existing]
+            if missing_create_keys:
+                created_entry_keys.update(missing_create_keys)
+                entries_by_key.update(
+                    self.entries.ensure_entries(
+                        missing_create_keys,
+                        project_id=project_id,
+                        conn=conn,
+                    )
+                )
+
+        entry_ids_to_load = sorted(
+            {
+                int(entries_by_key[key]["entry_id"])
+                for key in business_keys
+                if int(entries_by_key[key]["entry_id"]) not in variants_by_entry
+                or int(entries_by_key[key]["entry_id"]) not in binding_rows_by_entry
+            }
+        )
+        if not entry_ids_to_load:
+            return
+
+        variants = self.catalog.list_variants_for_entries(
+            entry_ids_to_load,
+            include_trashed=False,
+            conn=conn,
+        )
+        bindings = self.binding_lookup.list_bindings_for_entries(entry_ids_to_load, conn=conn)
+        for entry_id in entry_ids_to_load:
+            variants_by_entry[entry_id] = list(variants.get(entry_id, []))
+            binding_rows_by_entry[entry_id] = list(bindings.get(entry_id, []))
+
+    def _find_variant_by_id(
+        self,
+        variants: list[dict[str, Any]],
+        variant_id: int,
+    ) -> dict[str, Any] | None:
+        for variant in variants:
+            if int(variant["variant_id"]) == variant_id:
+                return variant
+        return None
+
+    def _append_variant_cache(
+        self,
+        variants: list[dict[str, Any]],
+        entry_id: int,
+        variant_id: int,
+        content: dict[str, Any],
+    ) -> None:
+        variants.append(
+            {
+                "variant_id": variant_id,
+                "entry_id": entry_id,
+                "file_name": content["file_name"],
+                "source": content["source"],
+                "translations": dict(content["translations"]),
+                "remarks": dict(content["remarks"]),
+                "orphaned_at": None,
+                "trashed_at": None,
+                "trash_until": None,
+                "restored_at": None,
+                "created_at": "",
+                "updated_at": "",
+            }
+        )
+
+    def _update_variant_cache(
+        self,
+        variants: list[dict[str, Any]],
+        variant_id: int,
+        content: dict[str, Any],
+    ) -> None:
+        variant = self._find_variant_by_id(variants, variant_id)
+        if variant is None:
+            return
+        variant["file_name"] = content["file_name"]
+        variant["source"] = content["source"]
+        variant["translations"] = dict(content["translations"])
+        variant["remarks"] = dict(content["remarks"])
+
+    def _upsert_binding_cache(
+        self,
+        bindings: list[dict[str, Any]],
+        branch_ref: BranchRef,
+        entry_id: int,
+        variant_id: int,
+    ) -> None:
+        scope_type, scope_value = branch_ref.as_tuple()
+        for binding in bindings:
+            if binding["scope_type"] == scope_type and binding["scope_value"] == scope_value:
+                binding["variant_id"] = variant_id
+                return
+        bindings.append(
+            {
+                "scope_type": scope_type,
+                "scope_value": scope_value,
+                "entry_id": entry_id,
+                "variant_id": variant_id,
+                "created_at": "",
+                "updated_at": "",
+            }
+        )
 
     def _find_binding(self, bindings: list[dict[str, Any]], branch_ref: BranchRef) -> dict[str, Any] | None:
         scope_type, scope_value = branch_ref.as_tuple()

@@ -3,11 +3,14 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app.services.branch.models import BranchRef
+from app.services.branch.policy import BranchMutationPolicy
 from app.services.branch.mutations import BranchMutationService
 from app.services.branch.replace import BranchReplaceService
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID
+from app.services.shared.background_jobs import submit_background_job
 from app.services.shared.jobs import JobService
+from app.services.shared.uploads import UploadSessionService
 from app.services.workflows.trash_restore import TrashRestoreService
 from app.services.workflows.fill import FillService
 from app.services.workflows.qa import QaScanService
@@ -20,40 +23,52 @@ class WorkflowApplicationService:
         self.fill_service = FillService()
         self.import_service = ImportService()
         self.job_service = JobService()
+        self.upload_session_service = UploadSessionService()
         self.qa_scan_service = QaScanService()
         self.trash_restore_service = TrashRestoreService()
 
     def import_directory(self, input_dir: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
-        return self._run_job(
+        self.import_service.projects.require_project(project_id)
+        return self._run_job_async(
             "import_directory",
             {"input_dir": input_dir, "project_id": project_id},
             lambda _job_id: self._import_action(input_dir, project_id=project_id),
             project_id=project_id,
         )
 
-    def preview_import_uploaded_folder(
+    def preview_import_staged_folder(
         self,
-        files: list[tuple[str, bytes]],
+        input_dir: str,
+        upload_session_id: str,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
-        self._validate_uploaded_folder(files)
-        return self.import_service.preview_files(files, project_id=project_id)
+        self.import_service.projects.require_project(project_id)
+        preview = self.import_service.preview_directory(input_dir, project_id=project_id)
+        preview["upload_session_id"] = upload_session_id
+        return preview
 
-    def import_uploaded_folder(
+    def import_uploaded_session(
         self,
-        files: list[tuple[str, bytes]],
+        upload_session_id: str,
         project_id: int = DEFAULT_PROJECT_ID,
         mapping_overrides: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        return self._run_job(
+        self.import_service.projects.require_project(project_id)
+        self.upload_session_service.require_session(upload_session_id, project_id)
+        return self._run_job_async(
             "import_upload_folder",
             {
-                "file_count": len(files),
+                "upload_session_id": upload_session_id,
                 "mapping_override_count": len(mapping_overrides or {}),
                 "project_id": project_id,
             },
             lambda job_id: self._import_action(
-                self._stage_uploaded_folder(job_id, files, "import_bundle"),
+                self.upload_session_service.consume_session_into_job(
+                    upload_session_id,
+                    job_id,
+                    project_id,
+                    "import_bundle",
+                ),
                 project_id=project_id,
                 mapping_overrides=mapping_overrides,
             ),
@@ -66,6 +81,24 @@ class WorkflowApplicationService:
         input_payload: dict[str, Any],
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
+        self.branch_mutation_service.projects.require_project(project_id)
+        parsed_branch_ref = BranchRef.parse(branch_ref)
+        BranchMutationPolicy.for_branch(parsed_branch_ref).validate_input_kind(str(input_payload["kind"]))
+        if str(input_payload["kind"]) == "import_batch":
+            return self._run_streaming_job_async(
+                "branch_mutation",
+                {
+                    "branch_ref": branch_ref,
+                    "input": input_payload,
+                    "project_id": project_id,
+                },
+                lambda: self.branch_mutation_service.apply_streaming(
+                    parsed_branch_ref,
+                    input_payload,
+                    project_id=project_id,
+                ),
+                project_id=project_id,
+            )
         return self._run_job(
             "branch_mutation",
             {
@@ -75,7 +108,7 @@ class WorkflowApplicationService:
             },
             lambda _job_id: self._wrap_report(
                 self.branch_mutation_service.apply(
-                    BranchRef.parse(branch_ref),
+                    parsed_branch_ref,
                     input_payload,
                     project_id=project_id,
                 )
@@ -234,7 +267,7 @@ class WorkflowApplicationService:
     def get_job_detail(self, job_id: int, project_id: int | None = None) -> dict[str, Any]:
         return {
             "job": self.job_service.get_job(job_id, project_id=project_id),
-            "report": self.job_service.get_report(job_id, project_id=project_id),
+            "report": self.job_service.get_report_preview(job_id, project_id=project_id),
         }
 
     def _import_action(
@@ -248,7 +281,11 @@ class WorkflowApplicationService:
             project_id=project_id,
             mapping_overrides=mapping_overrides,
         )
-        report = self.import_service.import_report(summary["import_batch_id"], issues_only=False)
+        report = self.import_service.import_report(
+            summary["import_batch_id"],
+            issues_only=False,
+            limit=self.job_service.REPORT_PREVIEW_LIMIT,
+        )
         return {"summary": summary, "report": report}
 
     def _fill_action(
@@ -356,3 +393,46 @@ class WorkflowApplicationService:
             self.job_service.fail_job(job_id, str(exc))
             raise
         return self.get_job_detail(job_id)
+
+    def _run_job_async(
+        self,
+        job_type: str,
+        input_payload: dict[str, Any],
+        action: Callable[[int], dict[str, Any]],
+        project_id: int,
+    ) -> dict[str, Any]:
+        job_id = self.job_service.create_job(job_type, input_payload, project_id=project_id)
+
+        def run() -> None:
+            try:
+                result = action(job_id)
+                self.job_service.complete_job(
+                    job_id,
+                    summary=result["summary"],
+                    report_payload=result.get("report"),
+                    report_rows=result.get("report_rows"),
+                    artifact_path=result.get("artifact_path"),
+                )
+            except Exception as exc:
+                self.job_service.fail_job(job_id, str(exc))
+
+        submit_background_job(run)
+        return self.get_job_detail(job_id, project_id=project_id)
+
+    def _run_streaming_job_async(
+        self,
+        job_type: str,
+        input_payload: dict[str, Any],
+        row_stream_factory: Callable[[], Any],
+        project_id: int,
+    ) -> dict[str, Any]:
+        job_id = self.job_service.create_job(job_type, input_payload, project_id=project_id)
+
+        def run() -> None:
+            try:
+                self.job_service.complete_job_from_stream(job_id, row_stream_factory())
+            except Exception as exc:
+                self.job_service.fail_job(job_id, str(exc))
+
+        submit_background_job(run)
+        return self.get_job_detail(job_id, project_id=project_id)

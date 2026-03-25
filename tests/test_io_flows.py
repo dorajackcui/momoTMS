@@ -2,9 +2,12 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from app.db import get_conn, get_db_path
+from app.db import get_conn, get_db_path, init_db
 from app.services.branch.models import BranchRef
 from app.services.demo.service import DemoService
+from app.services.project.service import ProjectService
+from app.services.variant.catalog import VariantCatalogService
+from app.services.variant.entries import EntryService
 from app.services.workflows.fill import FillService
 from app.services.workflows.trash_restore import TrashRestoreService
 from tests.service_helpers import branch_services
@@ -71,10 +74,18 @@ def test_fill_reads_project_variants_across_active_orphan_and_missing_rows() -> 
 
     assert active_row["status"] == "FILLED"
     assert active_row["match_variant_state"] == "active"
+    assert active_row["pivot_lang"] is None
+    assert active_row["pivot_sync_status"] is None
     assert orphan_row["status"] == "FILLED"
     assert orphan_row["match_variant_state"] == "orphan"
+    assert orphan_row["pivot_lang"] is None
+    assert orphan_row["pivot_sync_status"] is None
     assert mismatch_row["status"] == "SRC_MISMATCH"
+    assert mismatch_row["pivot_lang"] is None
+    assert mismatch_row["pivot_sync_status"] is None
     assert missing_row["status"] == "MISSING_KEY_IN_PROJECT"
+    assert missing_row["pivot_lang"] is None
+    assert missing_row["pivot_sync_status"] is None
     assert output_zip.exists()
 
     filled_workbook = output_workbook_path(source_dir, "fill/fill_input.xlsx")
@@ -112,6 +123,8 @@ def test_fill_uses_trashed_candidate_when_no_live_variant_exists() -> None:
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == int(original_variant["variant_id"])
     assert row["match_variant_state"] == "trashed"
+    assert row["pivot_lang"] is None
+    assert row["pivot_sync_status"] is None
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Supprimer moi"
 
 
@@ -157,6 +170,8 @@ def test_fill_prefers_live_candidate_over_trashed_history() -> None:
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == live_variant_id
     assert row["match_variant_state"] == "active"
+    assert row["pivot_lang"] is None
+    assert row["pivot_sync_status"] is None
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Live translation wins"
 
 
@@ -205,4 +220,70 @@ def test_fill_uses_latest_trashed_candidate_when_only_trashed_history_exists() -
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == second_variant_id
     assert row["match_variant_state"] == "trashed"
+    assert row["pivot_lang"] is None
+    assert row["pivot_sync_status"] is None
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Newest trashed translation"
+
+
+def test_fill_reports_pivot_status_for_matched_variants_only() -> None:
+    db_path = get_db_path()
+    if Path(db_path).exists():
+        Path(db_path).unlink()
+    init_db()
+
+    project = ProjectService().create_project(
+        "Pivot Fill Project",
+        ["fr", "en"],
+        ["context"],
+        {"fr": "en"},
+    )
+    project_id = int(project["project_id"])
+    entries = EntryService()
+    catalog = VariantCatalogService()
+    entry = entries.get_or_create_entry("pivot.fill", project_id=project_id)
+    variant_id = catalog.create_variant(
+        int(entry["entry_id"]),
+        catalog.build_content(
+            "pivot-fill.xlsx",
+            "Hello",
+            {"en": "Hello", "fr": "Bonjour"},
+            {"context": "pivot fill"},
+        ),
+    )
+    catalog.update_variant(
+        variant_id,
+        catalog.build_content(
+            "pivot-fill.xlsx",
+            "Hello",
+            {"en": "Hello there", "fr": "Bonjour"},
+            {"context": "pivot fill"},
+        ),
+    )
+
+    source_dir = Path(db_path).parent / "pivot-fill-source"
+    output_zip = source_dir.parent / "pivot-fill.zip"
+    write_fill_workbook(
+        source_dir,
+        "single.xlsx",
+        [
+            ["file_name", "business_key", "source", "fr", "en", "context"],
+            ["pivot.xlsx", "pivot.fill", "Hello", "", "", "matched"],
+            ["pivot.xlsx", "pivot.fill", "Hello mismatch", "", "", "mismatch"],
+            ["pivot.xlsx", "pivot.missing", "Missing", "", "", "missing"],
+        ],
+    )
+
+    result = FillService().fill_and_export(str(source_dir), str(output_zip), "fr", project_id=project_id)
+
+    matched_row = report_row_by_key(result["report_rows"], "pivot.fill")
+    mismatch_row = next(row for row in result["report_rows"] if row["status"] == "SRC_MISMATCH")
+    missing_row = report_row_by_key(result["report_rows"], "pivot.missing")
+
+    assert matched_row["status"] == "FILLED"
+    assert matched_row["pivot_lang"] == "en"
+    assert matched_row["pivot_sync_status"] == "PIVOT_OUT_OF_SYNC"
+    assert mismatch_row["pivot_lang"] == "en"
+    assert mismatch_row["pivot_sync_status"] is None
+    assert missing_row["pivot_lang"] == "en"
+    assert missing_row["pivot_sync_status"] is None
+    assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Bonjour"

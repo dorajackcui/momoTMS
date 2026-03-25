@@ -16,6 +16,7 @@ class CreateProjectRequest(BaseModel):
     name: str
     translation_columns: list[str] = Field(default_factory=list)
     remark_columns: list[str] = Field(default_factory=list)
+    translation_pivots: dict[str, str | None] = Field(default_factory=dict)
 
 
 class ProjectSchemaSummary(BaseModel):
@@ -24,6 +25,7 @@ class ProjectSchemaSummary(BaseModel):
     fixed_columns: dict[str, str]
     translation_columns: list[str]
     remark_columns: list[str]
+    translation_pivots: dict[str, str | None] = Field(default_factory=dict)
     created_at: str
 
 
@@ -89,6 +91,7 @@ class ImportSheetPreview(BaseModel):
 class ImportUploadPreview(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    upload_session_id: str
     project_schema: ProjectSchemaSummary = Field(alias="schema")
     file_count: int
     sheet_count: int
@@ -269,6 +272,11 @@ class OrphanVariantsResponse(BaseModel):
 
 class ImportDirectoryRequest(BaseModel):
     input_dir: str
+
+
+class ImportUploadSessionRequest(BaseModel):
+    upload_session_id: str
+    column_mapping_json: str | None = None
 
 
 class BranchMutationChange(BaseModel):

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from openpyxl import Workbook
 
 from app.db import get_db_path
 from app.services.branch.models import BranchRef
@@ -20,6 +21,19 @@ def reset_demo() -> dict:
         Path(db_path).unlink()
     DemoService().reset()
     return DemoService().get_sample("core-cycle")
+
+
+def write_import_workbook(root: Path, relative_path: str, rows: list[list[object]]) -> Path:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Sheet1"
+    for row in rows:
+        sheet.append(row)
+    output_path = root / relative_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook.save(output_path)
+    workbook.close()
+    return output_path
 
 
 def test_branch_import_paths_and_promote_cleanup() -> None:
@@ -167,6 +181,203 @@ def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
     assert not any(
         branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches(active_only=True)
     )
+
+
+def test_import_batch_sparse_patch_preserves_unmapped_languages_and_remarks(tmp_path) -> None:
+    reset_demo()
+    mutation_service = BranchMutationService()
+    read_service = branch_services()
+
+    create_result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "single.lang.patch",
+                    "source": "Single source",
+                    "translations_by_lang": {
+                        "fr": "Bonjour initial",
+                        "en": "Hello initial",
+                    },
+                    "remarks_by_key": {"context": "Initial context"},
+                    "file_name": "single.xlsx",
+                }
+            ],
+        },
+    )
+    assert create_result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
+
+    import_root = tmp_path / "single-lang-import"
+    write_import_workbook(
+        import_root,
+        "bundle/single.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["single.lang.patch", "Single source", "Bonjour patch"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+            "mark_as_candidate_release": True,
+        },
+    )
+    assert result["report_rows"][0]["status"] == "UPDATED_BOUND_VARIANT"
+
+    dev_entries = read_service.list_branch_entries(BranchRef.dev("2.4.3"))
+    entry = next(item for item in dev_entries if item["business_key"] == "single.lang.patch")
+    assert entry["translations"]["fr"] == "Bonjour patch"
+    assert entry["translations"]["en"] == "Hello initial"
+    assert entry["remarks"]["context"] == "Initial context"
+
+
+def test_import_batch_source_switch_preserves_existing_target_variant_fields(tmp_path) -> None:
+    reset_demo()
+    mutation_service = BranchMutationService()
+    inspection = InspectionReadService()
+
+    current_result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "source.switch.existing",
+                    "source": "Current source",
+                    "translations_by_lang": {
+                        "fr": "Bonjour current",
+                        "en": "Hello current",
+                    },
+                    "remarks_by_key": {"context": "Current context"},
+                    "file_name": "current.xlsx",
+                }
+            ],
+        },
+    )
+    assert current_result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
+
+    target_result = mutation_service.apply(
+        BranchRef.dev("2.4.2"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "source.switch.existing",
+                    "source": "Target source",
+                    "translations_by_lang": {
+                        "fr": "Bonjour target",
+                        "en": "Hello target",
+                    },
+                    "remarks_by_key": {"context": "Target context"},
+                    "file_name": "target.xlsx",
+                }
+            ],
+        },
+    )
+    assert target_result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
+
+    import_root = tmp_path / "source-switch-existing"
+    write_import_workbook(
+        import_root,
+        "bundle/source-switch.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["source.switch.existing", "Target source", "Bonjour import"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+            "mark_as_candidate_release": True,
+        },
+    )
+    assert result["report_rows"][0]["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
+
+    variants = inspection.entry_variants("source.switch.existing")["variants"]
+    target_variant = next(item for item in variants if item["source"] == "Target source")
+
+    assert target_variant["translations"]["fr"] == "Bonjour import"
+    assert target_variant["translations"]["en"] == "Hello target"
+    assert target_variant["remarks"]["context"] == "Target context"
+    assert any(binding["branch_ref"] == "dev/2.4.3" for binding in target_variant["bindings"])
+
+
+def test_import_batch_source_switch_new_variant_does_not_inherit_current_fields(tmp_path) -> None:
+    reset_demo()
+    mutation_service = BranchMutationService()
+    inspection = InspectionReadService()
+
+    current_result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "source.switch.new",
+                    "source": "Current source",
+                    "translations_by_lang": {
+                        "fr": "Bonjour current",
+                        "en": "Hello current",
+                    },
+                    "remarks_by_key": {"context": "Current context"},
+                    "file_name": "current.xlsx",
+                }
+            ],
+        },
+    )
+    assert current_result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
+
+    import_root = tmp_path / "source-switch-new"
+    write_import_workbook(
+        import_root,
+        "bundle/source-switch.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["source.switch.new", "Brand new source", "Bonjour import"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+            "mark_as_candidate_release": True,
+        },
+    )
+    assert result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
+
+    variants = inspection.entry_variants("source.switch.new")["variants"]
+    new_variant = next(item for item in variants if item["source"] == "Brand new source")
+
+    assert new_variant["translations"] == {"fr": "Bonjour import"}
+    assert new_variant["remarks"] == {}
+    assert any(binding["branch_ref"] == "dev/2.4.3" for binding in new_variant["bindings"])
+
+
+def test_release_branch_rejects_import_batch_mutation() -> None:
+    sample = reset_demo()
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+
+    with pytest.raises(ValueError, match="rel/current only supports direct mutations"):
+        BranchMutationService().apply(
+            BranchRef.rel_current(),
+            {
+                "kind": "import_batch",
+                "import_batch_id": batch["import_batch_id"],
+                "mark_as_candidate_release": True,
+            },
+        )
 
 
 def test_release_hotfix_and_trash_restore_round_trip() -> None:

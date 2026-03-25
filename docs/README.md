@@ -45,4 +45,3 @@ Choose exactly one owner doc below for behavior facts. Use [runtime.md](runtime.
 ## Related
 
 - agent workflow: [../AGENTS.md](../AGENTS.md)
-- historical material: [../archive/README.md](../archive/README.md)

@@ -42,6 +42,13 @@ class FillService:
 
         candidates = self.fill_queries.list_fill_candidates(project_id, lang)
         keys_in_project, strings_by_combo = self._build_fill_indexes(candidates)
+        pivot_lookup = self.fill_queries.list_pivot_sync_statuses(
+            project_id,
+            [int(candidate["variant_id"]) for candidate in candidates],
+            lang,
+        )
+        pivot_lang = pivot_lookup["pivot_lang"]
+        pivot_statuses = pivot_lookup["statuses"]
 
         export_dir = Path(work_dir) if work_dir else root.parent / f"{root.name}_filled"
         if export_dir.exists():
@@ -62,7 +69,9 @@ class FillService:
             for sheet in workbook.worksheets:
                 headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
                 mapping = self.projects.resolve_headers(headers, project_id)
-                target_column = mapping["translation_columns"][lang]
+                target_column = mapping["translation_columns"].get(lang)
+                if target_column is None:
+                    raise ValueError(f"workbook missing required header: {lang}")
                 for row_index in range(2, sheet.max_row + 1):
                     business_key = self._cell_non_content(
                         sheet,
@@ -79,6 +88,8 @@ class FillService:
                                 "row_index": row_index,
                                 "business_key": business_key,
                                 "status": "SKIPPED_INVALID_COMBINED_KEY",
+                                "pivot_lang": pivot_lang,
+                                "pivot_sync_status": None,
                             }
                         )
                         continue
@@ -101,6 +112,10 @@ class FillService:
                                     "status": "SKIPPED_BLANK_CONTENT",
                                     "match_variant_id": candidate["variant_id"],
                                     "match_variant_state": candidate_state,
+                                    "pivot_lang": pivot_lang,
+                                    "pivot_sync_status": (
+                                        pivot_statuses.get(int(candidate["variant_id"])) if pivot_lang else None
+                                    ),
                                 }
                             )
                             continue
@@ -115,6 +130,10 @@ class FillService:
                                 "status": "FILLED",
                                 "match_variant_id": candidate["variant_id"],
                                 "match_variant_state": candidate_state,
+                                "pivot_lang": pivot_lang,
+                                "pivot_sync_status": (
+                                    pivot_statuses.get(int(candidate["variant_id"])) if pivot_lang else None
+                                ),
                             }
                         )
                         continue
@@ -127,6 +146,8 @@ class FillService:
                                 "row_index": row_index,
                                 "business_key": business_key,
                                 "status": "MISSING_KEY_IN_PROJECT",
+                                "pivot_lang": pivot_lang,
+                                "pivot_sync_status": None,
                             }
                         )
                         continue
@@ -138,6 +159,8 @@ class FillService:
                             "row_index": row_index,
                             "business_key": business_key,
                             "status": "SRC_MISMATCH",
+                            "pivot_lang": pivot_lang,
+                            "pivot_sync_status": None,
                         }
                     )
             workbook.save(out_path)
@@ -156,6 +179,8 @@ class FillService:
                     "status",
                     "match_variant_id",
                     "match_variant_state",
+                    "pivot_lang",
+                    "pivot_sync_status",
                 ]
             )
             for row in report_rows:
@@ -168,6 +193,8 @@ class FillService:
                         row.get("status"),
                         row.get("match_variant_id", ""),
                         row.get("match_variant_state", ""),
+                        row.get("pivot_lang", ""),
+                        row.get("pivot_sync_status", ""),
                     ]
                 )
 

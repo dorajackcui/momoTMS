@@ -36,7 +36,9 @@ class QaScanService:
             for sheet in workbook.worksheets:
                 headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
                 mapping = self.projects.resolve_headers(headers, project_id)
-                target_column = mapping["translation_columns"][lang]
+                target_column = mapping["translation_columns"].get(lang)
+                if target_column is None:
+                    raise ValueError(f"workbook missing required header: {lang}")
                 for row_index in range(2, sheet.max_row + 1):
                     business_key = self._cell_non_content(
                         sheet,

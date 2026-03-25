@@ -73,6 +73,14 @@
 - Fill report 至少可以增加 `pivot_lang`、`pivot_sync_status`
 - `branch_ref` 不是 pivot 模型本身的必要字段；只有当某个 workflow 明确要求“按 branch 当前 active variant 消费”时，才需要额外进入 contract
 
+## V1 Settled Decisions
+
+- `POST /api/projects` 在 V1 接受可选 `translation_pivots`，但 `/app/projects/new` 暂不暴露这组输入
+- `translation_pivots` 输入允许 sparse map；runtime 持久化和 bootstrap 暴露统一使用 full map，未声明语言默认写成 `lang -> null`
+- V1 只持久化 `variant_translation_sync_state` checkpoint，不单独落一份冗余状态枚举
+- `PIVOT_IN_SYNC` / `PIVOT_OUT_OF_SYNC` / `MISSING_CHILD` / `MISSING_PARENT` 由 child 文本、parent 文本和 checkpoint fingerprint 在读取时推导
+- Fill 报表里的 `pivot_lang` 只要当前 fill `lang` 配了 parent 就固定输出；`pivot_sync_status` 只有命中 candidate variant 时才填值，未命中时保持 `null`
+
 ## Goals
 
 - 在 project schema 中表达稳定的 `child -> parent` pivot 方向

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from app.db import get_conn, json_dumps, json_loads
 from app.services.shared.utils import now_iso
@@ -22,6 +23,8 @@ def get_jobs_dir(path: Path | str | None = None) -> Path:
 
 
 class JobService:
+    REPORT_PREVIEW_LIMIT = 12
+
     def create_job(
         self,
         job_type: str,
@@ -46,11 +49,14 @@ class JobService:
         job_id: int,
         summary: dict[str, Any],
         report_payload: dict[str, Any] | None = None,
+        report_rows: Iterable[dict[str, Any]] | None = None,
         artifact_path: str | None = None,
     ) -> None:
         report_path = None
         if report_payload is not None:
             report_path = str(self.write_report(job_id, report_payload))
+        elif report_rows is not None:
+            report_path = str(self.write_streaming_report(job_id, summary, report_rows))
         with get_conn() as conn:
             conn.execute(
                 """
@@ -71,6 +77,35 @@ class JobService:
                     job_id,
                 ),
             )
+
+    def complete_job_from_stream(
+        self,
+        job_id: int,
+        report_rows: Iterable[dict[str, Any]],
+        artifact_path: str | None = None,
+    ) -> dict[str, Any]:
+        report_path, summary = self._write_report_from_stream(job_id, report_rows)
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'success',
+                    summary_json = ?,
+                    report_path = ?,
+                    artifact_path = ?,
+                    finished_at = ?,
+                    error_message = NULL
+                WHERE job_id = ?
+                """,
+                (
+                    json_dumps(summary),
+                    str(report_path),
+                    artifact_path,
+                    now_iso(),
+                    job_id,
+                ),
+            )
+        return summary
 
     def fail_job(self, job_id: int, message: str) -> None:
         with get_conn() as conn:
@@ -124,6 +159,27 @@ class JobService:
             return {"summary": job.get("summary", {}), "rows": []}
         return json_loads(Path(report_path).read_text(encoding="utf-8"))
 
+    def get_report_preview(
+        self,
+        job_id: int,
+        project_id: int | None = None,
+        limit: int = REPORT_PREVIEW_LIMIT,
+    ) -> dict[str, Any]:
+        job = self.get_job(job_id, project_id=project_id)
+        preview_path = self.report_preview_path(job_id)
+        if preview_path.exists():
+            preview = json_loads(preview_path.read_text(encoding="utf-8"))
+            preview["rows"] = list(preview.get("rows", []))[:limit]
+            return preview
+        report_path = job.get("report_path")
+        if not report_path:
+            return {"summary": job.get("summary", {}), "rows": []}
+        payload = json_loads(Path(report_path).read_text(encoding="utf-8"))
+        return {
+            "summary": payload.get("summary", job.get("summary", {})),
+            "rows": list(payload.get("rows", []))[:limit],
+        }
+
     def job_dir(self, job_id: int) -> Path:
         return get_jobs_dir() / str(job_id)
 
@@ -132,9 +188,37 @@ class JobService:
         job_dir.mkdir(parents=True, exist_ok=True)
         return job_dir / filename
 
+    def report_preview_path(self, job_id: int) -> Path:
+        return self.artifact_path(job_id, "report_preview.json")
+
     def write_report(self, job_id: int, report_payload: dict[str, Any]) -> Path:
         report_path = self.artifact_path(job_id, "report.json")
         report_path.write_text(json_dumps(report_payload), encoding="utf-8")
+        self._write_report_preview(job_id, report_payload)
+        return report_path
+
+    def write_streaming_report(
+        self,
+        job_id: int,
+        summary: dict[str, Any],
+        report_rows: Iterable[dict[str, Any]],
+    ) -> Path:
+        report_path = self.artifact_path(job_id, "report.json")
+        preview_rows: list[dict[str, Any]] = []
+        with report_path.open("w", encoding="utf-8") as handle:
+            handle.write('{"rows":[')
+            first = True
+            for row in report_rows:
+                if len(preview_rows) < self.REPORT_PREVIEW_LIMIT:
+                    preview_rows.append(row)
+                if not first:
+                    handle.write(",")
+                handle.write(json.dumps(row, ensure_ascii=False))
+                first = False
+            handle.write('],"summary":')
+            handle.write(json.dumps(summary, ensure_ascii=False))
+            handle.write("}")
+        self._write_report_preview(job_id, {"summary": summary, "rows": preview_rows})
         return report_path
 
     def clear_storage(self) -> None:
@@ -156,3 +240,44 @@ class JobService:
             "created_at": row["created_at"],
             "finished_at": row["finished_at"],
         }
+
+    def _write_report_preview(self, job_id: int, report_payload: dict[str, Any]) -> None:
+        preview_payload = {
+            "summary": report_payload.get("summary", {}),
+            "rows": list(report_payload.get("rows", []))[: self.REPORT_PREVIEW_LIMIT],
+        }
+        self.report_preview_path(job_id).write_text(
+            json_dumps(preview_payload),
+            encoding="utf-8",
+        )
+
+    def _write_report_from_stream(
+        self,
+        job_id: int,
+        report_rows: Iterable[dict[str, Any]],
+    ) -> tuple[Path, dict[str, Any]]:
+        report_path = self.artifact_path(job_id, "report.json")
+        preview_rows: list[dict[str, Any]] = []
+        summary: dict[str, Any] = {}
+        iterator = iter(report_rows)
+        with report_path.open("w", encoding="utf-8") as handle:
+            handle.write('{"rows":[')
+            first = True
+            while True:
+                try:
+                    row = next(iterator)
+                except StopIteration as stop:
+                    if isinstance(stop.value, dict):
+                        summary = dict(stop.value.get("summary", {}))
+                    break
+                if len(preview_rows) < self.REPORT_PREVIEW_LIMIT:
+                    preview_rows.append(row)
+                if not first:
+                    handle.write(",")
+                handle.write(json.dumps(row, ensure_ascii=False))
+                first = False
+            handle.write('],"summary":')
+            handle.write(json.dumps(summary, ensure_ascii=False))
+            handle.write("}")
+        self._write_report_preview(job_id, {"summary": summary, "rows": preview_rows})
+        return report_path, summary

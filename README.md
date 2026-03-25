@@ -6,9 +6,19 @@ Momo TMS is a FastAPI + SQLite localization workflow prototype for project-defin
 
 Backend:
 
+macOS or Linux:
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
+python -m pip install -e '.[dev]'
+```
+
+Windows PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e '.[dev]'
 ```
 
@@ -20,9 +30,19 @@ npm install
 
 Build the product app and start the backend:
 
+macOS or Linux:
+
 ```bash
 npm run build:app
 . .venv/bin/activate
+uvicorn app.main:app --reload
+```
+
+Windows PowerShell:
+
+```powershell
+npm run build:app
+.\.venv\Scripts\Activate.ps1
 uvicorn app.main:app --reload
 ```
 
@@ -49,4 +69,4 @@ If you want fresh demo data, call `POST /api/demo/reset`.
 - Workflow and Excel rules: [docs/workflows.md](docs/workflows.md)
 - User-facing product guide: [docs/user-guide.md](docs/user-guide.md)
 - Agent instructions: [AGENTS.md](AGENTS.md)
-- Archived legacy material: [archive/README.md](archive/README.md)
+

@@ -5,10 +5,19 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import FileResponse
 
-from app.routers.common import handle_errors, parse_column_mapping_json, read_folder_upload
-from app.schemas import ImportBatchSummary, ImportDirectoryRequest, ImportUploadPreview, JobDetail, JobSummary, ReportPayload
+from app.routers.common import handle_errors, parse_column_mapping_json
+from app.schemas import (
+    ImportBatchSummary,
+    ImportDirectoryRequest,
+    ImportUploadPreview,
+    ImportUploadSessionRequest,
+    JobDetail,
+    JobSummary,
+    ReportPayload,
+)
 from app.services.imports.service import ImportService
 from app.services.shared.jobs import JobService
+from app.services.shared.uploads import UploadSessionService
 from app.services.workflows.application import WorkflowApplicationService
 
 router = APIRouter()
@@ -24,16 +33,14 @@ def project_import_directory(project_id: int, payload: ImportDirectoryRequest) -
 @router.post("/api/projects/{project_id}/imports/upload-folder", response_model=JobDetail)
 def project_import_upload_folder(
     project_id: int,
-    files: list[UploadFile] = File(...),
-    relative_paths: list[str] = Form(...),
-    column_mapping_json: str | None = Form(default=None),
+    payload: ImportUploadSessionRequest,
 ) -> JobDetail:
     return handle_errors(
         lambda: JobDetail(
-            **WorkflowApplicationService().import_uploaded_folder(
-                read_folder_upload(files, relative_paths),
+            **WorkflowApplicationService().import_uploaded_session(
+                payload.upload_session_id,
                 project_id=project_id,
-                mapping_overrides=parse_column_mapping_json(column_mapping_json),
+                mapping_overrides=parse_column_mapping_json(payload.column_mapping_json),
             )
         )
     )
@@ -45,14 +52,22 @@ def project_import_upload_folder_preview(
     files: list[UploadFile] = File(...),
     relative_paths: list[str] = Form(...),
 ) -> ImportUploadPreview:
-    return handle_errors(
-        lambda: ImportUploadPreview(
-            **WorkflowApplicationService().preview_import_uploaded_folder(
-                read_folder_upload(files, relative_paths),
-                project_id=project_id,
+    def run() -> ImportUploadPreview:
+        upload_sessions = UploadSessionService()
+        session = upload_sessions.create_session(files, relative_paths, project_id)
+        try:
+            return ImportUploadPreview(
+                **WorkflowApplicationService().preview_import_staged_folder(
+                    str(upload_sessions.session_input_dir(session["upload_session_id"])),
+                    session["upload_session_id"],
+                    project_id=project_id,
+                )
             )
-        )
-    )
+        except Exception:
+            upload_sessions.discard_session(session["upload_session_id"])
+            raise
+
+    return handle_errors(run)
 
 
 @router.get("/api/projects/{project_id}/imports", response_model=list[ImportBatchSummary])

@@ -3,11 +3,16 @@ from __future__ import annotations
 import sqlite3
 
 from app.db import get_conn
+from app.services.project.service import ProjectService
 from app.services.shared.io import normalize_content_value, normalize_non_content_value
+from app.services.variant.pivot import derive_pivot_sync_status
 from app.services.variant.records import FillCandidateRecord
 
 
 class FillQueryService:
+    def __init__(self, projects: ProjectService | None = None) -> None:
+        self.projects = projects or ProjectService()
+
     def list_fill_candidates(
         self,
         project_id: int,
@@ -54,3 +59,51 @@ class FillQueryService:
             }
             for row in rows
         ]
+
+    def list_pivot_sync_statuses(
+        self,
+        project_id: int,
+        variant_ids: list[int],
+        lang: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, object]:
+        schema = self.projects.get_schema(project_id)
+        pivot_lang = schema["translation_pivots"].get(lang)
+        if not pivot_lang or not variant_ids:
+            return {"pivot_lang": pivot_lang, "statuses": {}}
+        placeholders = ", ".join("?" for _ in variant_ids)
+        query = f"""
+            SELECT
+                v.variant_id,
+                child.target_text AS child_text,
+                parent.target_text AS parent_text,
+                sync.pivot_fingerprint_at_sync
+            FROM variants v
+            JOIN entries e ON e.entry_id = v.entry_id
+            LEFT JOIN variant_translations child
+                ON child.variant_id = v.variant_id
+               AND child.lang = ?
+            LEFT JOIN variant_translations parent
+                ON parent.variant_id = v.variant_id
+               AND parent.lang = ?
+            LEFT JOIN variant_translation_sync_state sync
+                ON sync.variant_id = v.variant_id
+               AND sync.lang = ?
+            WHERE e.project_id = ?
+              AND v.variant_id IN ({placeholders})
+        """
+        params = [lang, pivot_lang, lang, project_id, *variant_ids]
+        if conn is not None:
+            rows = conn.execute(query, params).fetchall()
+        else:
+            with get_conn() as local_conn:
+                rows = local_conn.execute(query, params).fetchall()
+        statuses = {
+            int(row["variant_id"]): derive_pivot_sync_status(
+                child_text=normalize_content_value(row["child_text"]),
+                parent_text=normalize_content_value(row["parent_text"]),
+                pivot_fingerprint_at_sync=row["pivot_fingerprint_at_sync"],
+            )
+            for row in rows
+        }
+        return {"pivot_lang": pivot_lang, "statuses": statuses}

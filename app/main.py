@@ -16,6 +16,7 @@ from app.routers import (
     workflows_router,
 )
 from app.services.demo.service import DemoService
+from app.services.shared.background_jobs import shutdown_background_jobs
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
@@ -26,6 +27,7 @@ async def lifespan(_: FastAPI):
     init_db()
     DemoService().ensure_sample_files()
     yield
+    shutdown_background_jobs(wait=True)
 
 
 app = FastAPI(title="Momo TMS", version="0.2.0", lifespan=lifespan)

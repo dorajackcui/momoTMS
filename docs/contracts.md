@@ -76,6 +76,31 @@ Usage rules:
 - `/app` should bootstrap and refresh from project-scoped APIs only
 - frontend code should treat this payload as product state, not as a compatibility-shaped state blob
 - project schema is fixed after project creation; bootstrap describes the current schema but does not imply schema-edit support
+- `schema.translation_pivots` is included as a full `lang -> pivot_lang | null` map; omitted pivot config is normalized to `null` per language
+
+## Request And Report Shapes
+
+`POST /api/projects`
+
+- request body accepts `name`, `translation_columns`, `remark_columns`, and optional `translation_pivots`
+- `translation_pivots` may be sparse on input; the backend validates it against `translation_columns` and persists a full map
+- response remains `ProjectSummary`; schema details still come from bootstrap
+
+Fill jobs:
+
+- fill requests still use `source_dir`, `lang`, and optional `output_name`
+- fill does not add `branch_ref` for pivot V1
+- fill report rows may include `pivot_lang` and `pivot_sync_status`
+- `pivot_sync_status` is only set when fill matched a candidate variant and the selected target language has a configured pivot parent
+
+Import upload and job detail:
+
+- `POST /api/projects/{project_id}/imports/upload-folder/preview` accepts multipart workbook uploads and returns `upload_session_id`, project `schema`, and sheet preview data
+- import preview still returns `available_headers`, `suggested_mapping`, and `missing_targets`, but `missing_targets` only tracks required business fields such as `business_key` and `source`
+- `POST /api/projects/{project_id}/imports/upload-folder` now accepts JSON with `upload_session_id` and optional `column_mapping_json`; it does not re-upload the workbook payload
+- long-running import actions return `JobDetail` immediately with a running job and require polling `GET /api/projects/{project_id}/jobs/{job_id}`
+- `GET /api/projects/{project_id}/jobs/{job_id}` returns a report preview only; callers should use the workflow-specific full report route when they need all rows
+- import jobs publish the full persisted row report through `GET /api/projects/{project_id}/imports/{import_batch_id}/report`
 
 ## Frontend And Backend Contract
 
@@ -83,12 +108,18 @@ The product app depends on:
 
 - project-scoped bootstrap data from `GET /api/projects/{project_id}/state`
 - paginated compare and queue APIs
-- import preview data with `available_headers`, `suggested_mapping`, and `missing_targets`
+- import preview data with `upload_session_id`, `available_headers`, `suggested_mapping`, and `missing_targets`
 - job detail, report, and artifact APIs
 - canonical entry-variant and orphan inspection APIs
 - project-scoped branch mutation and sync routes plus fill and QA routes
 
 The product app stores the selected project id locally, clears it when no projects exist, and refreshes branch state from project-scoped APIs only.
+
+Import UI contract:
+
+- import preview uploads the workbook set once, stores the returned `upload_session_id`, and reuses that session id for confirm
+- import mapping requires `business_key` and `source`
+- translation and remark mappings are optional; unmapped fields stay unchanged during import apply
 
 ## HTTP Routes
 
@@ -144,6 +175,12 @@ Workflow actions:
 - `POST /api/projects/{project_id}/fill/upload-folder`
 - `POST /api/projects/{project_id}/qa`
 - `POST /api/projects/{project_id}/qa/upload-folder`
+
+Long-running action contract:
+
+- `POST /api/projects/{project_id}/imports/directory` starts an async job and returns `JobDetail`
+- `POST /api/projects/{project_id}/imports/upload-folder` starts an async job and returns `JobDetail`
+- `POST /api/projects/{project_id}/branches/mutations` returns an async `JobDetail` when `input.kind == "import_batch"`; direct mutations remain request-scoped
 
 ## Error Semantics
 

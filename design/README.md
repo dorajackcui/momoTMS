@@ -14,14 +14,9 @@
 
 ## File Map
 
-- [design-process.md](design-process.md): recommended design steps and the content to produce at each step
-- [current-state-review.md](current-state-review.md): review of the current repo's design strengths, risks, and suggested priorities
-- [design-inventory.md](design-inventory.md): checklist and matrix of what is already designed and what still needs to be filled in
 - [pivot-language-design.md](pivot-language-design.md): pivot topology, async drift model, and Fill-facing design for dependent translation languages
 
 ## Suggested Workflow
 
-1. Read [current-state-review.md](current-state-review.md) to understand the current design baseline.
-2. Use [design-process.md](design-process.md) to frame the next change before coding.
-3. Update [design-inventory.md](design-inventory.md) when a design area becomes clearer or a new gap appears.
-4. When a decision becomes long-lived and cross-cutting, capture it as a dedicated design note or ADR under `design/`.
+
+1. When a decision becomes long-lived and cross-cutting, capture it as a dedicated design note or ADR under `design/`.

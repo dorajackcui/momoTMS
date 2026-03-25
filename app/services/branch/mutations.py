@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generator
 
 from app.db import get_conn
 from app.services.branch.direct_mutation import DirectMutationApplier
@@ -78,3 +78,35 @@ class BranchMutationService:
                 conn=conn,
                 version_series=(dev_branch or {}).get("version_series"),
             )
+
+    def apply_streaming(
+        self,
+        branch_ref: BranchRef,
+        input_payload: dict[str, Any],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> Generator[dict[str, Any], None, dict[str, Any]]:
+        self.projects.require_project(project_id)
+        policy = BranchMutationPolicy.for_branch(branch_ref)
+        input_kind = str(input_payload["kind"])
+        policy.validate_input_kind(input_kind)
+        if input_kind != "import_batch":
+            raise ValueError(f"streaming mutation is only supported for import_batch: {input_kind}")
+        with get_conn() as conn:
+            dev_branch = None
+            if branch_ref.is_dev:
+                mark_as_candidate = input_payload.get("mark_as_candidate_release")
+                dev_branch = self.branch_registry.ensure_dev_branch(
+                    branch_ref.branch_value,
+                    mark_as_candidate,
+                    project_id,
+                    conn=conn,
+                )
+            result = yield from self.import_batch.iter_apply(
+                branch_ref,
+                int(input_payload["import_batch_id"]),
+                bool(input_payload.get("mark_as_candidate_release", True)),
+                project_id,
+                conn=conn,
+                version_series=(dev_branch or {}).get("version_series"),
+            )
+            return result
