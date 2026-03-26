@@ -1,5 +1,12 @@
 # Frontend Redesign For Current APIs
 
+## Status
+
+- this note is the earlier six-surface IA baseline
+- the proposed merge of `Variants` into `Overview` is tracked separately in [overview-variant-workspace-redesign.md](overview-variant-workspace-redesign.md)
+- if that proposal is accepted, the `Overview`, `Variants`, nav, and default-flow sections in this note should be treated as superseded
+- the backend now ships `GET /api/projects/{project_id}/variants` for project-scoped `active + orphan` workspace rows, so any older gap analysis below should be read as historical context unless updated
+
 ## Purpose
 
 - redesign the `/app` product UI around the current project-scoped APIs only
@@ -24,6 +31,7 @@
 The current backend already supports:
 
 - project list and project bootstrap
+- a paginated project-scoped variants workspace query for `active + orphan` rows
 - branch summary, branch compare, branch queue, and master lookup
 - dev branch detail
 - import preview, import apply, jobs, reports, and artifacts
@@ -32,10 +40,9 @@ The current backend already supports:
 
 The current backend does **not** provide:
 
-- one paginated project-wide flat variant query endpoint
 - one direct `rel/current` detail endpoint equivalent to `GET /branches/dev/{version}`
 - one dedicated trashed-variant list endpoint
-- one unified search endpoint across all variants, branches, and lifecycle states
+- one unified all-state search endpoint across active, orphan, and trashed variants
 - undo or cancel semantics for executed jobs
 
 These limits matter. The redesign should lean into branch-scoped active views, drill-down inspection, and job-backed actions instead of pretending we already have a global variant explorer API.

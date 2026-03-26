@@ -50,7 +50,7 @@ Current SPA routes:
 
 ## Route Policy
 
-- the runtime is project-scoped and branch-centric
+- the runtime is project-scoped, with branch-centric workflow reads plus a project-wide variants workspace query
 - `/app` should call project-scoped APIs only
 - `GET /workbench` and `GET /variant-workbench` stay removed and return `410 Gone`
 - `/app` may use inspection APIs for read-only debugging, but it should not depend on removed compatibility routes
@@ -75,7 +75,7 @@ Usage rules:
 
 - `/app` should bootstrap and refresh project shell state from project-scoped APIs only
 - frontend code should treat this payload as project shell state, not as a page-by-page compatibility blob
-- detailed page data should come from dedicated project-scoped queries such as branch detail, compare, queue, imports, jobs, and entry-variant inspection routes
+- detailed page data should come from dedicated project-scoped queries such as the variants workspace query, branch detail, compare, queue, imports, jobs, and entry-variant inspection routes
 - project schema is fixed after project creation; bootstrap describes the current schema but does not imply schema-edit support
 - `schema.translation_pivots` is included as a full `lang -> pivot_lang | null` map; omitted pivot config is normalized to `null` per language
 
@@ -94,6 +94,13 @@ Fill jobs:
 - fill report rows may include `pivot_lang` and `pivot_sync_status`
 - `pivot_sync_status` is only set when fill matched a candidate variant and the selected target language has a configured pivot parent
 
+Variants workspace query:
+
+- `GET /api/projects/{project_id}/variants` accepts `state`, repeated `branch_ref`, `search_business_key`, `search_source`, `page`, and optional `page_size`
+- `state` supports `active`, `orphan`, and `all`; V1 `all` means `active + orphan` only and still excludes `trashed`
+- branch filtering matches variants that currently bind at least one requested branch; orphan rows therefore do not match a branch filter
+- row payloads include `variant_id`, `entry_id`, `business_key`, `file_name`, `source`, hydrated translations or remarks, `bindings`, `state`, `orphaned_at`, `created_at`, and `updated_at`
+
 Import upload and job detail:
 
 - `POST /api/projects/{project_id}/imports/upload-folder/preview` accepts multipart workbook uploads and returns `upload_session_id`, project `schema`, and sheet preview data
@@ -108,7 +115,8 @@ Import upload and job detail:
 The product app depends on:
 
 - project list plus project-scoped bootstrap data from `GET /api/projects` and `GET /api/projects/{project_id}/state`
-- branch summary plus `GET /api/projects/{project_id}/branches/dev/{version}` for the main dev-branch spreadsheet surface
+- the project-scoped variants workspace query for `Overview` and orphan browsing
+- branch summary plus branch detail, compare, and queue APIs for branch-oriented operations
 - paginated compare and queue APIs for branch operations and release-summary sampling
 - import preview data with `upload_session_id`, `available_headers`, `suggested_mapping`, and `missing_targets`
 - import-batch list and report APIs
@@ -117,6 +125,8 @@ The product app depends on:
 - project-scoped branch mutation and sync routes plus fill and QA routes
 
 The product app uses URL state as the primary workspace contract for `project`, `lang`, `branch`, `tab`, `job`, and `business_key`. It may store the selected project id locally only as a fallback when the URL does not provide one, clears that fallback when no projects exist, and refreshes page state from project-scoped APIs only.
+
+`/app/overview` may intentionally omit `branch` to represent the project-wide variants workspace. Selecting `All branches` on Overview clears the canonical `branch` URL param instead of forcing a fallback branch value.
 
 Invalid or stale `project`, `lang`, or `branch` URL params are normalized to the nearest valid project-scoped workspace context before branch-scoped page queries run. The Apply page keeps its write target branch as local form state instead of treating it as the canonical URL branch.
 
@@ -164,6 +174,7 @@ Branch read models:
 
 Inspection reads:
 
+- `GET /api/projects/{project_id}/variants`
 - `GET /api/projects/{project_id}/entries/{business_key}/variants`
 - `GET /api/projects/{project_id}/orphan-variants`
 

@@ -28,6 +28,12 @@ Frontend dependencies:
 npm install
 ```
 
+Repo-local Playwright browsers:
+
+```bash
+npm run test:e2e:install
+```
+
 Build the product app and start the backend:
 
 macOS or Linux:
@@ -54,6 +60,24 @@ Useful URLs:
 
 If you want fresh demo data, call `POST /api/demo/reset`.
 
+## Testing
+
+See [docs/testing.md](docs/testing.md) for the full verification matrix, isolated runtime behavior, and docs checks.
+
+Backend regression:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Frontend E2E:
+
+```powershell
+npm run test:e2e
+```
+
+`npm run test:e2e` uses repo-local browsers from `.playwright` and starts an isolated backend automatically unless `PLAYWRIGHT_BASE_URL` is set for attach-mode debugging.
+
 ## Basic Workflow
 
 1. Create a project and define translation and remark columns.
@@ -63,10 +87,10 @@ If you want fresh demo data, call `POST /api/demo/reset`.
 ## Documentation
 
 - Start here: [docs/README.md](docs/README.md)
-- Runtime and validation: [docs/runtime.md](docs/runtime.md)
+- Runtime setup and reset: [docs/runtime.md](docs/runtime.md)
+- Testing and verification: [docs/testing.md](docs/testing.md)
 - System model and invariants: [docs/system.md](docs/system.md)
 - Routes and payload contracts: [docs/contracts.md](docs/contracts.md)
 - Workflow and Excel rules: [docs/workflows.md](docs/workflows.md)
 - User-facing product guide: [docs/user-guide.md](docs/user-guide.md)
 - Agent instructions: [AGENTS.md](AGENTS.md)
-

@@ -228,6 +228,28 @@ class MasterSearchResponse(BaseModel):
     results: list[MasterQueryRow] = Field(default_factory=list)
 
 
+class ProjectVariantRow(BaseModel):
+    variant_id: int
+    entry_id: int
+    business_key: str
+    file_name: str | None = None
+    source: str
+    translations: dict[str, str | None] = Field(default_factory=dict)
+    remarks: dict[str, str | None] = Field(default_factory=dict)
+    bindings: list[BindingSummary] = Field(default_factory=list)
+    state: Literal["active", "orphan"]
+    orphaned_at: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class ProjectVariantsResponse(BaseModel):
+    rows: list[ProjectVariantRow] = Field(default_factory=list)
+    total_rows: int = 0
+    page: int = 1
+    page_size: int = 0
+
+
 class EntryVariantInspection(BaseModel):
     variant_id: int
     file_name: str | None = None

@@ -2,14 +2,13 @@
 
 ## Purpose
 
-- own install, run, env override, reset, validation, and local runtime guidance
+- own install, run, env override, reset, and local runtime guidance
 
 ## Read This When
 
 - you need to boot the app locally
-- you are changing runtime paths, reset behavior, or validation commands
-- you need to know which checks to run for a task
-- you selected another owner doc and still need the right validation commands or docs checks
+- you are changing runtime paths, env vars, startup behavior, or demo reset behavior
+- you need the canonical local runtime locations
 
 ## Owns
 
@@ -17,18 +16,18 @@
 - build and run commands
 - runtime paths and env overrides
 - demo reset behavior
-- validation commands and docs validation
-- test isolation expectations
+- local runtime notes for `/app`
 
 ## Does Not Own
 
+- automated verification commands or docs checks
 - domain model or lifecycle semantics
 - HTTP route inventory or payload shape
 - import, mutation, fill, QA, or Excel rules
 
 ## Update When
 
-- setup commands, env vars, runtime paths, reset behavior, or validation commands change
+- setup commands, env vars, runtime paths, startup behavior, or reset behavior change
 
 ## Runtime Paths
 
@@ -76,6 +75,12 @@ Frontend dependencies:
 npm install
 ```
 
+Repo-local Playwright browsers:
+
+```bash
+npm run test:e2e:install
+```
+
 ## Run
 
 Build the product app after frontend changes:
@@ -114,120 +119,3 @@ Useful URLs:
 - `POST /api/demo/reset` clears jobs, deletes the local DB, rebuilds the schema, regenerates demo sample files, reseeds the default demo project, and returns the product bootstrap for project `1`
 - prefer demo reset or isolated runtime paths over adding compatibility-only startup migration logic
 - old local databases are not preserved for design compatibility by default; when local data no longer matches the current runtime model, reset or reseed instead of adding fallback behavior unless migration work is explicitly required
-
-## Test Isolation
-
-- `tests/conftest.py` overrides DB, jobs, and demo paths for each pytest run using a temporary runtime root
-- `tests/e2e/product-app-empty.spec.js` also spawns an isolated runtime by setting the same env vars before starting `uvicorn`
-- if a test or script depends on a writable runtime, prefer those env vars instead of hard-coding `data/` paths
-
-## Validation Commands
-
-All commands assume the repo root is the current working directory.
-
-Backend regression suite:
-
-macOS or Linux:
-
-```bash
-.venv/bin/python -m pytest -q
-```
-
-Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-API and routing regression:
-
-macOS or Linux:
-
-```bash
-.venv/bin/python -m pytest -q tests/test_variant_api.py tests/test_services_architecture.py
-```
-
-Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_variant_api.py tests/test_services_architecture.py
-```
-
-Branch workflow regression:
-
-macOS or Linux:
-
-```bash
-.venv/bin/python -m pytest -q tests/test_branch_service.py tests/test_io_flows.py
-```
-
-Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_branch_service.py tests/test_io_flows.py
-```
-
-Frontend build:
-
-```bash
-npm run build:app
-```
-
-Docs regression:
-
-macOS or Linux:
-
-```bash
-.venv/bin/python scripts/validate_docs.py
-```
-
-Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\validate_docs.py
-```
-
-Docs validator coverage:
-
-- scans repo-root Markdown plus all Markdown under `docs/`
-- auto-checks local Markdown links, repo-relative file and directory references in code spans and fenced command examples, documented npm scripts, referenced test files, and the route inventory in `docs/contracts.md`
-- does not prove wording, owner-doc selection, or behavior claims; manually verify those against current code and [docs/README.md](README.md)
-
-End-to-end:
-
-Terminal 1, macOS or Linux:
-
-```bash
-. .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Terminal 1, Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Terminal 2, macOS or Linux:
-
-```bash
-PLAYWRIGHT_BROWSERS_PATH=.playwright npm run test:e2e
-```
-
-Terminal 2, Windows PowerShell:
-
-```powershell
-$env:PLAYWRIGHT_BROWSERS_PATH = ".playwright"
-npm run test:e2e
-```
-
-## Change-Type Guidance
-
-Use this section after selecting the owner doc from [docs/README.md](README.md); the other owner docs do not repeat validation commands.
-
-- backend or domain changes: run `python -m pytest -q`
-- API or routing changes: run `tests/test_variant_api.py` and `tests/test_services_architecture.py`
-- branch workflow changes: run `tests/test_branch_service.py` and `tests/test_io_flows.py`
-- frontend `/app` changes: run `npm run build:app`, then E2E when user-visible flows changed
-- docs-only changes: run `.venv/bin/python scripts/validate_docs.py` on macOS or Linux, or `.\.venv\Scripts\python.exe scripts\validate_docs.py` on Windows PowerShell, to catch local links, repo paths, npm scripts, test refs, and active contract routes, then manually verify wording, ownership, and behavior claims the validator cannot prove

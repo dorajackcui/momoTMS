@@ -37,7 +37,7 @@
 
 - `/app` is the only operator-facing product surface
 - `GET /workbench` and `GET /variant-workbench` stay removed and return `410 Gone`
-- runtime APIs are project-scoped and branch-oriented
+- runtime APIs are project-scoped, with branch-oriented workflows plus project-wide variant workspace reads
 - `GET /api/projects/{project_id}/state` is the bootstrap contract for `/app`
 - public branch writes go through `/branches/mutations` and `/branches/replace/*`
 - trash and restore stay under `/variants/trash/*`
@@ -81,8 +81,9 @@
 
 `Read Models`
 
-- product-facing projections built from active bindings
-- branch summary, branch compare, translation queue, and master query are projection-based rather than table-shaped
+- product-facing projections include both active-binding branch projections and project-wide variant workspace reads
+- branch summary, branch compare, translation queue, and master query stay projection-based rather than table-shaped
+- the variants workspace query returns one row per live non-trashed variant and can include both `active` and `orphan` lifecycle states
 
 ## Shared Mental Model
 
@@ -108,7 +109,7 @@ Live states:
 - `orphan`: no active binding but still reusable for future same-source hits
 - `trashed`: explicitly deleted from normal runtime usage
 
-Default product reads use active variants only. Orphan and trashed variants are excluded from normal overview, compare, queue, master query, and QA flows. `fill` is the main exception: it matches against the project's full variant history, preferring non-trashed same-source variants and only falling back to trashed history when no live same-source candidate remains.
+Most product reads still use active variants only. Compare, queue, master query, and QA remain active-binding views. The variants workspace query is the main project-scoped exception on the read side: it may include both `active` and `orphan` variants, while still excluding `trashed` variants in V1. `fill` remains the history-heavy exception: it matches against the project's full variant history, preferring non-trashed same-source variants and only falling back to trashed history when no live same-source candidate remains.
 
 ## Package Map
 
@@ -119,7 +120,7 @@ HTTP routers:
 - `imports_jobs.py`: project-scoped import batch APIs, jobs, reports, and artifacts
 - `scopes_read_models.py`: project-scoped branch summary, compare, queue, and master query
 - `workflows.py`: project-scoped branch mutation, sync, trash, restore, fill, and QA
-- `inspection.py`: read-only canonical variant and orphan inspection
+- `inspection.py`: read-only project-wide variants workspace plus canonical variant and orphan inspection
 
 Domain services:
 
@@ -127,7 +128,7 @@ Domain services:
 - `app/services/imports/`: import batch parsing and persistence
 - `app/services/branch/`: scope refs and policy live with branch write or replace orchestration; `registry.py` owns dev branch metadata and release summary, `details.py` owns branch entry hydration, `replace.py` owns branch replace execution, and `mutations.py` coordinates branch-scoped writes
 - `app/services/variant/`: pure variant-domain package only. `entries.py` owns entry access, `store.py` plus `repositories.py` own canonical same-source persistence, `catalog.py` owns variant content rules, `pivot.py` owns variant-level pivot checkpoint coordination, `bindings.py` owns raw binding commands and lookups, `state_coordinator.py` composes binding writes with orphan refresh, and `lifecycle.py` owns orphan or trash state transitions. Operator-facing inspection, hydration, and workflow orchestration are not part of this package.
-- `app/services/read_models/`: the only operator-facing read side. `summary.py`, `compare.py`, `queue.py`, and `master.py` expose use-case-specific read services; `hydration.py` and `inspection.py` own row hydration and historical inspection reads; `queries.py` owns lightweight projection queries
+- `app/services/read_models/`: the only operator-facing read side. `summary.py`, `compare.py`, `queue.py`, `master.py`, and `variants.py` expose use-case-specific read services; `hydration.py` and `inspection.py` own row hydration and historical inspection reads; `queries.py` owns lightweight projection queries
 - `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, `fill_queries.py` owns fill-specific candidate reads, and `trash_restore.py`, `fill.py`, and `qa.py` execute workflow behavior
 - `app/services/shared/`: IO helpers, job storage, and utility helpers
 - `app/services/demo/`: demo seeding and sample workbook generation

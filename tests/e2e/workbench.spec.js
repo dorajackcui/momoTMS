@@ -1,4 +1,4 @@
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./test");
 
 test("workbench endpoint is gone in p1", async ({ request }) => {
   const response = await request.get("/workbench");

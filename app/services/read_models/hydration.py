@@ -79,3 +79,11 @@ class EntryVariantViewAssembler:
             "created_at": variant["created_at"],
             "updated_at": variant["updated_at"],
         }
+
+
+class ProjectVariantRowAssembler:
+    def __init__(self) -> None:
+        self._entry_variant_assembler = EntryVariantViewAssembler()
+
+    def binding_summary(self, binding: BindingRecord) -> BindingSummary:
+        return self._entry_variant_assembler.binding_summary(binding)

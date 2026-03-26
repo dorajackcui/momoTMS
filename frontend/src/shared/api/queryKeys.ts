@@ -23,6 +23,8 @@ export const queryKeys = {
   jobs: (projectId: number) => ["jobs", projectId] as const,
   jobDetail: (projectId: number, jobId: number) =>
     ["job-detail", projectId, jobId] as const,
+  projectVariants: (projectId: number, params: Record<string, unknown>) =>
+    ["project-variants", projectId, params] as const,
   entryVariants: (projectId: number, businessKey: string) =>
     ["entry-variants", projectId, businessKey] as const,
   orphanVariants: (projectId: number) => ["orphan-variants", projectId] as const,
@@ -50,6 +52,7 @@ export async function invalidateProjectScope(
       queryKey: queryKeys.imports(projectId),
     }),
     queryClient.invalidateQueries({ queryKey: queryKeys.jobs(projectId) }),
+    queryClient.invalidateQueries({ queryKey: ["project-variants", projectId] }),
     queryClient.invalidateQueries({
       queryKey: queryKeys.orphanVariants(projectId),
     }),

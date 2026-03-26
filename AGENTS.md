@@ -2,18 +2,32 @@
 
 Use this file as the repo-level default for Codex and other coding agents.
 
-## Start Here
+## Session Entry
 
-- Read [docs/README.md](docs/README.md) for the active documentation map and owner-doc routing.
-- Read [docs/runtime.md](docs/runtime.md) for validation commands and docs checks.
-- Read the single owner doc matched by the task routing below.
+Every session starts from this file.
+
+- Read [docs/README.md](docs/README.md) for the active doc map, companion docs, and owner-doc routing.
+- Read [docs/system.md](docs/system.md) for the shared project context, vocabulary, runtime boundaries, and invariants.
+- Read [docs/testing.md](docs/testing.md) for verification strategy, test isolation, docs checks, and change-type guidance.
+- Read exactly one behavior owner doc chosen from [docs/README.md](docs/README.md).
+- Read [docs/runtime.md](docs/runtime.md) when the task touches setup, run, env, reset, or local runtime paths.
 - Read [code_review.md](code_review.md) before finalizing a change.
 
 ## Scope Of This File
 
-- `AGENTS.md` owns agent workflow, doc routing, closeout rules, and non-negotiable guardrails.
-- Active runtime facts live in the six files under `docs/`.
+- `AGENTS.md` owns the session-entry flow, repo-wide guardrails, documentation workflow, and closeout rules.
+- Active runtime facts live under `docs/`.
 - Historical material lives under `archive/`.
+
+## Documentation Sources Of Truth
+
+- [docs/README.md](docs/README.md): active doc map and owner-doc routing
+- [docs/system.md](docs/system.md): shared project context, mental model, and invariants
+- [docs/testing.md](docs/testing.md): tests, validation commands, docs checks, and verification expectations
+- [docs/runtime.md](docs/runtime.md): install, run, env overrides, reset behavior, and local runtime paths
+- [docs/contracts.md](docs/contracts.md): page routes, API inventory, bootstrap contract, and error semantics
+- [docs/workflows.md](docs/workflows.md): import, mutation, sync, trash, restore, fill, QA, and normalization rules
+- [docs/user-guide.md](docs/user-guide.md): operator-facing product introduction, glossary, and common usage flow
 
 ## Windows PowerShell Encoding
 
@@ -28,15 +42,15 @@ Use this file as the repo-level default for Codex and other coding agents.
 - Treat files under `archive/` as preserved history only.
 - When archive content conflicts with active docs or code, prefer current code and update the active docs.
 
-## Repo Map
+## Repo Snapshot
 
-- `app/`: FastAPI app, routers, services, DB bootstrap, static assets
-- `frontend/`: React + TypeScript source for `/app`
-- `docs/`: active human-facing documentation
-- `archive/`: legacy plans, reviews, and implemented historical material
-- `tests/`: backend and Playwright coverage
+- `app/`: FastAPI app, routers, services, DB bootstrap, and static assets
+- `frontend/`: React + TypeScript product app for `/app`
+- `tests/`: pytest and Playwright coverage
+- `docs/`: active documentation set
+- `archive/`: historical plans, reviews, and implemented history
 
-## Runtime Guardrails
+## Non-Negotiable Runtime Guardrails
 
 - `/app` is the only operator-facing product surface.
 - `GET /workbench` and `GET /variant-workbench` must stay `410 Gone`.
@@ -49,39 +63,20 @@ Use this file as the repo-level default for Codex and other coding agents.
 - Default to the best current-runtime design. Do not preserve legacy design, legacy routes, legacy UX flows, or old-data semantics unless the task explicitly requires migration or compatibility work.
 - Old local databases are not a design-compatibility target by default. Prefer reset or reseed over adding compatibility shims, fallback branches, or dual-model behavior unless migration work is explicitly required.
 
-## Active Docs
+## Documentation Workflow
 
-- [docs/README.md](docs/README.md): index only; use it to choose the owner doc quickly.
-- [docs/runtime.md](docs/runtime.md): install, run, env overrides, reset behavior, validation commands, and docs checks.
-- [docs/system.md](docs/system.md): terminology, core model, runtime boundaries, package responsibilities, DB tables, and system-level invariants.
-- [docs/contracts.md](docs/contracts.md): page routes, API inventory, bootstrap contract, frontend or backend contract, and error semantics.
-- [docs/workflows.md](docs/workflows.md): import, mutation, sync, trash, restore, fill, QA, Excel, and normalization rules.
-- [docs/user-guide.md](docs/user-guide.md): user-facing project introduction, branch and variant concepts, and common product operations.
-
-## Task Routing
-
-Choose one owner doc below for behavior facts. Use [docs/runtime.md](docs/runtime.md) separately for validation commands and docs checks.
-
-- setup, run, env, reset, validation, or local runtime paths: owner doc is [docs/runtime.md](docs/runtime.md)
-- backend architecture, domain model, package boundaries, lifecycle rules, or DB shape: owner doc is [docs/system.md](docs/system.md); validation still comes from [docs/runtime.md](docs/runtime.md)
-- API, router, bootstrap, SPA route, page contract, or error behavior changes: owner doc is [docs/contracts.md](docs/contracts.md); validation still comes from [docs/runtime.md](docs/runtime.md)
-- import, mutation, sync, trash, restore, fill, QA, Excel, or normalization changes: owner doc is [docs/workflows.md](docs/workflows.md); validation still comes from [docs/runtime.md](docs/runtime.md)
-- user-facing introduction, product glossary, or operator guidance changes: owner doc is [docs/user-guide.md](docs/user-guide.md); validation still comes from [docs/runtime.md](docs/runtime.md)
-- docs-only work: read [docs/README.md](docs/README.md), choose the owner doc above, update that doc instead of copying the same fact elsewhere, and use [docs/runtime.md](docs/runtime.md) for docs checks
-
-## Documentation Loop
-
-1. Identify the single owner doc for the task.
-2. Update the owner doc in the same change as the code or behavior update.
-3. Update [docs/README.md](docs/README.md) only when the active doc map or routing changes.
-4. Update `README.md` only when quick start, onboarding, or public entrypoints changed.
-5. Run `.venv/bin/python scripts/validate_docs.py` when docs changed or when changing documented routes, commands, local links, repo-relative file paths, or test references. Use [docs/runtime.md](docs/runtime.md) for the exact automated coverage and required manual follow-through.
-6. Mention the docs validator result in the final summary. If it was not run, say exactly why.
+1. Start with the session-entry reading order above.
+2. Choose the single behavior owner doc from [docs/README.md](docs/README.md).
+3. Update that owner doc in the same change as the code or behavior update.
+4. Update [docs/README.md](docs/README.md) only when the active doc map or routing changes.
+5. Update `README.md` only when quick start, onboarding, or public entrypoints changed.
+6. Use [docs/testing.md](docs/testing.md) to choose required verification. Run `scripts/validate_docs.py` when docs changed or when changing documented routes, commands, local links, repo-relative file paths, or test references.
+7. Mention verification results in the final summary. If anything was not run, say exactly what was not run and why.
 
 ## Done Means
 
 - Code and docs match the current runtime behavior.
 - Relevant active docs are updated in the same change.
-- The owner doc was updated instead of copying the same fact into multiple files.
-- The right validation ran, or the final summary says exactly what was not run and why.
-- No removed compatibility route or old data semantic behavior was reintroduced accidentally.
+- The correct owner doc was updated instead of copying the same fact into multiple files.
+- The right verification ran, or the final summary says exactly what was not run and why.
+- No removed compatibility route or old-data semantic behavior was reintroduced accidentally.

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
-import { getEntryVariants, getOrphanVariants, restoreVariants } from "@/domains/variants/api";
+import { getEntryVariants, getProjectVariants, restoreVariants } from "@/domains/variants/api";
 import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
 import { cx } from "@/shared/lib/cx";
 import { formatTimestamp } from "@/shared/lib/format";
@@ -33,9 +33,14 @@ export function VariantsPage() {
   const orphanQuery = useQuery({
     queryKey:
       shell.projectId !== null
-        ? queryKeys.orphanVariants(shell.projectId)
-        : ["orphan-variants", "idle"],
-    queryFn: () => getOrphanVariants(shell.projectId!),
+        ? queryKeys.projectVariants(shell.projectId, {
+            state: "orphan",
+          })
+        : ["project-variants", "idle"],
+    queryFn: () =>
+      getProjectVariants(shell.projectId!, {
+        state: "orphan",
+      }),
     enabled: shell.projectId !== null,
   });
 
@@ -106,9 +111,9 @@ export function VariantsPage() {
             {orphanQuery.error instanceof Error ? orphanQuery.error.message : "Request failed."}
           </InlineNotice>
         ) : null}
-        {orphanQuery.data?.results.length ? (
+        {orphanQuery.data?.rows.length ? (
           <div className={styles.stack} data-testid="variants-orphan-list">
-            {orphanQuery.data.results.map((item) => (
+            {orphanQuery.data.rows.map((item) => (
               <button
                 key={item.variant_id}
                 className={cx(

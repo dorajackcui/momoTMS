@@ -114,6 +114,8 @@ export function AppShell() {
     projectStateQuery.data,
     branchSummaryQuery.data,
   );
+  const allowOverviewProjectWideBranchless =
+    location.pathname === "/app/overview" && requestedBranch === null;
 
   const tab = normalizeText(searchParams.get("tab"));
   const jobId = parsePositiveInt(searchParams.get("job"));
@@ -161,6 +163,9 @@ export function AppShell() {
   ]);
 
   useEffect(() => {
+    if (allowOverviewProjectWideBranchless) {
+      return;
+    }
     if (!resolvedBranchRef) {
       return;
     }
@@ -169,7 +174,12 @@ export function AppShell() {
         replace: true,
       });
     }
-  }, [requestedBranch, resolvedBranchRef, setSearchParams]);
+  }, [
+    allowOverviewProjectWideBranchless,
+    requestedBranch,
+    resolvedBranchRef,
+    setSearchParams,
+  ]);
 
   const shellError =
     projectsQuery.error instanceof Error

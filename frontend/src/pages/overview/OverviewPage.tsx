@@ -1,24 +1,25 @@
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { DataGrid, type Column } from "react-data-grid";
+import { useSearchParams } from "react-router-dom";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
-import { getBranchCompare, getDevBranchDetail } from "@/domains/branches/api";
+import { getProjectVariants } from "@/domains/variants/api";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { formatNumber } from "@/shared/lib/format";
+import { normalizeText } from "@/shared/lib/url";
 import {
   Badge,
   EmptyState,
   InlineNotice,
   Panel,
   StatGrid,
+  buttonClassName,
   ui,
 } from "@/shared/ui/primitives";
 import {
-  buildOverviewRowsFromCompare,
-  buildOverviewRowsFromDevBranch,
-  filterOverviewRows,
+  buildOverviewRowsFromProjectVariants,
   overviewColumnKeys,
   type OverviewColumnPreset,
   type OverviewGridRow,
@@ -27,16 +28,27 @@ import {
 
 import styles from "@/pages/overview/OverviewPage.module.css";
 
-const SAMPLE_PAGE_SIZE = 60;
+const ALL_BRANCHES_VALUE = "__all__";
+const PAGE_SIZE = 100;
 
 export function OverviewPage() {
   const shell = useAppShell();
+  const [searchParams] = useSearchParams();
   const [businessKeyFilter, setBusinessKeyFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [lifecycleFilter, setLifecycleFilter] =
-    useState<OverviewLifecycleFilter>("all");
+    useState<OverviewLifecycleFilter>("active");
   const [columnPreset, setColumnPreset] =
     useState<OverviewColumnPreset>("translation");
+  const requestedBranchRef = normalizeText(searchParams.get("branch"));
+  const [branchFilter, setBranchFilter] = useState(
+    requestedBranchRef || ALL_BRANCHES_VALUE,
+  );
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setBranchFilter(requestedBranchRef || ALL_BRANCHES_VALUE);
+    setPage(1);
+  }, [requestedBranchRef]);
 
   const deferredBusinessKey = useDeferredValue(businessKeyFilter);
   const deferredSource = useDeferredValue(sourceFilter);
@@ -47,71 +59,37 @@ export function OverviewPage() {
       ...(shell.branchSummary?.branches || []).map((branch) => branch.branch_ref),
     ]),
   );
-  const defaultDevBranch =
-    shell.bootstrap?.candidate_dev_branch?.branch_ref ||
-    shell.bootstrap?.dev_branches[0]?.branch_ref ||
-    null;
-  const selectedBranch = shell.branchRef || defaultDevBranch || "rel/current";
-  const selectedVersion = selectedBranch.startsWith("dev/")
-    ? selectedBranch.slice(4)
-    : null;
+  const effectiveBranchFilter =
+    lifecycleFilter === "orphan" || branchFilter === ALL_BRANCHES_VALUE
+      ? undefined
+      : branchFilter;
 
-  const devBranchQuery = useQuery({
+  const variantsQuery = useQuery({
     queryKey:
-      shell.projectId && selectedVersion
-        ? queryKeys.devBranchDetail(shell.projectId, selectedVersion)
-        : ["dev-branch-detail", "idle"],
-    queryFn: () => getDevBranchDetail(shell.projectId!, selectedVersion!),
-    enabled: Boolean(shell.projectId && selectedVersion),
-    initialData:
-      selectedBranch === shell.bootstrap?.candidate_dev_branch?.branch_ref
-        ? shell.bootstrap?.candidate_dev_branch
-        : undefined,
-  });
-
-  const relCompareQuery = useQuery({
-    queryKey:
-      shell.projectId && selectedBranch === "rel/current" && defaultDevBranch
-        ? queryKeys.branchCompare(shell.projectId, {
-            base_branch_ref: "rel/current",
-            target_branch_ref: defaultDevBranch,
-            lang: shell.lang,
-            page: 1,
-            page_size: SAMPLE_PAGE_SIZE,
+      shell.projectId !== null
+        ? queryKeys.projectVariants(shell.projectId, {
+            state: lifecycleFilter,
+            branch_ref: effectiveBranchFilter ? [effectiveBranchFilter] : undefined,
+            search_business_key: deferredBusinessKey || undefined,
+            search_source: deferredSource || undefined,
+            page,
+            page_size: PAGE_SIZE,
           })
-        : ["branch-compare", "idle"],
+        : ["project-variants", "idle"],
     queryFn: () =>
-      getBranchCompare(shell.projectId!, {
-        base_branch_ref: "rel/current",
-        target_branch_ref: defaultDevBranch!,
-        lang: shell.lang,
-        page: 1,
-        page_size: SAMPLE_PAGE_SIZE,
+      getProjectVariants(shell.projectId!, {
+        state: lifecycleFilter,
+        branch_ref: effectiveBranchFilter ? [effectiveBranchFilter] : undefined,
+        search_business_key: deferredBusinessKey || undefined,
+        search_source: deferredSource || undefined,
+        page,
+        page_size: PAGE_SIZE,
       }),
-    enabled: Boolean(
-      shell.projectId &&
-        shell.lang &&
-        selectedBranch === "rel/current" &&
-        defaultDevBranch,
-    ),
+    enabled: shell.projectId !== null,
   });
-
-  const selectedSummary = shell.branchSummary?.branches.find(
-    (branch) => branch.branch_ref === selectedBranch,
-  );
-
-  const rawRows =
-    selectedVersion && devBranchQuery.data
-      ? buildOverviewRowsFromDevBranch(devBranchQuery.data)
-      : selectedBranch === "rel/current" && relCompareQuery.data
-        ? buildOverviewRowsFromCompare(relCompareQuery.data)
-        : [];
-
-  const rows = filterOverviewRows(rawRows, {
-    businessKey: deferredBusinessKey,
-    source: deferredSource,
-    lifecycle: lifecycleFilter,
-  });
+  const rows = variantsQuery.data
+    ? buildOverviewRowsFromProjectVariants(variantsQuery.data)
+    : [];
 
   if (!shell.hasProjects || !shell.projectId || !shell.bootstrap) {
     return (
@@ -135,20 +113,32 @@ export function OverviewPage() {
     overviewColumnKeys(shell.bootstrap.schema, columnPreset),
     (businessKey) => shell.setBusinessKey(businessKey),
   );
+  const totalRows = variantsQuery.data?.total_rows || 0;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  const selectedSummary = effectiveBranchFilter
+    ? shell.branchSummary?.branches.find(
+        (branch) => branch.branch_ref === effectiveBranchFilter,
+      )
+    : null;
 
   return (
     <div className={styles.stack}>
       <Panel
         kicker="Overview"
-        title={selectedBranch}
-        description="Scan one selected branch like a workbook, then open full variant history in the right drawer."
+        title={
+          effectiveBranchFilter ? effectiveBranchFilter : "Project-wide variant workspace"
+        }
+        description="Scan active or orphan variants through one project-scoped grid, then open full variant history in the right drawer."
         actions={
           <div className={ui.toolbar}>
             {selectedSummary?.is_candidate_release ? (
               <Badge tone="accent">candidate</Badge>
             ) : null}
-            {selectedBranch === "rel/current" ? (
-              <Badge tone="info">summary mode</Badge>
+            {lifecycleFilter === "orphan" ? (
+              <Badge tone="warning">orphan view</Badge>
+            ) : null}
+            {!effectiveBranchFilter ? (
+              <Badge tone="info">all branches</Badge>
             ) : null}
           </div>
         }
@@ -156,34 +146,43 @@ export function OverviewPage() {
         <StatGrid
           items={[
             {
-              label: "branch rows",
-              value: formatNumber(rawRows.length),
+              label: "matched rows",
+              value: formatNumber(totalRows),
               hint:
-                selectedBranch === "rel/current"
-                  ? "sampled rows from compare"
-                  : "active rows from dev detail",
+                effectiveBranchFilter
+                  ? "filtered project variants"
+                  : "project-wide variant rows",
             },
             {
-              label: "entry count",
-              value: formatNumber(selectedSummary?.entry_count || rawRows.length),
-              hint: "branch summary count",
-            },
-            {
-              label: "filtered rows",
+              label: "loaded page",
               value: formatNumber(rows.length),
-              hint: "current client-side filters",
+              hint: `page ${page} of ${totalPages}`,
+            },
+            {
+              label: "page size",
+              value: formatNumber(PAGE_SIZE),
+              hint: "server-side pagination",
             },
           ]}
         />
         <div className={styles.filters}>
           <label className={ui.field}>
-            <span className={ui.fieldLabel}>Branch</span>
+            <span className={ui.fieldLabel}>Branch filter</span>
             <select
               className={ui.select}
-              value={selectedBranch}
-              onChange={(event) => shell.setBranchRef(event.target.value)}
+              value={branchFilter}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setBranchFilter(nextValue);
+                setPage(1);
+                shell.setBranchRef(
+                  nextValue === ALL_BRANCHES_VALUE ? null : nextValue,
+                );
+              }}
               data-testid="overview-branch-select"
+              disabled={lifecycleFilter === "orphan"}
             >
+              <option value={ALL_BRANCHES_VALUE}>All branches</option>
               {branchOptions.map((branch) => (
                 <option key={branch} value={branch}>
                   {branch}
@@ -196,7 +195,10 @@ export function OverviewPage() {
             <input
               className={ui.input}
               value={businessKeyFilter}
-              onChange={(event) => setBusinessKeyFilter(event.target.value)}
+              onChange={(event) => {
+                setBusinessKeyFilter(event.target.value);
+                setPage(1);
+              }}
               placeholder="Search key"
             />
           </label>
@@ -205,22 +207,26 @@ export function OverviewPage() {
             <input
               className={ui.input}
               value={sourceFilter}
-              onChange={(event) => setSourceFilter(event.target.value)}
+              onChange={(event) => {
+                setSourceFilter(event.target.value);
+                setPage(1);
+              }}
               placeholder="Search source"
             />
           </label>
           <label className={ui.field}>
-            <span className={ui.fieldLabel}>Lifecycle</span>
+            <span className={ui.fieldLabel}>State</span>
             <select
               className={ui.select}
               value={lifecycleFilter}
-              onChange={(event) =>
-                setLifecycleFilter(event.target.value as OverviewLifecycleFilter)
-              }
+              onChange={(event) => {
+                setLifecycleFilter(event.target.value as OverviewLifecycleFilter);
+                setPage(1);
+              }}
             >
-              <option value="all">All rows</option>
               <option value="active">Active only</option>
-              <option value="sampled">Sampled only</option>
+              <option value="all">Active + orphan</option>
+              <option value="orphan">Orphan only</option>
             </select>
           </label>
           <label className={ui.field}>
@@ -237,42 +243,53 @@ export function OverviewPage() {
               <option value="review">Review</option>
             </select>
           </label>
+          <div className={ui.field}>
+            <span className={ui.fieldLabel}>Page</span>
+            <div className={ui.toolbar}>
+              <button
+                className={buttonClassName("secondary")}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={page <= 1}
+              >
+                Prev
+              </button>
+              <button
+                className={buttonClassName("secondary")}
+                onClick={() =>
+                  setPage((current) => Math.min(totalPages, current + 1))
+                }
+                disabled={page >= totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </Panel>
 
-      {selectedBranch === "rel/current" ? (
-        <InlineNotice tone="warning" title="`rel/current` uses sampled summary mode">
-          The current APIs do not expose a full release-detail spreadsheet. This page
-          shows branch KPIs plus sampled active rows against {defaultDevBranch || "the selected dev branch"}.
+      {lifecycleFilter !== "orphan" && !effectiveBranchFilter ? (
+        <InlineNotice tone="info" title="Project-wide active view">
+          This grid is now backed by the project-scoped variants query. Use a branch
+          filter when you want to narrow the active workspace to one binding context.
         </InlineNotice>
       ) : null}
 
-      {devBranchQuery.isError ? (
-        <InlineNotice tone="error" title="Failed to load branch detail">
-          {devBranchQuery.error instanceof Error
-            ? devBranchQuery.error.message
-            : "Request failed."}
-        </InlineNotice>
-      ) : null}
-
-      {relCompareQuery.isError ? (
-        <InlineNotice tone="error" title="Failed to load sampled rows">
-          {relCompareQuery.error instanceof Error
-            ? relCompareQuery.error.message
-            : "Request failed."}
+      {variantsQuery.isError ? (
+        <InlineNotice tone="error" title="Failed to load project variants">
+          {variantsQuery.error instanceof Error ? variantsQuery.error.message : "Request failed."}
         </InlineNotice>
       ) : null}
 
       <Panel
         kicker="Grid"
-        title="Branch spreadsheet"
-        description="Frozen key columns, schema-driven translation and remark columns, and drawer drill-down on click."
+        title="Variant workspace"
+        description="Schema-driven columns, branch-aware bindings, and drawer drill-down on click."
         testId="overview-page"
       >
         {rows.length === 0 ? (
           <EmptyState
             title="No rows to show"
-            body="Try a different branch or relax the current filters."
+            body="Try a different state, branch filter, or search query."
           />
         ) : (
           <div className={styles.gridWrap}>
@@ -362,10 +379,10 @@ function buildColumns(
       renderCell: ({ row }) => <span className={styles.pill}>{row.statusSummary}</span>,
     },
     {
-      key: "branchBadge",
-      name: "branch",
+      key: "branchesSummary",
+      name: "branches",
       width: 170,
-      renderCell: ({ row }) => <span className={styles.pill}>{row.branchBadge}</span>,
+      renderCell: ({ row }) => <span className={styles.pill}>{row.branchesSummary}</span>,
     },
   );
 

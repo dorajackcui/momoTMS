@@ -1,5 +1,5 @@
 const path = require("path");
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./test");
 
 const importDir = path.join(
   process.cwd(),
@@ -35,6 +35,13 @@ async function waitForJob(request, startedDetail, projectId = 1) {
     current = await response.json();
   }
   throw new Error(`job #${startedDetail.job.job_id} did not finish in time`);
+}
+
+async function expectBranchParam(page, expectedBranch) {
+  await expect.poll(() => {
+    const branch = new URL(page.url()).searchParams.get("branch");
+    return branch === null ? null : branch;
+  }).toBe(expectedBranch);
 }
 
 async function createProject(page, name) {
@@ -111,6 +118,7 @@ test("keeps first-project import apply target local until a dev branch is entere
 }) => {
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app\/overview\?/);
+  await expectBranchParam(page, null);
 
   await createProject(page, "Fresh Project");
   await expect(page).toHaveURL(/\/app\/overview\?/);
@@ -140,6 +148,7 @@ test("keeps first-project import apply target local until a dev branch is entere
 
 test("loads the rebuilt product app and exercises the new six-surface workflow", async ({
   page,
+  request,
 }) => {
   const seenApiPaths = new Set();
 
@@ -153,6 +162,7 @@ test("loads the rebuilt product app and exercises the new six-surface workflow",
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app\/overview\?/);
   await expect(page.getByTestId("overview-page")).toBeVisible();
+  await expectBranchParam(page, null);
 
   await createProject(page, "Fresh Project");
   await expect(page).toHaveURL(/\/app\/overview\?/);
@@ -173,6 +183,17 @@ test("loads the rebuilt product app and exercises the new six-surface workflow",
 
   await expect(page).toHaveURL(/\/app\/runs\?.*job=/);
   await expect(page.getByTestId("runs-page")).toContainText("Branch Mutation");
+  const startedJobId = Number(new URL(page.url()).searchParams.get("job"));
+  await waitForJob(
+    request,
+    {
+      job: {
+        job_id: startedJobId,
+        status: "running",
+      },
+    },
+    1,
+  );
 
   await page.goto("/app/overview?project=1&lang=fr&branch=dev%2F2.4.3");
   await expect(page.getByTestId("overview-page")).toContainText("dev.mutable");
@@ -234,6 +255,33 @@ test("loads the rebuilt product app and exercises the new six-surface workflow",
         pathName.includes("/branches"),
     ),
   ).toBeTruthy();
+});
+
+test("overview branch filter clears canonical branch state for project-wide mode", async ({
+  page,
+  request,
+}) => {
+  await seedDevBranch(request);
+
+  await page.goto("/app/overview?project=1&lang=fr");
+  await expect(page.getByTestId("overview-page")).toBeVisible();
+  await expect(page.getByText("Project-wide variant workspace")).toBeVisible();
+  await expect(page.getByTestId("overview-branch-select")).toHaveValue("__all__");
+  await expectBranchParam(page, null);
+
+  await page.getByTestId("overview-branch-select").selectOption("dev/2.4.3");
+  await expectBranchParam(page, "dev/2.4.3");
+  await expect(page.getByTestId("overview-branch-select")).toHaveValue("dev/2.4.3");
+
+  await page.getByTestId("overview-branch-select").selectOption("__all__");
+  await expectBranchParam(page, null);
+  await expect(page.getByTestId("overview-branch-select")).toHaveValue("__all__");
+
+  await page.reload();
+  await expect(page.getByTestId("overview-page")).toBeVisible();
+  await expect(page.getByText("Project-wide variant workspace")).toBeVisible();
+  await expect(page.getByTestId("overview-branch-select")).toHaveValue("__all__");
+  await expectBranchParam(page, null);
 });
 
 test("normalizes stale branch params before branch-scoped pages query data", async ({
@@ -404,24 +452,26 @@ test("resets compare and queue pagination when filters change", async ({
   });
 
   await page.goto("/app/branches?project=1&lang=fr&branch=dev%2F2.4.3&tab=compare");
-  await expect(page.getByText("compare-page-1")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "compare-page-1" }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Next" }).click();
-  await expect(page.getByText("compare-page-2")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "compare-page-2" }).first()).toBeVisible();
 
   await page.getByLabel("Search").fill("alpha");
   await expect.poll(() => compareRequests.at(-1)?.page).toBe("1");
   await expect.poll(() => compareRequests.at(-1)?.search).toBe("alpha");
-  await expect(page.getByText("alpha")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "alpha" }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Queue" }).click();
-  await expect(page.getByText("queue-page-1")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "queue-page-1" }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Next" }).click();
-  await expect(page.getByText("queue-page-2")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "queue-page-2" }).first()).toBeVisible();
 
   await page.getByLabel("Priority").selectOption("needs_translation");
   await expect.poll(() => queueRequests.at(-1)?.page).toBe("1");
   await expect.poll(() => queueRequests.at(-1)?.status).toBe("needs_translation");
-  await expect(page.getByText("needs_translation")).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "needs_translation" }).first(),
+  ).toBeVisible();
 });

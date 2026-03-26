@@ -165,12 +165,13 @@ Momo TMS 的设计就是围绕这些问题展开的：
 ### `active`
 
 - 当前至少被一个分支使用
-- 这是大部分日常页面真正关注的内容
+- 这是大部分日常工作流默认关注的内容
 
 ### `orphan`
 
 - 当前没有任何分支在使用
 - 仍然保留在系统里，方便复用、核查或排障
+- 现在也可以直接在 `Overview` 的 project-scoped variants 视图里查看
 
 ### `trashed`
 
@@ -183,7 +184,7 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 ### `Overview`
 
-这是新的默认入口。它把一个选中分支的活跃内容做成接近工作簿的扫描界面，适合先看“这一版当前到底在用什么”。选中 `dev/<version>` 时，你看到的是完整的开发分支数据面；选中 `rel/current` 时，会明确提示你这是采样摘要，而不是完整发布分支明细。
+这是新的默认入口。它现在是一个 project-scoped variants 工作台：默认看 `active` 变体，也可以切到 `orphan` 或一起查看。你仍然可以用 branch filter 把结果收窄到某个分支当前正在采用的内容，但这个页面本身不再只是“某一条 branch 的表格镜像”。
 
 ### `Intake`
 
@@ -206,7 +207,7 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 ### `Variants`
 
-这是读多写少的 `Variant Explorer`。它适合排查某个 `business_key` 的完整历史、查看 orphan variant，以及在明确知道 `variant_id` 的前提下执行 restore。
+这是读多写少的 `Variant Explorer`。它更适合排查某个 `business_key` 的完整历史、核对同一个 key 下的多份 variant timeline，以及在明确知道 `variant_id` 的前提下执行 restore。orphan 也还能在这里浏览，但不再只能从这里进入。
 
 ### `Project`
 
@@ -215,12 +216,12 @@ Momo TMS 的设计就是围绕这些问题展开的：
 ## 推荐的日常使用路径
 
 1. 在 `Project` 中创建项目并确认列结构。
-2. 打开 `Overview`，先切到正在处理的分支，快速扫描这一版当前采用的内容。
+2. 打开 `Overview`，先扫描当前项目的 `active` 内容；需要时再加 branch filter 或切到 `orphan` 视图。
 3. 去 `Intake` 上传 Excel，确认字段映射，生成 import batch。
 4. 去 `Branch Ops / Apply` 把 import batch 应用到目标 `dev/<version>`。
 5. 在 `Branch Ops / Compare` 和 `Branch Ops / Queue` 里确认差异、处理待翻译和待复核内容。
 6. 触发 `Fill`、`QA`、`Replace`、`Trash` 或 `Restore` 以后，统一去 `Runs` 查看任务执行和报告。
-7. 只有在排查历史、查看 orphan 或按 `variant_id` 恢复时，再进入 `Variants`。
+7. 只有在排查某个 `business_key` 的完整历史，或按 `variant_id` 恢复时，再进入 `Variants`。
 
 ## 一句话总结这套产品思路
 
