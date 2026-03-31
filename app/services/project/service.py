@@ -33,7 +33,8 @@ class ProjectService:
         name: str,
         translation_columns: list[str],
         remark_columns: list[str],
-        translation_pivots: dict[str, str | None] | None = None,
+        pivot_language: str | None = None,
+        pivoted_languages: list[str] | None = None,
     ) -> dict[str, Any]:
         normalized_name = normalize_non_content_value(name)
         if not normalized_name:
@@ -52,9 +53,10 @@ class ProjectService:
         fixed_names = set(self.FIXED_COLUMNS.values())
         if fixed_names & set(normalized_translation_columns + normalized_remark_columns):
             raise ValueError("schema columns cannot reuse fixed business headers")
-        normalized_translation_pivots = self._normalize_translation_pivots(
+        normalized_pivot_language, normalized_pivoted_languages = self._normalize_pivot_configuration(
             translation_columns=normalized_translation_columns,
-            translation_pivots=translation_pivots,
+            pivot_language=pivot_language,
+            pivoted_languages=pivoted_languages,
         )
 
         created_at = now_iso()
@@ -83,17 +85,19 @@ class ProjectService:
                     fixed_columns_json,
                     translation_columns_json,
                     remark_columns_json,
-                    translation_pivots_json,
+                    pivot_language,
+                    pivoted_languages_json,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
                     _json_dumps(self.FIXED_COLUMNS),
                     _json_dumps(normalized_translation_columns),
                     _json_dumps(normalized_remark_columns),
-                    _json_dumps(normalized_translation_pivots),
+                    normalized_pivot_language,
+                    _json_dumps(normalized_pivoted_languages),
                     created_at,
                 ),
             )
@@ -136,7 +140,8 @@ class ProjectService:
                     fixed_columns_json,
                     translation_columns_json,
                     remark_columns_json,
-                    translation_pivots_json,
+                    pivot_language,
+                    pivoted_languages_json,
                     created_at
                 FROM project_schemas
                 WHERE project_id = ?
@@ -147,16 +152,20 @@ class ProjectService:
             ).fetchone()
         if not row:
             raise KeyError(f"schema not found for project: {project_id}")
+        translation_columns = list(json_loads(row["translation_columns_json"]))
+        pivot_language, pivoted_languages = self._normalize_pivot_configuration(
+            translation_columns=translation_columns,
+            pivot_language=row["pivot_language"],
+            pivoted_languages=json_loads(row["pivoted_languages_json"]),
+        )
         return {
             "schema_id": int(row["schema_id"]),
             "project_id": project_id,
             "fixed_columns": dict(json_loads(row["fixed_columns_json"])),
-            "translation_columns": list(json_loads(row["translation_columns_json"])),
+            "translation_columns": translation_columns,
             "remark_columns": list(json_loads(row["remark_columns_json"])),
-            "translation_pivots": self._coerce_translation_pivots(
-                translation_columns=list(json_loads(row["translation_columns_json"])),
-                translation_pivots=json_loads(row["translation_pivots_json"]),
-            ),
+            "pivot_language": pivot_language,
+            "pivoted_languages": pivoted_languages,
             "created_at": row["created_at"],
         }
 
@@ -319,53 +328,42 @@ class ProjectService:
             normalized.append(item)
         return normalized
 
-    def _normalize_translation_pivots(
+    def _normalize_pivot_configuration(
         self,
         *,
         translation_columns: list[str],
-        translation_pivots: dict[str, str | None] | None,
-    ) -> dict[str, str | None]:
-        normalized = self._coerce_translation_pivots(
-            translation_columns=translation_columns,
-            translation_pivots=translation_pivots or {},
-        )
+        pivot_language: str | None,
+        pivoted_languages: list[str] | None,
+    ) -> tuple[str | None, list[str]]:
+        normalized_pivot_language = normalize_non_content_value(pivot_language) or None
+        normalized_pivoted_languages = self._coerce_pivoted_languages(pivoted_languages)
         translation_set = set(translation_columns)
-        parent_links = {child: parent for child, parent in normalized.items() if parent is not None}
-        referenced_parents = set(parent_links.values())
-        for child, parent in parent_links.items():
-            if child not in translation_set:
-                raise ValueError(f"translation_pivots contains unknown child language: {child}")
-            if parent not in translation_set:
-                raise ValueError(f"translation_pivots contains unknown parent language for {child}: {parent}")
-            if child == parent:
-                raise ValueError(f"translation_pivots cannot point a language to itself: {child}")
-        for parent in sorted(referenced_parents):
-            if normalized.get(parent) is not None:
-                raise ValueError(f"translation_pivots cannot assign a parent to referenced pivot parent: {parent}")
-        for child, parent in parent_links.items():
-            current = parent
-            seen = {child}
-            while current is not None:
-                if current in seen:
-                    raise ValueError(f"translation_pivots cannot contain chained dependencies starting at: {child}")
-                seen.add(current)
-                current = normalized.get(current)
-        return normalized
+        if normalized_pivot_language is None:
+            if normalized_pivoted_languages:
+                raise ValueError("pivoted_languages requires pivot_language")
+            return None, []
+        if normalized_pivot_language not in translation_set:
+            raise ValueError(f"pivot_language must be one of translation_columns: {normalized_pivot_language}")
+        for lang in normalized_pivoted_languages:
+            if lang not in translation_set:
+                raise ValueError(f"pivoted_languages contains unknown language: {lang}")
+            if lang == normalized_pivot_language:
+                raise ValueError(f"pivoted_languages cannot include pivot_language: {lang}")
+        pivoted_set = set(normalized_pivoted_languages)
+        ordered_pivoted_languages = [lang for lang in translation_columns if lang in pivoted_set]
+        return normalized_pivot_language, ordered_pivoted_languages
 
-    def _coerce_translation_pivots(
-        self,
-        *,
-        translation_columns: list[str],
-        translation_pivots: dict[str, str | None] | list[Any] | None,
-    ) -> dict[str, str | None]:
-        raw_map = translation_pivots if isinstance(translation_pivots, dict) else {}
-        normalized = {lang: None for lang in translation_columns}
-        for raw_child, raw_parent in raw_map.items():
-            child = normalize_non_content_value(raw_child)
-            if not child:
-                raise ValueError("translation_pivots contains a blank child language")
-            parent = normalize_non_content_value(raw_parent)
-            normalized[child] = parent or None
+    def _coerce_pivoted_languages(self, pivoted_languages: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_lang in pivoted_languages or []:
+            lang = normalize_non_content_value(raw_lang)
+            if not lang:
+                raise ValueError("pivoted_languages contains a blank language")
+            if lang in seen:
+                raise ValueError(f"pivoted_languages contains duplicate language: {lang}")
+            seen.add(lang)
+            normalized.append(lang)
         return normalized
 
 

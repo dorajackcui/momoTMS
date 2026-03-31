@@ -24,7 +24,8 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
                 payload.name,
                 payload.translation_columns,
                 payload.remark_columns,
-                payload.translation_pivots,
+                payload.pivot_language,
+                payload.pivoted_languages,
             )
         )
     )

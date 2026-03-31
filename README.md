@@ -34,6 +34,8 @@ Repo-local Playwright browsers:
 npm run test:e2e:install
 ```
 
+This repo does not use a separate frontend dev server in local development. Build the React app into `app/static/product-app`, then serve `/app` from FastAPI.
+
 Build the product app and start the backend:
 
 macOS or Linux:
@@ -48,8 +50,7 @@ Windows PowerShell:
 
 ```powershell
 npm run build:app
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
 Useful URLs:
@@ -57,6 +58,12 @@ Useful URLs:
 - Product app: `http://127.0.0.1:8000/app`
 - New project: `http://127.0.0.1:8000/app/projects/new`
 - OpenAPI: `http://127.0.0.1:8000/docs`
+
+Windows troubleshooting:
+
+- if `Activate.ps1` is blocked, do not activate the venv; run `.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload` directly
+- if `.venv\Scripts\python.exe` points at an old machine path, delete `.venv` and recreate it on this machine
+- if `py` or `python` is not available, install Python 3.11 first; if you already have a portable/local Python folder, `scripts/bootstrap_local_python.ps1 -PythonHome <path>` can copy it into the repo and rebuild `.venv`
 
 If you want fresh demo data, call `POST /api/demo/reset`.
 

@@ -77,29 +77,39 @@ Usage rules:
 - frontend code should treat this payload as project shell state, not as a page-by-page compatibility blob
 - detailed page data should come from dedicated project-scoped queries such as the variants workspace query, branch detail, compare, queue, imports, jobs, and entry-variant inspection routes
 - project schema is fixed after project creation; bootstrap describes the current schema but does not imply schema-edit support
-- `schema.translation_pivots` is included as a full `lang -> pivot_lang | null` map; omitted pivot config is normalized to `null` per language
+- schema includes `pivot_language` plus `pivoted_languages`
+- when `lang` is in `pivoted_languages`, its pivot parent is the project `pivot_language`; all other languages are treated as `null` pivot
 
 ## Request And Report Shapes
 
 `POST /api/projects`
 
-- request body accepts `name`, `translation_columns`, `remark_columns`, and optional `translation_pivots`
-- `translation_pivots` may be sparse on input; the backend validates it against `translation_columns` and persists a full map
+- request body accepts `name`, `translation_columns`, `remark_columns`, optional `pivot_language`, and optional `pivoted_languages`
+- `pivot_language` must be one of `translation_columns`
+- `pivoted_languages` must be a subset of `translation_columns`, cannot include `pivot_language`, and require `pivot_language` to be set
 - response remains `ProjectSummary`; schema details still come from bootstrap
 
 Fill jobs:
 
 - fill requests still use `source_dir`, `lang`, and optional `output_name`
 - fill does not add `branch_ref` for pivot V1
-- fill report rows may include `pivot_lang` and `pivot_sync_status`
-- `pivot_sync_status` is only set when fill matched a candidate variant and the selected target language has a configured pivot parent
+- fill report rows expose only fill-match data such as `match_variant_id` and `match_variant_state`; pivot metadata is no longer included
 
 Variants workspace query:
 
-- `GET /api/projects/{project_id}/variants` accepts `state`, repeated `branch_ref`, `search_business_key`, `search_source`, `page`, and optional `page_size`
+- `GET /api/projects/{project_id}/variants` accepts `state`, repeated `branch_ref`, `search_business_key`, `search_source`, optional `pivot_status`, optional `pivot_changed_by_branch_ref`, `page`, and optional `page_size`
 - `state` supports `active`, `orphan`, and `all`; V1 `all` means `active + orphan` only and still excludes `trashed`
 - branch filtering matches variants that currently bind at least one requested branch; orphan rows therefore do not match a branch filter
-- row payloads include `variant_id`, `entry_id`, `business_key`, `file_name`, `source`, hydrated translations or remarks, `bindings`, `state`, `orphaned_at`, `created_at`, and `updated_at`
+- `pivot_status` supports `init`, `changed`, and `reviewed`
+- `pivot_changed_by_branch_ref` uses the same `rel/current` or `dev/x.y.z` ref format as the rest of the API
+- row payloads include `variant_id`, `entry_id`, `business_key`, `file_name`, `source`, hydrated translations or remarks, `bindings`, `state`, `orphaned_at`, `pivot_status`, `pivot_changed_by_branch_ref`, `pivot_changed_at`, `pivot_reviewed_at`, `created_at`, and `updated_at`
+
+Pivot review jobs:
+
+- `POST /api/projects/{project_id}/variants/pivot/review` accepts `branch_ref` plus `variant_ids[]`
+- the action returns synchronous `JobDetail` with report rows in the standard workflow shape
+- row statuses are `REVIEWED`, `NOT_CHANGED`, `NOT_VISIBLE_IN_SCOPE`, `FORBIDDEN_BY_AUTHORITY`, or `MISSING`
+- successful reviews move the variant from `changed` to `reviewed`, clear `pivot_changed_by_branch_ref`, and record `pivot_reviewed_at`
 
 Import upload and job detail:
 
@@ -187,6 +197,7 @@ Workflow actions:
 - `POST /api/projects/{project_id}/branches/replace/execute`
 - `POST /api/projects/{project_id}/variants/trash/delete`
 - `POST /api/projects/{project_id}/variants/trash/restore`
+- `POST /api/projects/{project_id}/variants/pivot/review`
 - `POST /api/projects/{project_id}/fill`
 - `POST /api/projects/{project_id}/fill/upload-folder`
 - `POST /api/projects/{project_id}/qa`

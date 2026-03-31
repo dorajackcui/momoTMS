@@ -9,7 +9,7 @@ from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
 DB_PATH_ENV_VAR = "MOMO_TMS_DB_PATH"
-SCHEMA_VERSION = "variant-v6"
+SCHEMA_VERSION = "variant-v8"
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
@@ -94,7 +94,8 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             fixed_columns_json TEXT NOT NULL,
             translation_columns_json TEXT NOT NULL,
             remark_columns_json TEXT NOT NULL,
-            translation_pivots_json TEXT NOT NULL,
+            pivot_language TEXT,
+            pivoted_languages_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (project_id) REFERENCES projects(project_id)
         );
@@ -120,6 +121,15 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             trashed_at TEXT,
             trash_until TEXT,
             restored_at TEXT,
+            pivot_status TEXT NOT NULL CHECK (pivot_status IN ('init', 'changed', 'reviewed')),
+            pivot_changed_by_scope_type TEXT CHECK (
+                pivot_changed_by_scope_type IN ('rel', 'dev')
+                OR pivot_changed_by_scope_type IS NULL
+            ),
+            pivot_changed_by_scope_value TEXT,
+            pivot_changed_at TEXT,
+            pivot_reviewed_at TEXT,
+            pivot_status_updated_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (entry_id) REFERENCES entries(entry_id) ON DELETE CASCADE
@@ -132,6 +142,9 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         WHERE trashed_at IS NULL;
         CREATE INDEX idx_variants_trashed ON variants(trashed_at);
         CREATE INDEX idx_variants_orphaned ON variants(orphaned_at);
+        CREATE INDEX idx_variants_pivot_status ON variants(pivot_status);
+        CREATE INDEX idx_variants_pivot_owner
+        ON variants(pivot_changed_by_scope_type, pivot_changed_by_scope_value);
 
         CREATE TABLE variant_translations (
             variant_id INTEGER NOT NULL,
@@ -141,21 +154,6 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (variant_id, lang),
             FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
         );
-
-        CREATE TABLE variant_translation_sync_state (
-            variant_id INTEGER NOT NULL,
-            lang TEXT NOT NULL,
-            pivot_lang TEXT NOT NULL,
-            pivot_fingerprint_at_sync TEXT NOT NULL,
-            pivot_synced_at TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (variant_id, lang),
-            FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX idx_variant_translation_sync_state_variant
-        ON variant_translation_sync_state(variant_id);
 
         CREATE TABLE variant_remarks (
             variant_id INTEGER NOT NULL,

@@ -16,7 +16,8 @@ class CreateProjectRequest(BaseModel):
     name: str
     translation_columns: list[str] = Field(default_factory=list)
     remark_columns: list[str] = Field(default_factory=list)
-    translation_pivots: dict[str, str | None] = Field(default_factory=dict)
+    pivot_language: str | None = None
+    pivoted_languages: list[str] = Field(default_factory=list)
 
 
 class ProjectSchemaSummary(BaseModel):
@@ -25,7 +26,8 @@ class ProjectSchemaSummary(BaseModel):
     fixed_columns: dict[str, str]
     translation_columns: list[str]
     remark_columns: list[str]
-    translation_pivots: dict[str, str | None] = Field(default_factory=dict)
+    pivot_language: str | None = None
+    pivoted_languages: list[str] = Field(default_factory=list)
     created_at: str
 
 
@@ -239,6 +241,10 @@ class ProjectVariantRow(BaseModel):
     bindings: list[BindingSummary] = Field(default_factory=list)
     state: Literal["active", "orphan"]
     orphaned_at: str | None = None
+    pivot_status: Literal["init", "changed", "reviewed"]
+    pivot_changed_by_branch_ref: str | None = None
+    pivot_changed_at: str | None = None
+    pivot_reviewed_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -263,6 +269,10 @@ class EntryVariantInspection(BaseModel):
     trashed_at: str | None = None
     trash_until: str | None = None
     restored_at: str | None = None
+    pivot_status: Literal["init", "changed", "reviewed"]
+    pivot_changed_by_branch_ref: str | None = None
+    pivot_changed_at: str | None = None
+    pivot_reviewed_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -342,6 +352,11 @@ class ScopedTrashDeleteRequest(BaseModel):
 
 
 class VariantTrashRestoreRequest(BaseModel):
+    variant_ids: list[int]
+
+
+class PivotReviewRequest(BaseModel):
+    branch_ref: str
     variant_ids: list[int]
 
 

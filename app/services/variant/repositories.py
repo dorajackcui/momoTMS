@@ -90,6 +90,24 @@ class VariantCommandRepository:
     ) -> bool:
         return self._store.restore_variant(variant_id, timestamp, conn=conn)
 
+    def set_pivot_changed(
+        self,
+        variant_id: int,
+        scope_type: str,
+        scope_value: str,
+        timestamp: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        self._store.set_pivot_changed(variant_id, scope_type, scope_value, timestamp, conn=conn)
+
+    def set_pivot_reviewed(
+        self,
+        variant_id: int,
+        timestamp: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        self._store.set_pivot_reviewed(variant_id, timestamp, conn=conn)
+
 
 class VariantQueryRepository:
     def __init__(self, store: _VariantStore | None = None) -> None:

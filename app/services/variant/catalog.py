@@ -55,18 +55,13 @@ class VariantCatalogService:
         )
         self._commands.overwrite_translations(variant_id, content["translations"], timestamp, conn=conn)
         self._commands.overwrite_remarks(variant_id, content["remarks"], timestamp, conn=conn)
-        self._pivot.initialize_variant(
-            entry_id=entry_id,
-            variant_id=variant_id,
-            translations=content["translations"],
-            conn=conn,
-        )
         return variant_id
 
     def update_variant(
         self,
         variant_id: int,
         content: VariantContent,
+        actor_scope: tuple[str, str] | None = None,
         restore_if_trashed: bool = False,
         conn: sqlite3.Connection | None = None,
     ) -> None:
@@ -86,6 +81,8 @@ class VariantCatalogService:
             variant_id=variant_id,
             old_variant=previous_variant,
             new_translations=content["translations"],
+            actor_scope=actor_scope,
+            timestamp=timestamp,
             conn=conn,
         )
 

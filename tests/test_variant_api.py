@@ -11,8 +11,10 @@ from app.services.branch.models import BranchRef
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
+from app.services.read_models.variants import ProjectVariantsQueryRepository
 from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
+from app.services.variant.state_coordinator import VariantStateCoordinator
 from app.services.workflows.trash_restore import TrashRestoreService
 from tests.service_helpers import branch_services
 
@@ -54,6 +56,32 @@ def wait_for_job(
         assert response.status_code == 200
         current = response.json()
     return current
+
+
+def create_bound_variant(
+    *,
+    project_id: int,
+    business_key: str,
+    source: str,
+    translations: dict[str, str],
+    branch_refs: list[BranchRef],
+) -> int:
+    entries = EntryService()
+    catalog = VariantCatalogService()
+    bindings = VariantStateCoordinator()
+    entry = entries.get_or_create_entry(business_key, project_id=project_id)
+    variant_id = catalog.create_variant(
+        int(entry["entry_id"]),
+        catalog.build_content(
+            f"{business_key}.xlsx",
+            source,
+            translations,
+            {"context": business_key},
+        ),
+    )
+    for branch_ref in branch_refs:
+        bindings.bind_scope(int(entry["entry_id"]), branch_ref, variant_id)
+    return variant_id
 
 
 def test_branch_routes_and_removed_compatibility_surface() -> None:
@@ -156,6 +184,31 @@ def test_branch_read_routes_return_404_for_missing_project() -> None:
     for response in responses:
         assert response.status_code == 404
         assert "project not found" in response.json()["detail"]
+
+
+def test_project_creation_and_bootstrap_expose_single_pivot_schema() -> None:
+    reset_demo()
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "Pivot API Project",
+                "translation_columns": ["fr", "en", "de"],
+                "remark_columns": ["context"],
+                "pivot_language": "en",
+                "pivoted_languages": ["fr"],
+            },
+        )
+        assert create_response.status_code == 200
+        project = create_response.json()
+
+        state_response = client.get(f"/api/projects/{project['project_id']}/state")
+        assert state_response.status_code == 200
+        schema = state_response.json()["schema"]
+        assert schema["pivot_language"] == "en"
+        assert schema["pivoted_languages"] == ["fr"]
+        assert "translation_pivots" not in schema
 
 
 def test_project_variants_route_supports_state_filters_and_project_scope() -> None:
@@ -322,6 +375,263 @@ def test_project_variants_route_returns_dev_bound_rows_after_import_batch_apply(
         keys = {row["business_key"] for row in response.json()["rows"]}
         assert "dev.mutable" in keys
         assert "dev.new.entry" in keys
+
+
+def test_project_variants_route_returns_pivot_fields_and_supports_pivot_filters() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Pivot Workspace Project",
+        ["fr", "en", "de"],
+        ["context"],
+        "en",
+        ["fr", "de"],
+    )
+    project_id = int(project["project_id"])
+    catalog = VariantCatalogService()
+
+    changed_by_dev = create_bound_variant(
+        project_id=project_id,
+        business_key="pivot.changed.dev",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour", "de": "Hallo"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        changed_by_dev,
+        catalog.build_content(
+            "pivot.changed.dev.xlsx",
+            "Hello",
+            {"en": "Hello from dev", "fr": "Bonjour", "de": "Hallo"},
+            {"context": "pivot.changed.dev"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    reviewed = create_bound_variant(
+        project_id=project_id,
+        business_key="pivot.reviewed.rel",
+        source="Welcome",
+        translations={"en": "Welcome", "fr": "Bienvenue", "de": "Willkommen"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        reviewed,
+        catalog.build_content(
+            "pivot.reviewed.rel.xlsx",
+            "Welcome",
+            {"en": "Welcome from rel", "fr": "Bienvenue", "de": "Willkommen"},
+            {"context": "pivot.reviewed.rel"},
+        ),
+        actor_scope=BranchRef.rel_current().as_tuple(),
+    )
+
+    with TestClient(app) as client:
+        review_response = client.post(
+            f"/api/projects/{project_id}/variants/pivot/review",
+            json={"branch_ref": "rel/current", "variant_ids": [reviewed]},
+        )
+        assert review_response.status_code == 200
+        assert review_response.json()["job"]["status"] == "success"
+
+        all_response = client.get(
+            f"/api/projects/{project_id}/variants",
+            params={"state": "all"},
+        )
+        assert all_response.status_code == 200
+        payload = all_response.json()
+        rows_by_key = {row["business_key"]: row for row in payload["rows"]}
+
+        changed_row = rows_by_key["pivot.changed.dev"]
+        assert changed_row["pivot_status"] == "changed"
+        assert changed_row["pivot_changed_by_branch_ref"] == "dev/2.4.3"
+        assert changed_row["pivot_changed_at"] is not None
+        assert changed_row["pivot_reviewed_at"] is None
+
+        reviewed_row = rows_by_key["pivot.reviewed.rel"]
+        assert reviewed_row["pivot_status"] == "reviewed"
+        assert reviewed_row["pivot_changed_by_branch_ref"] is None
+        assert reviewed_row["pivot_changed_at"] is not None
+        assert reviewed_row["pivot_reviewed_at"] is not None
+
+        changed_filter = client.get(
+            f"/api/projects/{project_id}/variants",
+            params={"state": "all", "pivot_status": "changed"},
+        )
+        assert changed_filter.status_code == 200
+        assert [row["business_key"] for row in changed_filter.json()["rows"]] == [
+            "pivot.changed.dev"
+        ]
+
+        owner_filter = client.get(
+            f"/api/projects/{project_id}/variants",
+            params={
+                "state": "all",
+                "pivot_status": "changed",
+                "pivot_changed_by_branch_ref": "dev/2.4.3",
+                "branch_ref": "dev/2.4.3",
+            },
+        )
+        assert owner_filter.status_code == 200
+        assert [row["business_key"] for row in owner_filter.json()["rows"]] == [
+            "pivot.changed.dev"
+        ]
+
+
+def test_project_variants_query_rows_match_variant_hydration_contract() -> None:
+    reset_demo()
+    rows = ProjectVariantsQueryRepository().list_variant_rows(
+        1,
+        state="all",
+        branch_refs=[],
+        search_business_key=None,
+        search_source=None,
+        pivot_status=None,
+        pivot_changed_by_branch_ref=None,
+        page=1,
+        page_size=5,
+    )["rows"]
+
+    assert rows
+    required_columns = {
+        "variant_id",
+        "entry_id",
+        "file_name",
+        "source",
+        "orphaned_at",
+        "trashed_at",
+        "trash_until",
+        "restored_at",
+        "pivot_status",
+        "pivot_changed_by_scope_type",
+        "pivot_changed_by_scope_value",
+        "pivot_changed_at",
+        "pivot_reviewed_at",
+        "pivot_status_updated_at",
+        "created_at",
+        "updated_at",
+    }
+    assert required_columns.issubset(rows[0].keys())
+    assert "variant_created_at" not in rows[0]
+    assert "variant_updated_at" not in rows[0]
+
+
+def test_entry_variants_route_returns_pivot_metadata() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Pivot Inspection Project",
+        ["fr", "en"],
+        ["context"],
+        "en",
+        ["fr"],
+    )
+    project_id = int(project["project_id"])
+    catalog = VariantCatalogService()
+    variant_id = create_bound_variant(
+        project_id=project_id,
+        business_key="pivot.timeline",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+    catalog.update_variant(
+        variant_id,
+        catalog.build_content(
+            "pivot.timeline.xlsx",
+            "Hello",
+            {"en": "Hello from dev", "fr": "Bonjour"},
+            {"context": "pivot.timeline"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/projects/{project_id}/entries/pivot.timeline/variants"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["business_key"] == "pivot.timeline"
+    assert payload["variants"][0]["pivot_status"] == "changed"
+    assert payload["variants"][0]["pivot_changed_by_branch_ref"] == "dev/2.4.3"
+    assert payload["variants"][0]["pivot_changed_at"] is not None
+    assert payload["variants"][0]["pivot_reviewed_at"] is None
+
+
+def test_pivot_review_route_returns_job_detail_and_report_rows() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Pivot Review API Project",
+        ["fr", "en"],
+        ["context"],
+        "en",
+        ["fr"],
+    )
+    project_id = int(project["project_id"])
+    catalog = VariantCatalogService()
+
+    reviewable = create_bound_variant(
+        project_id=project_id,
+        business_key="pivot.reviewable",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        reviewable,
+        catalog.build_content(
+            "pivot.reviewable.xlsx",
+            "Hello",
+            {"en": "Hello from dev", "fr": "Bonjour"},
+            {"context": "pivot.reviewable"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    unchanged = create_bound_variant(
+        project_id=project_id,
+        business_key="pivot.init-only",
+        source="Init",
+        translations={"en": "Init", "fr": "Init"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/projects/{project_id}/variants/pivot/review",
+            json={
+                "branch_ref": "rel/current",
+                "variant_ids": [reviewable, unchanged, 999999],
+            },
+        )
+        assert response.status_code == 200
+        detail = response.json()
+
+        assert detail["job"]["status"] == "success"
+        assert detail["job"]["job_type"] == "pivot_review"
+        assert detail["job"]["summary"]["reviewed_count"] == 1
+        assert detail["job"]["summary"]["not_changed_count"] == 1
+        assert detail["job"]["summary"]["missing_count"] == 1
+
+        statuses = {
+            row["variant_id"]: row["status"]
+            for row in detail["report"]["rows"]
+        }
+        assert statuses == {
+            reviewable: "REVIEWED",
+            unchanged: "NOT_CHANGED",
+            999999: "MISSING",
+        }
+
+        variants_response = client.get(
+            f"/api/projects/{project_id}/variants",
+            params={"state": "all", "pivot_status": "reviewed"},
+        )
+        assert variants_response.status_code == 200
+        rows = variants_response.json()["rows"]
+        assert [row["business_key"] for row in rows] == ["pivot.reviewable"]
+        assert rows[0]["pivot_changed_by_branch_ref"] is None
+        assert rows[0]["pivot_reviewed_at"] is not None
 
 
 def test_import_upload_preview_uses_session_and_job_detail_returns_preview_rows() -> None:

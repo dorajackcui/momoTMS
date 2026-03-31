@@ -74,18 +74,10 @@ def test_fill_reads_project_variants_across_active_orphan_and_missing_rows() -> 
 
     assert active_row["status"] == "FILLED"
     assert active_row["match_variant_state"] == "active"
-    assert active_row["pivot_lang"] is None
-    assert active_row["pivot_sync_status"] is None
     assert orphan_row["status"] == "FILLED"
     assert orphan_row["match_variant_state"] == "orphan"
-    assert orphan_row["pivot_lang"] is None
-    assert orphan_row["pivot_sync_status"] is None
     assert mismatch_row["status"] == "SRC_MISMATCH"
-    assert mismatch_row["pivot_lang"] is None
-    assert mismatch_row["pivot_sync_status"] is None
     assert missing_row["status"] == "MISSING_KEY_IN_PROJECT"
-    assert missing_row["pivot_lang"] is None
-    assert missing_row["pivot_sync_status"] is None
     assert output_zip.exists()
 
     filled_workbook = output_workbook_path(source_dir, "fill/fill_input.xlsx")
@@ -123,8 +115,6 @@ def test_fill_uses_trashed_candidate_when_no_live_variant_exists() -> None:
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == int(original_variant["variant_id"])
     assert row["match_variant_state"] == "trashed"
-    assert row["pivot_lang"] is None
-    assert row["pivot_sync_status"] is None
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Supprimer moi"
 
 
@@ -170,8 +160,6 @@ def test_fill_prefers_live_candidate_over_trashed_history() -> None:
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == live_variant_id
     assert row["match_variant_state"] == "active"
-    assert row["pivot_lang"] is None
-    assert row["pivot_sync_status"] is None
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Live translation wins"
 
 
@@ -220,12 +208,10 @@ def test_fill_uses_latest_trashed_candidate_when_only_trashed_history_exists() -
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == second_variant_id
     assert row["match_variant_state"] == "trashed"
-    assert row["pivot_lang"] is None
-    assert row["pivot_sync_status"] is None
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Newest trashed translation"
 
 
-def test_fill_reports_pivot_status_for_matched_variants_only() -> None:
+def test_fill_report_rows_and_csv_drop_legacy_pivot_columns() -> None:
     db_path = get_db_path()
     if Path(db_path).exists():
         Path(db_path).unlink()
@@ -233,9 +219,10 @@ def test_fill_reports_pivot_status_for_matched_variants_only() -> None:
 
     project = ProjectService().create_project(
         "Pivot Fill Project",
-        ["fr", "en"],
+        ["fr", "en", "it"],
         ["context"],
-        {"fr": "en"},
+        "en",
+        ["fr"],
     )
     project_id = int(project["project_id"])
     entries = EntryService()
@@ -266,10 +253,10 @@ def test_fill_reports_pivot_status_for_matched_variants_only() -> None:
         source_dir,
         "single.xlsx",
         [
-            ["file_name", "business_key", "source", "fr", "en", "context"],
-            ["pivot.xlsx", "pivot.fill", "Hello", "", "", "matched"],
-            ["pivot.xlsx", "pivot.fill", "Hello mismatch", "", "", "mismatch"],
-            ["pivot.xlsx", "pivot.missing", "Missing", "", "", "missing"],
+            ["file_name", "business_key", "source", "fr", "en", "it", "context"],
+            ["pivot.xlsx", "pivot.fill", "Hello", "", "", "", "matched"],
+            ["pivot.xlsx", "pivot.fill", "Hello mismatch", "", "", "", "mismatch"],
+            ["pivot.xlsx", "pivot.missing", "Missing", "", "", "", "missing"],
         ],
     )
 
@@ -280,10 +267,16 @@ def test_fill_reports_pivot_status_for_matched_variants_only() -> None:
     missing_row = report_row_by_key(result["report_rows"], "pivot.missing")
 
     assert matched_row["status"] == "FILLED"
-    assert matched_row["pivot_lang"] == "en"
-    assert matched_row["pivot_sync_status"] == "PIVOT_OUT_OF_SYNC"
-    assert mismatch_row["pivot_lang"] == "en"
-    assert mismatch_row["pivot_sync_status"] is None
-    assert missing_row["pivot_lang"] == "en"
-    assert missing_row["pivot_sync_status"] is None
+    assert "pivot_lang" not in matched_row
+    assert "pivot_sync_status" not in matched_row
+    assert "pivot_lang" not in mismatch_row
+    assert "pivot_sync_status" not in mismatch_row
+    assert "pivot_lang" not in missing_row
+    assert "pivot_sync_status" not in missing_row
+
+    report_path = Path(result["report_path"])
+    report_lines = report_path.read_text(encoding="utf-8").splitlines()
+    assert report_lines[0] == "file_path,sheet_name,row_index,business_key,status,match_variant_id,match_variant_state"
+    assert "pivot_lang" not in report_lines[0]
+    assert "pivot_sync_status" not in report_lines[0]
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Bonjour"

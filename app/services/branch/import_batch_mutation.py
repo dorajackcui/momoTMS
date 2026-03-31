@@ -183,7 +183,12 @@ class ImportBatchMutationApplier:
             )
             if not BranchMutationPolicy.for_branch(target_branch).can_update_hit_variant(target_branch, bound_branch_refs):
                 return "NOOP"
-            self.catalog.update_variant(int(current_variant["variant_id"]), merged, conn=conn)
+            self.catalog.update_variant(
+                int(current_variant["variant_id"]),
+                merged,
+                actor_scope=target_branch.as_tuple(),
+                conn=conn,
+            )
             self._update_variant_cache(variants, int(current_variant["variant_id"]), merged)
             return "UPDATED_BOUND_VARIANT"
 
@@ -240,7 +245,12 @@ class ImportBatchMutationApplier:
             touched_entry_ids.add(entry_id)
             return "BOUND_EXISTING_VARIANT"
 
-        self.catalog.update_variant(variant_id, merged, conn=conn)
+        self.catalog.update_variant(
+            variant_id,
+            merged,
+            actor_scope=target_branch.as_tuple(),
+            conn=conn,
+        )
         self._update_variant_cache(variants, variant_id, merged)
         if current_matches:
             status = "UPDATED_BOUND_VARIANT"

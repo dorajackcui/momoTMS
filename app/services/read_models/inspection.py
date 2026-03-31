@@ -9,6 +9,7 @@ from app.services.shared.io import normalize_non_content_value
 from app.services.variant.bindings import BindingLookupService
 from app.services.variant.entries import EntryService
 from app.services.variant.catalog import VariantCatalogService
+from app.services.variant.pivot import pivot_changed_by_branch_ref
 from app.services.variant.repositories import VariantQueryRepository
 
 
@@ -107,6 +108,10 @@ class InspectionReadService:
                     "trashed_at": variant["trashed_at"],
                     "trash_until": variant["trash_until"],
                     "restored_at": variant["restored_at"],
+                    "pivot_status": variant["pivot_status"],
+                    "pivot_changed_by_branch_ref": pivot_changed_by_branch_ref(variant),
+                    "pivot_changed_at": variant["pivot_changed_at"],
+                    "pivot_reviewed_at": variant["pivot_reviewed_at"],
                     "created_at": variant["created_at"],
                     "updated_at": variant["updated_at"],
                 }

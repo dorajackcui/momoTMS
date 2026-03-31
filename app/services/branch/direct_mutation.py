@@ -146,6 +146,7 @@ class DirectMutationApplier:
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
+                actor_scope=branch_ref.as_tuple(),
                 conn=conn,
             )
             return {
@@ -184,6 +185,7 @@ class DirectMutationApplier:
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
+                actor_scope=branch_ref.as_tuple(),
                 conn=conn,
             )
             return {
@@ -270,6 +272,7 @@ class DirectMutationApplier:
         self.catalog.update_variant(
             target_variant_id,
             merged,
+            actor_scope=branch_ref.as_tuple(),
             conn=conn,
         )
         if not current_matches_target:

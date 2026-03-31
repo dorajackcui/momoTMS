@@ -14,9 +14,8 @@
 
 ## File Map
 
-- [frontend-current-api-redesign.md](frontend-current-api-redesign.md): new `/app` IA and page redesign based on current project-scoped APIs, without frontend compatibility constraints
-- [overview-variant-workspace-redesign.md](overview-variant-workspace-redesign.md): proposed merge of `Variants` into `Overview`, with a project-wide variant grid, API gap analysis, and phased delivery plan
-- [pivot-language-design.md](pivot-language-design.md): pivot topology, async drift model, and Fill-facing design for dependent translation languages
+- `design/pivot-status-design.md`: current design direction for variant-level pivot status with manual `reviewed` recovery and branch-authority ownership
+- `archive/pivot-language-design.md`: older archived exploration for fingerprint- and child-drift-based pivot design
 
 ## Suggested Workflow
 

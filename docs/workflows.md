@@ -72,8 +72,8 @@ Content fields:
 
 - project schema defines the fixed columns `business_key` and `source`
 - translation columns and remark columns are project-defined
-- project creation may also define `translation_pivots`; when omitted, every translation column defaults to `null` pivot
-- `translation_pivots` is validated against the project translation columns, stored as a full map, and stays fixed after project creation
+- project creation may also define a single `pivot_language` plus `pivoted_languages`; when omitted, every translation column defaults to `null` pivot
+- `pivot_language` must be one of the project translation columns, `pivoted_languages` must be a subset of the translation columns, and the pivot configuration stays fixed after project creation
 - header matching is schema-driven
 - import mapping always requires `business_key` and `source`
 - translation and remark mappings may be omitted for import; omitted fields are treated as "keep existing value"
@@ -129,6 +129,18 @@ Mutation rules:
 - `import_batch + dev/<version>` runs as a job and streams report rows into job storage instead of returning the full apply result inline
 - `import_batch + rel/current` remains invalid
 - import-batch apply reads persisted `import_rows` in chunks, batches entry or variant or binding hydration, and refreshes orphan state once per touched entry set instead of once per row
+- new variants always start with `pivot_status = init`
+- when a mutation changes the normalized value of the project `pivot_language`, the touched variant becomes `pivot_status = changed`, records the actor branch as owner, and updates `pivot_changed_at`
+- `NOOP` mutations and non-pivot-language changes do not alter pivot status
+- normal mutation paths never auto-clear `changed` back to `reviewed`
+
+## Pivot Review Rules
+
+- manual pivot review is project-scoped and takes `branch_ref` plus `variant_ids[]`
+- review only succeeds when the variant exists in the project, is currently `changed`, is visible in the actor branch scope, and the actor branch authority is greater than or equal to the changed-owner branch
+- success performs `changed -> reviewed`, clears the changed-owner branch metadata, writes `pivot_reviewed_at`, and refreshes `pivot_status_updated_at`
+- review rows report one of `REVIEWED`, `NOT_CHANGED`, `NOT_VISIBLE_IN_SCOPE`, `FORBIDDEN_BY_AUTHORITY`, or `MISSING`
+- review uses the standard job-backed workflow response shape even though execution is request-scoped
 
 ## Scope Sync Rules
 
@@ -162,9 +174,6 @@ Mutation rules:
 - `MISSING_KEY_IN_PROJECT` means the `business_key` does not exist anywhere in the project history
 - fill report rows record `match_variant_id` and `match_variant_state` (`active`, `orphan`, or `trashed`) instead of a branch label
 - fill still requires the workbook to include the selected target language column; import-only sparse mapping rules do not apply to fill
-- when the selected fill language has a configured pivot parent, fill also reports `pivot_lang` and `pivot_sync_status`
-- `pivot_sync_status` is derived from variant-level checkpoint state, not from workbook freshness or branch selection
-- unmatched rows keep `pivot_sync_status = null`; matched rows use one of `PIVOT_IN_SYNC`, `PIVOT_OUT_OF_SYNC`, `MISSING_CHILD`, or `MISSING_PARENT`
 - fill writes translations back to workbook artifacts through a job
 
 Implication:

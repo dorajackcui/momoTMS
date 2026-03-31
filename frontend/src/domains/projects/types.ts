@@ -15,7 +15,8 @@ export type ProjectSchema = {
   fixed_columns: Record<string, string>;
   translation_columns: string[];
   remark_columns: string[];
-  translation_pivots: Record<string, string | null>;
+  pivot_language: string | null;
+  pivoted_languages: string[];
   created_at: string;
 };
 
@@ -33,4 +34,6 @@ export type CreateProjectInput = {
   name: string;
   translation_columns: string[];
   remark_columns: string[];
+  pivot_language?: string | null;
+  pivoted_languages?: string[];
 };

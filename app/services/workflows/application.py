@@ -13,6 +13,7 @@ from app.services.shared.jobs import JobService
 from app.services.shared.uploads import UploadSessionService
 from app.services.workflows.trash_restore import TrashRestoreService
 from app.services.workflows.fill import FillService
+from app.services.workflows.pivot_review import PivotReviewService
 from app.services.workflows.qa import QaScanService
 
 
@@ -26,6 +27,7 @@ class WorkflowApplicationService:
         self.upload_session_service = UploadSessionService()
         self.qa_scan_service = QaScanService()
         self.trash_restore_service = TrashRestoreService()
+        self.pivot_review_service = PivotReviewService()
 
     def import_directory(self, input_dir: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.import_service.projects.require_project(project_id)
@@ -180,6 +182,26 @@ class WorkflowApplicationService:
             {"variant_ids": variant_ids, "project_id": project_id},
             lambda _job_id: self._wrap_report(
                 self.trash_restore_service.restore(
+                    variant_ids,
+                    project_id=project_id,
+                )
+            ),
+            project_id=project_id,
+        )
+
+    def pivot_review(
+        self,
+        branch_ref: str,
+        variant_ids: list[int],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        parsed_branch_ref = BranchRef.parse(branch_ref)
+        return self._run_job(
+            "pivot_review",
+            {"branch_ref": branch_ref, "variant_ids": variant_ids, "project_id": project_id},
+            lambda _job_id: self._wrap_report(
+                self.pivot_review_service.review(
+                    parsed_branch_ref,
                     variant_ids,
                     project_id=project_id,
                 )

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+
+PivotStatus = Literal["init", "changed", "reviewed"]
 
 
 class EntryRecord(TypedDict):
@@ -22,6 +25,12 @@ class VariantRecord(TypedDict):
     trashed_at: str | None
     trash_until: str | None
     restored_at: str | None
+    pivot_status: PivotStatus
+    pivot_changed_by_scope_type: str | None
+    pivot_changed_by_scope_value: str | None
+    pivot_changed_at: str | None
+    pivot_reviewed_at: str | None
+    pivot_status_updated_at: str
     created_at: str
     updated_at: str
 

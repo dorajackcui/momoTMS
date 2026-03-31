@@ -26,17 +26,18 @@ def test_create_project_sets_default_only_for_first_project() -> None:
     assert second["is_default"] is False
 
 
-def test_create_project_defaults_translation_pivots_to_null() -> None:
+def test_create_project_defaults_to_no_project_pivot() -> None:
     reset_db()
     service = ProjectService()
 
     project = service.create_project("Pivot Defaults", ["fr", "en"], ["context"])
     schema = service.get_schema(int(project["project_id"]))
 
-    assert schema["translation_pivots"] == {"fr": None, "en": None}
+    assert schema["pivot_language"] is None
+    assert schema["pivoted_languages"] == []
 
 
-def test_create_project_accepts_sparse_translation_pivots_and_exposes_full_map() -> None:
+def test_create_project_accepts_single_pivot_language_and_pivoted_languages() -> None:
     reset_db()
     service = ProjectService()
 
@@ -44,11 +45,13 @@ def test_create_project_accepts_sparse_translation_pivots_and_exposes_full_map()
         "Pivot Sparse",
         ["fr", "en", "de"],
         ["context"],
-        {"fr": "en"},
+        "en",
+        ["fr"],
     )
     schema = service.get_schema(int(project["project_id"]))
 
-    assert schema["translation_pivots"] == {"fr": "en", "en": None, "de": None}
+    assert schema["pivot_language"] == "en"
+    assert schema["pivoted_languages"] == ["fr"]
 
 
 def test_preview_and_resolve_headers_allow_sparse_import_language_mapping() -> None:
@@ -92,26 +95,47 @@ def test_create_project_rejects_invalid_schema_columns(
 
 
 @pytest.mark.parametrize(
-    ("translation_pivots", "message"),
+    ("pivot_language", "pivoted_languages", "message"),
     [
-        ({"fr": "fr"}, "translation_pivots cannot point a language to itself: fr"),
-        ({"fr": "jp"}, "translation_pivots contains unknown parent language for fr: jp"),
-        ({"jp": "en"}, "translation_pivots contains unknown child language: jp"),
         (
-            {"fr": "en", "en": "de"},
-            "translation_pivots cannot assign a parent to referenced pivot parent: en",
+            None,
+            ["fr"],
+            "pivoted_languages requires pivot_language",
         ),
         (
-            {"fr": "en", "en": "fr"},
-            "translation_pivots cannot assign a parent to referenced pivot parent: en",
+            "jp",
+            [],
+            "pivot_language must be one of translation_columns: jp",
+        ),
+        (
+            "en",
+            ["jp"],
+            "pivoted_languages contains unknown language: jp",
+        ),
+        (
+            "en",
+            ["en"],
+            "pivoted_languages cannot include pivot_language: en",
+        ),
+        (
+            "en",
+            ["fr", "fr"],
+            "pivoted_languages contains duplicate language: fr",
         ),
     ],
 )
-def test_create_project_rejects_invalid_translation_pivots(
-    translation_pivots: dict[str, str | None],
+def test_create_project_rejects_invalid_pivot_configuration(
+    pivot_language: str | None,
+    pivoted_languages: list[str],
     message: str,
 ) -> None:
     reset_db()
 
     with pytest.raises(ValueError, match=re.escape(message)):
-        ProjectService().create_project("Bad Pivot Project", ["fr", "en", "de"], ["context"], translation_pivots)
+        ProjectService().create_project(
+            "Bad Pivot Project",
+            ["fr", "en", "de"],
+            ["context"],
+            pivot_language,
+            pivoted_languages,
+        )

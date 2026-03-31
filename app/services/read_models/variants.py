@@ -7,6 +7,7 @@ from app.db import get_conn
 from app.services.branch.models import BranchRef
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.read_models.hydration import ProjectVariantRowAssembler
+from app.services.variant.pivot import pivot_changed_by_branch_ref as format_pivot_changed_by_branch_ref
 from app.services.variant.bindings import BindingLookupService
 from app.services.variant.repositories import VariantQueryRepository
 
@@ -23,6 +24,8 @@ class ProjectVariantsQueryRepository:
         branch_refs: list[BranchRef],
         search_business_key: str | None,
         search_source: str | None,
+        pivot_status: str | None,
+        pivot_changed_by_branch_ref: BranchRef | None,
         page: int,
         page_size: int | None,
         conn: sqlite3.Connection | None = None,
@@ -51,6 +54,17 @@ class ProjectVariantsQueryRepository:
             where_clauses.append("LOWER(v.source) LIKE ?")
             params.append(f"%{normalized_source}%")
 
+        if pivot_status is not None:
+            where_clauses.append("v.pivot_status = ?")
+            params.append(pivot_status)
+
+        if pivot_changed_by_branch_ref is not None:
+            owner_scope_type, owner_scope_value = pivot_changed_by_branch_ref.as_tuple()
+            where_clauses.append(
+                "v.pivot_changed_by_scope_type = ? AND v.pivot_changed_by_scope_value = ?"
+            )
+            params.extend([owner_scope_type, owner_scope_value])
+
         if branch_refs:
             branch_conditions: list[str] = []
             for branch_ref in branch_refs:
@@ -78,8 +92,14 @@ class ProjectVariantsQueryRepository:
                 v.trashed_at,
                 v.trash_until,
                 v.restored_at,
-                v.created_at AS variant_created_at,
-                v.updated_at AS variant_updated_at
+                v.pivot_status,
+                v.pivot_changed_by_scope_type,
+                v.pivot_changed_by_scope_value,
+                v.pivot_changed_at,
+                v.pivot_reviewed_at,
+                v.pivot_status_updated_at,
+                v.created_at,
+                v.updated_at
             FROM variants v
             JOIN entries e ON e.entry_id = v.entry_id
             WHERE {where_sql}
@@ -136,6 +156,8 @@ class ProjectVariantsReadService:
         branch_refs: list[BranchRef] | None = None,
         search_business_key: str | None = None,
         search_source: str | None = None,
+        pivot_status: str | None = None,
+        pivot_changed_by_branch_ref: BranchRef | None = None,
         page: int = 1,
         page_size: int | None = None,
     ) -> dict[str, Any]:
@@ -147,6 +169,8 @@ class ProjectVariantsReadService:
             branch_refs=branch_filters,
             search_business_key=search_business_key,
             search_source=search_source,
+            pivot_status=pivot_status,
+            pivot_changed_by_branch_ref=pivot_changed_by_branch_ref,
             page=page,
             page_size=page_size,
         )
@@ -154,23 +178,7 @@ class ProjectVariantsReadService:
         if not raw_rows:
             return payload
 
-        hydrated_variants = self.variant_queries.hydrate_variant_rows(
-            [
-                {
-                    "variant_id": row["variant_id"],
-                    "entry_id": row["entry_id"],
-                    "file_name": row["file_name"],
-                    "source": row["source"],
-                    "orphaned_at": row["orphaned_at"],
-                    "trashed_at": row["trashed_at"],
-                    "trash_until": row["trash_until"],
-                    "restored_at": row["restored_at"],
-                    "created_at": row["variant_created_at"],
-                    "updated_at": row["variant_updated_at"],
-                }
-                for row in raw_rows
-            ]
-        )
+        hydrated_variants = self.variant_queries.hydrate_variant_rows(raw_rows)
         variants_by_id = {
             int(variant["variant_id"]): variant
             for variant in hydrated_variants
@@ -202,6 +210,10 @@ class ProjectVariantsReadService:
                     "bindings": variant_bindings,
                     "state": state_value,
                     "orphaned_at": row["orphaned_at"] if state_value == "orphan" else None,
+                    "pivot_status": variant["pivot_status"],
+                    "pivot_changed_by_branch_ref": format_pivot_changed_by_branch_ref(variant),
+                    "pivot_changed_at": variant["pivot_changed_at"],
+                    "pivot_reviewed_at": variant["pivot_reviewed_at"],
                     "created_at": variant["created_at"],
                     "updated_at": variant["updated_at"],
                 }

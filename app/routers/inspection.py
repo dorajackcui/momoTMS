@@ -19,6 +19,8 @@ def project_variants(
     branch_ref: list[str] | None = Query(default=None),
     search_business_key: str | None = Query(default=None),
     search_source: str | None = Query(default=None),
+    pivot_status: Literal["init", "changed", "reviewed"] | None = Query(default=None),
+    pivot_changed_by_branch_ref: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int | None = Query(default=None, ge=1),
 ) -> ProjectVariantsResponse:
@@ -30,6 +32,12 @@ def project_variants(
                 branch_refs=[parse_branch_ref(item) for item in branch_ref or []],
                 search_business_key=search_business_key,
                 search_source=search_source,
+                pivot_status=pivot_status,
+                pivot_changed_by_branch_ref=(
+                    parse_branch_ref(pivot_changed_by_branch_ref)
+                    if pivot_changed_by_branch_ref is not None
+                    else None
+                ),
                 page=page,
                 page_size=page_size,
             )

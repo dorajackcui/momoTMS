@@ -4,6 +4,7 @@ import type { JobDetail } from "@/domains/jobs/types";
 import type {
   EntryVariantsResponse,
   OrphanVariantsResponse,
+  PivotStatus,
   ProjectVariantsResponse,
 } from "@/domains/variants/types";
 
@@ -26,6 +27,8 @@ export function getProjectVariants(
     branch_ref?: string[];
     search_business_key?: string;
     search_source?: string;
+    pivot_status?: PivotStatus;
+    pivot_changed_by_branch_ref?: string;
     page?: number;
     page_size?: number;
   },
@@ -40,5 +43,16 @@ export function restoreVariants(projectId: number, variantIds: number[]) {
   return fetchJson<JobDetail>(`/api/projects/${projectId}/variants/trash/restore`, {
     method: "POST",
     body: JSON.stringify({ variant_ids: variantIds }),
+  });
+}
+
+export function reviewPivotVariants(
+  projectId: number,
+  branchRef: string,
+  variantIds: number[],
+) {
+  return fetchJson<JobDetail>(`/api/projects/${projectId}/variants/pivot/review`, {
+    method: "POST",
+    body: JSON.stringify({ branch_ref: branchRef, variant_ids: variantIds }),
   });
 }

@@ -31,12 +31,14 @@ class _VariantStore:
                     file_name,
                     source,
                     orphaned_at,
+                    pivot_status,
+                    pivot_status_updated_at,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (entry_id, file_name, source, timestamp, timestamp, timestamp),
+                (entry_id, file_name, source, timestamp, "init", timestamp, timestamp, timestamp),
             )
             return int(cur.lastrowid)
         with get_conn() as local_conn:
@@ -47,12 +49,14 @@ class _VariantStore:
                     file_name,
                     source,
                     orphaned_at,
+                    pivot_status,
+                    pivot_status_updated_at,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (entry_id, file_name, source, timestamp, timestamp, timestamp),
+                (entry_id, file_name, source, timestamp, "init", timestamp, timestamp, timestamp),
             )
         return int(cur.lastrowid)
 
@@ -394,6 +398,54 @@ class _VariantStore:
         with get_conn() as local_conn:
             return self.restore_variant(variant_id, timestamp, conn=local_conn)
 
+    def set_pivot_changed(
+        self,
+        variant_id: int,
+        scope_type: str,
+        scope_value: str,
+        timestamp: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        if conn is not None:
+            conn.execute(
+                """
+                UPDATE variants
+                SET pivot_status = 'changed',
+                    pivot_changed_by_scope_type = ?,
+                    pivot_changed_by_scope_value = ?,
+                    pivot_changed_at = ?,
+                    pivot_status_updated_at = ?
+                WHERE variant_id = ?
+                """,
+                (scope_type, scope_value, timestamp, timestamp, variant_id),
+            )
+            return
+        with get_conn() as local_conn:
+            self.set_pivot_changed(variant_id, scope_type, scope_value, timestamp, conn=local_conn)
+
+    def set_pivot_reviewed(
+        self,
+        variant_id: int,
+        timestamp: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        if conn is not None:
+            conn.execute(
+                """
+                UPDATE variants
+                SET pivot_status = 'reviewed',
+                    pivot_changed_by_scope_type = NULL,
+                    pivot_changed_by_scope_value = NULL,
+                    pivot_reviewed_at = ?,
+                    pivot_status_updated_at = ?
+                WHERE variant_id = ?
+                """,
+                (timestamp, timestamp, variant_id),
+            )
+            return
+        with get_conn() as local_conn:
+            self.set_pivot_reviewed(variant_id, timestamp, conn=local_conn)
+
     def _hydrate_rows(
         self,
         rows: list[dict[str, Any]],
@@ -462,6 +514,20 @@ class _VariantStore:
                 "trashed_at": row["trashed_at"],
                 "trash_until": row["trash_until"],
                 "restored_at": row["restored_at"],
+                "pivot_status": str(row["pivot_status"]),
+                "pivot_changed_by_scope_type": (
+                    str(row["pivot_changed_by_scope_type"])
+                    if row["pivot_changed_by_scope_type"] is not None
+                    else None
+                ),
+                "pivot_changed_by_scope_value": (
+                    str(row["pivot_changed_by_scope_value"])
+                    if row["pivot_changed_by_scope_value"] is not None
+                    else None
+                ),
+                "pivot_changed_at": row["pivot_changed_at"],
+                "pivot_reviewed_at": row["pivot_reviewed_at"],
+                "pivot_status_updated_at": row["pivot_status_updated_at"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -473,4 +539,50 @@ class _VariantStore:
         rows: list[dict[str, Any]],
         conn: sqlite3.Connection | None = None,
     ) -> list[VariantRecord]:
+        required_columns = {
+            "variant_id",
+            "entry_id",
+            "file_name",
+            "source",
+            "orphaned_at",
+            "trashed_at",
+            "trash_until",
+            "restored_at",
+            "pivot_status",
+            "pivot_changed_by_scope_type",
+            "pivot_changed_by_scope_value",
+            "pivot_changed_at",
+            "pivot_reviewed_at",
+            "pivot_status_updated_at",
+            "created_at",
+            "updated_at",
+        }
+        if rows and not required_columns.issubset(rows[0].keys()):
+            variant_ids: list[int] = []
+            seen: set[int] = set()
+            for row in rows:
+                variant_id = int(row["variant_id"])
+                if variant_id in seen:
+                    continue
+                seen.add(variant_id)
+                variant_ids.append(variant_id)
+            placeholders = ", ".join("?" for _ in variant_ids)
+            query = f"""
+                SELECT *
+                FROM variants
+                WHERE variant_id IN ({placeholders})
+            """
+            if conn is not None:
+                canonical_rows = conn.execute(query, variant_ids).fetchall()
+            else:
+                with get_conn() as local_conn:
+                    canonical_rows = local_conn.execute(query, variant_ids).fetchall()
+            rows_by_id = {
+                int(row["variant_id"]): row
+                for row in canonical_rows
+            }
+            if len(rows_by_id) != len(variant_ids):
+                missing_ids = [variant_id for variant_id in variant_ids if variant_id not in rows_by_id]
+                raise KeyError(f"variant rows not found: {missing_ids}")
+            rows = [rows_by_id[int(row["variant_id"])] for row in rows]
         return self._hydrate_rows(rows, conn=conn)

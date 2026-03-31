@@ -90,6 +90,55 @@ async function seedDevBranch(request, branchRef = "dev/2.4.3", projectId = 1) {
   await applyImportBatch(request, { projectId, branchRef, importBatchId });
 }
 
+async function createPivotProject(request, name) {
+  const response = await request.post("/api/projects", {
+    data: {
+      name,
+      translation_columns: ["fr", "en"],
+      remark_columns: ["context"],
+      pivot_language: "en",
+      pivoted_languages: ["fr"],
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+async function applyDirectMutation(
+  request,
+  {
+    projectId,
+    branchRef = "dev/2.4.3",
+    businessKey,
+    source,
+    translationsByLang,
+    remarksByKey = {},
+    fileName,
+  },
+) {
+  const response = await request.post(`/api/projects/${projectId}/branches/mutations`, {
+    data: {
+      branch_ref: branchRef,
+      input: {
+        kind: "direct",
+        changes: [
+          {
+            business_key: businessKey,
+            ...(source === undefined ? {} : { source }),
+            ...(fileName === undefined ? {} : { file_name: fileName }),
+            translations_by_lang: translationsByLang,
+            remarks_by_key: remarksByKey,
+          },
+        ],
+      },
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  const detail = await response.json();
+  expect(detail.job.status).toBe("success");
+  return detail;
+}
+
 function buildJobDetail(overrides = {}) {
   return {
     job: {
@@ -284,6 +333,60 @@ test("overview branch filter clears canonical branch state for project-wide mode
   await expectBranchParam(page, null);
 });
 
+test("reviews changed pivot variants from the variants workspace", async ({
+  page,
+  request,
+}) => {
+  const project = await createPivotProject(request, "Pivot E2E Project");
+  const projectId = Number(project.project_id);
+
+  await applyDirectMutation(request, {
+    projectId,
+    businessKey: "pivot.e2e",
+    source: "Hello",
+    fileName: "pivot.xlsx",
+    translationsByLang: {
+      en: "Hello",
+      fr: "Bonjour",
+    },
+    remarksByKey: {
+      context: "pivot e2e",
+    },
+  });
+  await applyDirectMutation(request, {
+    projectId,
+    businessKey: "pivot.e2e",
+    translationsByLang: {
+      en: "Hello from dev",
+    },
+  });
+
+  await page.goto(`/app/variants?project=${projectId}&lang=fr&branch=dev%2F2.4.3`);
+  await expect(page.getByTestId("variants-page")).toBeVisible();
+
+  const resultCard = page
+    .getByTestId("variants-results-list")
+    .locator("article")
+    .filter({ hasText: "pivot.e2e" });
+  await expect(resultCard).toContainText("changed");
+  await expect(resultCard).toContainText("dev/2.4.3");
+
+  await page.getByLabel("Select pivot.e2e").check();
+  await page.getByTestId("variants-review-button").click();
+
+  await expect(page).toHaveURL(/\/app\/runs\?.*job=/);
+  await expect(page.getByTestId("runs-page")).toBeVisible();
+
+  await page.goto(`/app/variants?project=${projectId}&lang=fr&branch=dev%2F2.4.3`);
+  await expect(page.getByTestId("variants-page")).toBeVisible();
+  const reviewedCard = page
+    .getByTestId("variants-results-list")
+    .locator("article")
+    .filter({ hasText: "pivot.e2e" });
+  await expect(reviewedCard).toContainText("reviewed");
+  await expect(reviewedCard).toContainText("changed by -");
+});
+
 test("normalizes stale branch params before branch-scoped pages query data", async ({
   page,
 }) => {
@@ -311,10 +414,8 @@ test("keeps the intake preview open when the import job finishes as failed", asy
           },
           translation_columns: ["fr", "en"],
           remark_columns: ["context"],
-          translation_pivots: {
-            fr: null,
-            en: null,
-          },
+          pivot_language: null,
+          pivoted_languages: [],
           created_at: "2026-03-25T00:00:00Z",
         },
         file_count: 1,

@@ -83,7 +83,9 @@ npm run test:e2e:install
 
 ## Run
 
-Build the product app after frontend changes:
+Local development uses a single FastAPI server. There is no separate frontend dev-server script in this repo. The React app must be built into `app/static/product-app`, and `/app` is then served by the backend.
+
+Build the product app before the first run and again after frontend changes:
 
 ```bash
 npm run build:app
@@ -101,8 +103,7 @@ uvicorn app.main:app --reload
 Windows PowerShell:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
 If the frontend build is missing, `GET /app` returns `503` until `app/static/product-app/index.html` exists.
@@ -113,6 +114,13 @@ Useful URLs:
 - `/app/projects/new`
 - `/app/inspection`
 - `/docs`
+
+Windows troubleshooting:
+
+- if `Activate.ps1` is blocked by PowerShell execution policy, skip activation and run `.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload` directly
+- if `.\.venv\Scripts\python.exe` fails with an old absolute path, delete `.venv` and recreate it on the current machine
+- if `py` or `python` is missing but you already have a local Python install elsewhere, use `scripts/bootstrap_local_python.ps1 -PythonHome <path-to-python-home>` to copy that runtime into the repo and recreate `.venv`
+- if neither `py` nor `python` exists on the machine, install Python 3.11 first, then recreate `.venv`
 
 ## Demo Reset
 

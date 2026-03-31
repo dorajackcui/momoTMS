@@ -4,6 +4,8 @@ export type VariantBindingSummary = {
   updated_at: string;
 };
 
+export type PivotStatus = "init" | "changed" | "reviewed";
+
 export type EntryVariantInspection = {
   variant_id: number;
   file_name: string | null;
@@ -17,6 +19,10 @@ export type EntryVariantInspection = {
   trashed_at: string | null;
   trash_until: string | null;
   restored_at: string | null;
+  pivot_status: PivotStatus;
+  pivot_changed_by_branch_ref: string | null;
+  pivot_changed_at: string | null;
+  pivot_reviewed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -57,6 +63,10 @@ export type ProjectVariantRow = {
   bindings: VariantBindingSummary[];
   state: "active" | "orphan";
   orphaned_at: string | null;
+  pivot_status: PivotStatus;
+  pivot_changed_by_branch_ref: string | null;
+  pivot_changed_at: string | null;
+  pivot_reviewed_at: string | null;
   created_at: string;
   updated_at: string;
 };
