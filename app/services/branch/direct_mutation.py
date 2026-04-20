@@ -47,17 +47,19 @@ class DirectMutationApplier:
         status_counts: Counter[str] = Counter()
         report_rows: list[dict[str, Any]] = []
         created_entry_count = 0
+        filtered_count = 0
         for change in changes:
             row = self.apply_change(branch_ref, change, policy, project_id, conn=conn)
             created_entry_count += int(row.pop("created_entry", False))
             status_counts.update([row["status"]])
+            filtered_count += int(bool(row.get("content_filtered_by_authority")))
             report_rows.append(row)
         summary = {
             "branch_ref": str(branch_ref),
             "input_kind": "direct",
             "processed_count": len(report_rows),
             "created_entry_count": created_entry_count,
-            **self._status_summary(status_counts),
+            **self._status_summary(status_counts, filtered_count=filtered_count),
             "stages": [
                 {
                     "stage": "apply_scope_mutation",
@@ -135,17 +137,18 @@ class DirectMutationApplier:
                 self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
             )
-            forbidden_status = AuthorityPolicy.content_mutation_status(
+            decision = AuthorityPolicy.evaluate_content_edit(
                 branch_ref,
                 bound_branch_refs,
                 content_changed=not self.resolution.variant_matches(current_variant, merged),
             )
-            if forbidden_status is not None:
+            if decision.filtered:
                 return {
                     "business_key": business_key,
                     "branch_ref": str(branch_ref),
                     "variant_id": int(current_variant["variant_id"]),
-                    "status": forbidden_status,
+                    "status": "NOOP",
+                    "content_filtered_by_authority": True,
                     "created_entry": created_entry,
                 }
             self.catalog.update_variant(
@@ -179,17 +182,18 @@ class DirectMutationApplier:
                 self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
             )
-            forbidden_status = AuthorityPolicy.content_mutation_status(
+            decision = AuthorityPolicy.evaluate_content_edit(
                 branch_ref,
                 bound_branch_refs,
                 content_changed=True,
             )
-            if forbidden_status is not None:
+            if decision.filtered:
                 return {
                     "business_key": business_key,
                     "branch_ref": str(branch_ref),
                     "variant_id": int(current_variant["variant_id"]),
-                    "status": forbidden_status,
+                    "status": "NOOP",
+                    "content_filtered_by_authority": True,
                     "created_entry": created_entry,
                 }
             self.catalog.update_variant(
@@ -242,21 +246,26 @@ class DirectMutationApplier:
             self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
             target_variant_id,
         )
-        forbidden_status = AuthorityPolicy.content_mutation_status(
+        payload_matches_target = self.resolution.variant_matches(target_variant, merged)
+        decision = AuthorityPolicy.evaluate_content_edit(
             branch_ref,
             bound_branch_refs,
-            content_changed=not self.resolution.variant_matches(target_variant, merged),
+            content_changed=not payload_matches_target,
         )
-        if forbidden_status is not None:
-            return {
+        if decision.filtered:
+            row = {
                 "business_key": business_key,
                 "branch_ref": str(branch_ref),
                 "variant_id": target_variant_id,
-                "status": forbidden_status,
+                "content_filtered_by_authority": True,
                 "created_entry": created_entry,
             }
-
-        payload_matches_target = self.resolution.variant_matches(target_variant, merged)
+            if current_matches_target:
+                row["status"] = "NOOP"
+                return row
+            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
+            row["status"] = "BOUND_EXISTING_VARIANT"
+            return row
         if current_matches_target and payload_matches_target:
             return {
                 "business_key": business_key,
@@ -294,7 +303,7 @@ class DirectMutationApplier:
             "created_entry": created_entry,
         }
 
-    def _status_summary(self, status_counts: Counter[str]) -> dict[str, int]:
+    def _status_summary(self, status_counts: Counter[str], *, filtered_count: int) -> dict[str, int]:
         return {
             "updated_bound_variant_count": status_counts["UPDATED_BOUND_VARIANT"],
             "bound_existing_variant_count": status_counts["BOUND_EXISTING_VARIANT"],
@@ -303,4 +312,5 @@ class DirectMutationApplier:
             "missing_in_scope_count": status_counts["MISSING_IN_SCOPE"],
             "noop_count": status_counts["NOOP"],
             "forbidden_by_authority_count": status_counts["FORBIDDEN_BY_AUTHORITY"],
+            "content_filtered_by_authority_count": filtered_count,
         }

@@ -794,8 +794,10 @@ def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> N
         },
     )
 
-    assert result["report_rows"][0]["status"] == "FORBIDDEN_BY_AUTHORITY"
-    assert result["summary"]["forbidden_by_authority_count"] == 1
+    row = result["report_rows"][0]
+    assert row["status"] == "NOOP"
+    assert row["content_filtered_by_authority"] is True
+    assert result["summary"]["content_filtered_by_authority_count"] == 1
     assert catalog.get_variant(variant_id)["translations"]["fr"] == "Series owner"
 
 

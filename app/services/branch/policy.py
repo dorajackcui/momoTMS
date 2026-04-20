@@ -12,6 +12,13 @@ class AuthorityKey:
     version_parts: tuple[int, int, int]
 
 
+@dataclass(frozen=True)
+class ContentAuthorityDecision:
+    content_changed: bool
+    allowed: bool
+    filtered: bool
+
+
 class AuthorityPolicy:
     @classmethod
     def key_for_branch(cls, branch_ref: BranchRef) -> AuthorityKey:
@@ -42,9 +49,32 @@ class AuthorityPolicy:
         *,
         content_changed: bool,
     ) -> str | None:
-        if not content_changed or cls.can_mutate_variant(actor_branch_ref, bound_branch_refs):
+        if not cls.evaluate_content_edit(
+            actor_branch_ref,
+            bound_branch_refs,
+            content_changed=content_changed,
+        ).filtered:
             return None
         return "FORBIDDEN_BY_AUTHORITY"
+
+    @classmethod
+    def evaluate_content_edit(
+        cls,
+        actor_branch_ref: BranchRef,
+        bound_branch_refs: list[BranchRef],
+        *,
+        content_changed: bool,
+    ) -> ContentAuthorityDecision:
+        if not content_changed:
+            return ContentAuthorityDecision(content_changed=False, allowed=False, filtered=False)
+        if not bound_branch_refs:
+            return ContentAuthorityDecision(content_changed=True, allowed=True, filtered=False)
+        allowed = cls.can_mutate_variant(actor_branch_ref, bound_branch_refs)
+        return ContentAuthorityDecision(
+            content_changed=True,
+            allowed=allowed,
+            filtered=not allowed,
+        )
 
 
 @dataclass(frozen=True)
