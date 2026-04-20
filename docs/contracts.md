@@ -163,6 +163,12 @@ Import upload and job detail:
 - `GET /api/projects/{project_id}/jobs/{job_id}` returns a report preview only; callers should use the workflow-specific full report route when they need all rows
 - import jobs publish the full persisted row report through `GET /api/projects/{project_id}/imports/{import_batch_id}/report`
 
+Branch mutation reporting:
+
+- `POST /api/projects/{project_id}/branches/mutations` may return mutation report rows with `content_filtered_by_authority = true` when a requested `translations` or `remarks` edit is dropped after authority evaluation on the resolved target variant
+- branch mutation summaries may include `content_filtered_by_authority_count`
+- row `status` still describes the applied bind or update effect; the authority-filtered flag explains whether requested content edits were omitted
+
 ## Frontend And Backend Contract
 
 The product app depends on:

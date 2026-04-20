@@ -123,7 +123,11 @@ Mutation rules:
 - if `source` is provided and matches the currently bound variant, mutation updates that bound variant in place
 - if `source` is provided and differs, mutation resolves or creates the target same-source canonical variant and rebinds the scope when needed
 - `dev` policy keeps rel-owned canonical content authoritative when same-source hits a rel-bound variant
-- lower-authority content-change attempts report `FORBIDDEN_BY_AUTHORITY`; they do not collapse into `NOOP`
+- lower-authority content-change attempts no longer hard-fail by default during branch mutation
+- after target variant resolution, unauthorized `translations + remarks` edits are filtered while otherwise legal bind or rebind work still proceeds
+- mutation report row `status` still describes the applied bind or update effect; `content_filtered_by_authority = true` explains when a requested content edit was dropped after authority evaluation
+- mutation summaries include `content_filtered_by_authority_count`
+- mutation report rows may include `content_filtered_by_authority = true` when the requested content edit was dropped
 - pure rebind can still succeed when no content change is needed, because binding an already-matching same-source variant is distinct from mutating that variant's content
 - `dev` policy may create missing entries when `source` is present
 - `rel` policy always starts from the currently bound rel variant and never creates a missing business key from scratch
