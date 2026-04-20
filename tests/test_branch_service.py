@@ -596,6 +596,144 @@ def test_direct_dev_mutation_reuses_rel_owned_variant_and_creates_missing_entrie
     assert any(item["business_key"] == "dev.direct.new" for item in dev_entries)
 
 
+@pytest.mark.shared_current
+def test_lower_authority_same_variant_edit_is_filtered_but_binding_is_kept() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    entry = services.entries.get_or_create_entry("authority.shared.current", project_id=1)
+    variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "authority.xlsx",
+            "Shared source",
+            {"fr": "Authoritative text"},
+            {"context": "authoritative"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), variant_id)
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.shared.current",
+                    "source": "Shared source",
+                    "translations_by_lang": {"fr": "Filtered text"},
+                    "remarks_by_key": {"context": "Filtered remark"},
+                }
+            ],
+        },
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "NOOP"
+    assert row["content_filtered_by_authority"] is True
+    assert result["summary"]["content_filtered_by_authority_count"] == 1
+    current_variant = services.catalog.get_variant(variant_id)
+    assert current_variant["translations"]["fr"] == "Authoritative text"
+    assert current_variant["remarks"]["context"] == "authoritative"
+
+
+@pytest.mark.rebind_filtered
+def test_lower_authority_source_switch_rebinds_existing_target_and_filters_content() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    entry = services.entries.get_or_create_entry("authority.rebind.filtered", project_id=1)
+    current_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "authority-current.xlsx",
+            "Current source",
+            {"fr": "Current text"},
+            {"context": "current"},
+        ),
+    )
+    target_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "authority-target.xlsx",
+            "Target source",
+            {"fr": "Target text"},
+            {"context": "target"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.rebind.filtered",
+                    "source": "Target source",
+                    "translations_by_lang": {"fr": "Filtered target text"},
+                    "remarks_by_key": {"context": "Filtered target remark"},
+                }
+            ],
+        },
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["content_filtered_by_authority"] is True
+
+    target_variant = services.catalog.get_variant(target_variant_id)
+    assert target_variant["translations"]["fr"] == "Target text"
+    assert target_variant["remarks"]["context"] == "target"
+
+
+@pytest.mark.orphan
+def test_orphan_variant_can_be_rebound_and_edited_in_one_row() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    entry = services.entries.get_or_create_entry("authority.orphan.rebind", project_id=1)
+    orphan_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "authority-orphan.xlsx",
+            "Orphan source",
+            {"fr": "Orphan text"},
+            {"context": "orphan"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), orphan_variant_id)
+    services.bindings.remove_scope_bindings([BranchRef.dev("2.4.2")])
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.orphan.rebind",
+                    "source": "Orphan source",
+                    "translations_by_lang": {"fr": "Edited orphan text"},
+                    "remarks_by_key": {"context": "Edited orphan remark"},
+                }
+            ],
+        },
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
+    assert not row.get("content_filtered_by_authority")
+
+    orphan_variant = services.catalog.get_variant(orphan_variant_id)
+    assert orphan_variant["translations"]["fr"] == "Edited orphan text"
+    assert orphan_variant["remarks"]["context"] == "Edited orphan remark"
+
+
 def test_branch_authority_prefers_higher_series_and_later_patch() -> None:
     assert AuthorityPolicy.key_for_branch(BranchRef.rel_current()) > AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.3"))
     assert AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.3")) > AuthorityPolicy.key_for_branch(BranchRef.dev("2.4.2"))
