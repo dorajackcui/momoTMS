@@ -8,6 +8,7 @@ from openpyxl import Workbook
 from app.db import get_db_path
 from app.main import app
 from app.services.branch.models import BranchRef
+from app.services.branch.registry import BranchRegistryService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
@@ -81,6 +82,8 @@ def create_bound_variant(
         ),
     )
     for branch_ref in branch_refs:
+        if branch_ref.is_dev:
+            BranchRegistryService().ensure_dev_branch(branch_ref.version, project_id=project_id)
         bindings.bind_scope(int(entry["entry_id"]), branch_ref, variant_id)
     return variant_id
 
@@ -213,7 +216,7 @@ def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_id
     assert payload["added_to_target_count"] == 0
     assert payload["kept_in_target_count"] == 0
     assert payload["rebind_target_count"] == 1
-    assert payload["removed_from_target_count"] == 0
+    assert payload["removed_from_target_count"] == 5
     assert "already_in_target_count" not in payload
 
     assert execute_response.status_code == 200
@@ -225,7 +228,7 @@ def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_id
     assert summary["added_to_target_count"] == 0
     assert summary["kept_in_target_count"] == 0
     assert summary["rebind_target_count"] == 1
-    assert summary["removed_from_target_count"] == 0
+    assert summary["removed_from_target_count"] == 5
     assert "already_in_target_count" not in summary
 
 

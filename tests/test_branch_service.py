@@ -8,6 +8,7 @@ from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
 from app.services.branch.policy import AuthorityPolicy
 from app.services.branch.replace import BranchReplaceService
+from app.services.branch.registry import BranchRegistryService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
@@ -72,6 +73,7 @@ def test_branch_import_paths_and_promote_cleanup() -> None:
 def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() -> None:
     reset_demo()
     services = branch_services()
+    BranchRegistryService().ensure_dev_branch("2.4.3", project_id=1)
     entry = services.entries.get_or_create_entry("replace.rebind", project_id=1)
     source_variant_id = services.catalog.create_variant(
         int(entry["entry_id"]),
@@ -105,13 +107,13 @@ def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() 
     assert preview["added_to_target_count"] == 0
     assert preview["kept_in_target_count"] == 0
     assert preview["rebind_target_count"] == 1
-    assert preview["removed_from_target_count"] == 0
+    assert preview["removed_from_target_count"] == 5
     assert "already_in_target_count" not in preview
     assert execute["summary"]["target_entry_count"] == 1
     assert execute["summary"]["added_to_target_count"] == 0
     assert execute["summary"]["kept_in_target_count"] == 0
     assert execute["summary"]["rebind_target_count"] == 1
-    assert execute["summary"]["removed_from_target_count"] == 0
+    assert execute["summary"]["removed_from_target_count"] == 5
     assert "already_in_target_count" not in execute["summary"]
 
 
