@@ -836,8 +836,10 @@ def test_lower_authority_dev_cannot_change_existing_higher_authority_variant_in_
         },
     )
 
-    assert result["report_rows"][0]["status"] == "FORBIDDEN_BY_AUTHORITY"
-    assert result["summary"]["forbidden_by_authority_count"] == 1
+    row = result["report_rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["content_filtered_by_authority"] is True
+    assert result["summary"]["content_filtered_by_authority_count"] == 1
     assert service.catalog.get_variant(variant_id)["translations"]["fr"] == "Import owner"
 
 
