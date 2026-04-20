@@ -841,6 +841,65 @@ def test_lower_authority_dev_cannot_change_existing_higher_authority_variant_in_
     assert service.catalog.get_variant(variant_id)["translations"]["fr"] == "Import owner"
 
 
+def test_lower_authority_import_batch_rebinds_existing_target_and_filtered_content(tmp_path) -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+    inspection = EntryTimelineDataset()
+
+    entry = services.entries.get_or_create_entry("authority.import.filtered", project_id=1)
+    actor_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "actor.xlsx",
+            "Actor source",
+            {"fr": "Actor content"},
+            {"context": "actor"},
+        ),
+    )
+    target_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "target.xlsx",
+            "Target source",
+            {"fr": "Target owner"},
+            {"context": "target"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), actor_variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+
+    import_root = tmp_path / "authority-import-filtered"
+    write_import_workbook(
+        import_root,
+        "bundle/authority.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["authority.import.filtered", "Target source", "Filtered import", "filtered"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+            "mark_as_candidate_release": True,
+        },
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["content_filtered_by_authority"] is True
+    assert result["summary"]["content_filtered_by_authority_count"] == 1
+
+    dev_entry = next(item for item in inspection.get("authority.import.filtered")["variants"] if item["variant_id"] == target_variant_id)
+    assert any(binding["branch_ref"] == "dev/2.5.1" for binding in dev_entry["bindings"])
+    assert services.catalog.get_variant(target_variant_id)["translations"]["fr"] == "Target owner"
+    assert services.catalog.get_variant(target_variant_id)["remarks"]["context"] == "target"
+
+
 def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None:
     reset_demo()
     service = branch_services()

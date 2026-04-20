@@ -483,6 +483,65 @@ def test_project_variants_route_returns_dev_bound_rows_after_import_batch_apply(
         assert "dev.new.entry" in keys
 
 
+def test_branch_mutation_api_authority_filtered_import_batch_reports_filtered_metadata(tmp_path) -> None:
+    reset_demo()
+    services = branch_services()
+    entry = services.entries.get_or_create_entry("authority.api.filtered", project_id=1)
+    actor_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "actor.xlsx",
+            "Actor source",
+            {"fr": "Actor content"},
+            {"context": "actor"},
+        ),
+    )
+    target_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "target.xlsx",
+            "Target source",
+            {"fr": "Owner content"},
+            {"context": "owner"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), actor_variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+
+    import_root = tmp_path / "authority-api-filtered"
+    workbook_path = import_root / "bundle" / "authority.xlsx"
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.write_bytes(
+        build_workbook_bytes(
+            ["business_key", "source", "fr", "context"],
+            [["authority.api.filtered", "Target source", "Filtered by API", "Filtered by API"]],
+        )
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    with TestClient(app) as client:
+        mutation = client.post(
+            "/api/projects/1/branches/mutations",
+            json={
+                "branch_ref": "dev/2.5.1",
+                "input": {
+                    "kind": "import_batch",
+                    "import_batch_id": batch["import_batch_id"],
+                    "mark_as_candidate_release": True,
+                },
+            },
+        )
+        assert mutation.status_code == 200
+        detail = wait_for_job(client, mutation.json())
+
+    assert detail["job"]["summary"]["content_filtered_by_authority_count"] == 1
+    row = detail["report"]["rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["content_filtered_by_authority"] is True
+    assert services.catalog.get_variant(target_variant_id)["translations"]["fr"] == "Owner content"
+    assert services.catalog.get_variant(target_variant_id)["remarks"]["context"] == "owner"
+
+
 def test_branch_rows_and_lookup_routes_match_existing_scope_routes() -> None:
     reset_demo()
     sample = DemoService().get_sample("core-cycle")
