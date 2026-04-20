@@ -81,6 +81,7 @@ class ImportBatchMutationApplier:
         binding_rows_by_entry: dict[int, list[dict[str, Any]]] = {}
         created_entry_keys: set[str] = set()
         status_counts: Counter[str] = Counter()
+        filtered_count = 0
 
         processed_count = 0
         last_import_row_id = 0
@@ -112,15 +113,19 @@ class ImportBatchMutationApplier:
                     touched_entry_ids=touched_entry_ids,
                     conn=conn,
                 )
-                status_counts.update([status])
+                status_counts.update([status["status"]])
+                filtered_count += int(bool(status.get("content_filtered_by_authority")))
                 processed_count += 1
-                yield {
+                report_row = {
                     "business_key": payload["business_key"],
                     "file_path": row["file_path"],
                     "sheet_name": row["sheet_name"],
                     "row_index": row["row_index"],
-                    "status": status,
+                    "status": status["status"],
                 }
+                if status.get("content_filtered_by_authority"):
+                    report_row["content_filtered_by_authority"] = True
+                yield report_row
             if touched_entry_ids:
                 self.bindings.refresh_orphan_states(list(touched_entry_ids), conn=conn)
 
@@ -132,7 +137,7 @@ class ImportBatchMutationApplier:
             "version_series": version_series,
             "processed_count": processed_count,
             "created_entry_count": len(created_entry_keys),
-            **self._status_summary(status_counts),
+            **self._status_summary(status_counts, filtered_count=filtered_count),
             "stages": [
                 {
                     "stage": "apply_scope_mutation",
@@ -156,7 +161,7 @@ class ImportBatchMutationApplier:
         variants_by_entry: dict[int, list[dict[str, Any]]],
         touched_entry_ids: set[int],
         conn: sqlite3.Connection,
-    ) -> str:
+    ) -> dict[str, Any]:
         bindings = binding_rows_by_entry.get(entry_id, [])
         variants = variants_by_entry.get(entry_id, [])
         current_binding = self._find_binding(bindings, target_branch)
@@ -176,18 +181,21 @@ class ImportBatchMutationApplier:
         if current_variant is not None and requested_source == current_variant["source"]:
             merged = self.resolution.merged_variant_payload(current_variant, change, requested_source)
             if self.resolution.variant_matches(current_variant, merged):
-                return "NOOP"
+                return {"status": "NOOP"}
             bound_branch_refs = self.resolution.bound_branch_refs_for_variant(
                 bindings,
                 int(current_variant["variant_id"]),
             )
-            forbidden_status = AuthorityPolicy.content_mutation_status(
+            decision = AuthorityPolicy.evaluate_content_edit(
                 target_branch,
                 bound_branch_refs,
-                content_changed=True,
+                content_changed=not self.resolution.variant_matches(current_variant, merged),
             )
-            if forbidden_status is not None:
-                return forbidden_status
+            if decision.filtered:
+                return {
+                    "status": "NOOP",
+                    "content_filtered_by_authority": True,
+                }
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
@@ -195,7 +203,7 @@ class ImportBatchMutationApplier:
                 conn=conn,
             )
             self._update_variant_cache(variants, int(current_variant["variant_id"]), merged)
-            return "UPDATED_BOUND_VARIANT"
+            return {"status": "UPDATED_BOUND_VARIANT"}
 
         source_variant = self.resolution.find_source_variant_in_cache(entry_id, variants, requested_source)
         content_base = source_variant
@@ -217,14 +225,14 @@ class ImportBatchMutationApplier:
             )
             self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
             touched_entry_ids.add(entry_id)
-            return "CREATED_AND_BOUND_VARIANT"
+            return {"status": "CREATED_AND_BOUND_VARIANT"}
 
         variant_id = int(source_variant["variant_id"])
         current_matches = current_binding is not None and int(current_binding["variant_id"]) == variant_id
         bound_branch_refs = self.resolution.bound_branch_refs_for_variant(bindings, variant_id)
         if self.resolution.variant_matches(source_variant, merged):
             if current_matches:
-                return "NOOP"
+                return {"status": "NOOP"}
             self.bindings.bind_scope(
                 entry_id,
                 target_branch,
@@ -234,15 +242,32 @@ class ImportBatchMutationApplier:
             )
             self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
             touched_entry_ids.add(entry_id)
-            return "BOUND_EXISTING_VARIANT"
+            return {"status": "BOUND_EXISTING_VARIANT"}
 
-        forbidden_status = AuthorityPolicy.content_mutation_status(
+        decision = AuthorityPolicy.evaluate_content_edit(
             target_branch,
             bound_branch_refs,
-            content_changed=True,
+            content_changed=not self.resolution.variant_matches(source_variant, merged),
         )
-        if forbidden_status is not None:
-            return forbidden_status
+        if decision.filtered:
+            if not current_matches:
+                self.bindings.bind_scope(
+                    entry_id,
+                    target_branch,
+                    variant_id,
+                    conn=conn,
+                    refresh_orphan_states=False,
+                )
+                self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
+                touched_entry_ids.add(entry_id)
+                return {
+                    "status": "BOUND_EXISTING_VARIANT",
+                    "content_filtered_by_authority": True,
+                }
+            return {
+                "status": "NOOP",
+                "content_filtered_by_authority": True,
+            }
 
         self.catalog.update_variant(
             variant_id,
@@ -252,21 +277,19 @@ class ImportBatchMutationApplier:
         )
         self._update_variant_cache(variants, variant_id, merged)
         if current_matches:
-            status = "UPDATED_BOUND_VARIANT"
-        else:
-            self.bindings.bind_scope(
-                entry_id,
-                target_branch,
-                variant_id,
-                conn=conn,
-                refresh_orphan_states=False,
-            )
-            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
-            status = "UPDATED_AND_BOUND_EXISTING_VARIANT"
-            touched_entry_ids.add(entry_id)
-        return status
+            return {"status": "UPDATED_BOUND_VARIANT"}
+        self.bindings.bind_scope(
+            entry_id,
+            target_branch,
+            variant_id,
+            conn=conn,
+            refresh_orphan_states=False,
+        )
+        self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
+        touched_entry_ids.add(entry_id)
+        return {"status": "UPDATED_AND_BOUND_EXISTING_VARIANT"}
 
-    def _status_summary(self, status_counts: Counter[str]) -> dict[str, int]:
+    def _status_summary(self, status_counts: Counter[str], *, filtered_count: int) -> dict[str, int]:
         return {
             "updated_bound_variant_count": status_counts["UPDATED_BOUND_VARIANT"],
             "bound_existing_variant_count": status_counts["BOUND_EXISTING_VARIANT"],
@@ -275,6 +298,7 @@ class ImportBatchMutationApplier:
             "missing_in_scope_count": status_counts["MISSING_IN_SCOPE"],
             "noop_count": status_counts["NOOP"],
             "forbidden_by_authority_count": status_counts["FORBIDDEN_BY_AUTHORITY"],
+            "content_filtered_by_authority_count": filtered_count,
         }
 
     def _load_chunk(
