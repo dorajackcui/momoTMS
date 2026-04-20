@@ -5,7 +5,6 @@ from typing import Any
 
 from app.db import get_conn
 from app.services.branch.models import BranchRef, derive_version_series
-from app.services.branch.queries import BranchQueryRepository
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.shared.utils import now_iso
 
@@ -13,22 +12,12 @@ from app.services.shared.utils import now_iso
 class BranchRegistryService:
     def __init__(self) -> None:
         self.projects = ProjectService()
-        self.branch_queries = BranchQueryRepository()
 
     def release_branch(self) -> BranchRef:
         return BranchRef.rel_current()
 
     def dev_branch(self, version: str) -> BranchRef:
         return BranchRef.dev(version)
-
-    def release_summary(
-        self,
-        project_id: int = DEFAULT_PROJECT_ID,
-        skip_project_check: bool = False,
-    ) -> dict[str, Any]:
-        if not skip_project_check:
-            self.projects.require_project(project_id)
-        return self.branch_queries.release_summary(project_id)
 
     def ensure_dev_branch(
         self,
@@ -119,67 +108,34 @@ class BranchRegistryService:
             "branch_ref": str(self.dev_branch(version)),
         }
 
-    def list_dev_branches(
-        self,
-        project_id: int = DEFAULT_PROJECT_ID,
-        active_only: bool = True,
-        skip_project_check: bool = False,
-    ) -> list[dict[str, Any]]:
-        if not skip_project_check:
-            self.projects.require_project(project_id)
-        query = """
-            SELECT
-                d.version,
-                d.version_line,
-                d.is_candidate_release,
-                d.created_at,
-                d.promoted_at,
-                COUNT(
-                    DISTINCT CASE
-                        WHEN e.entry_id IS NOT NULL AND v.trashed_at IS NULL THEN b.entry_id
-                        ELSE NULL
-                    END
-                ) AS entry_count
-            FROM dev_versions d
-            LEFT JOIN scope_bindings b
-                ON b.scope_type = 'dev'
-               AND b.scope_value = d.version
-            LEFT JOIN entries e
-                ON e.entry_id = b.entry_id
-               AND e.project_id = d.project_id
-            LEFT JOIN variants v
-                ON v.variant_id = b.variant_id
-            WHERE d.project_id = ?
-        """
-        params: list[Any] = [project_id]
-        if active_only:
-            query += " AND d.promoted_at IS NULL"
-        query += """
-            GROUP BY d.project_id, d.version, d.version_line, d.is_candidate_release, d.created_at, d.promoted_at
-            ORDER BY d.created_at DESC, d.version DESC
-        """
-        with get_conn() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [
-            {
-                "project_id": project_id,
-                "version": row["version"],
-                "version_series": row["version_line"],
-                "branch_ref": str(self.dev_branch(row["version"])),
-                "is_candidate_release": bool(row["is_candidate_release"]),
-                "entry_count": int(row["entry_count"] or 0),
-                "created_at": row["created_at"],
-                "promoted_at": row["promoted_at"],
-            }
-            for row in rows
-        ]
-
     def get_dev_branch_metadata(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.projects.require_project(project_id)
-        for branch in self.list_dev_branches(project_id=project_id, active_only=False, skip_project_check=True):
-            if branch["version"] == version:
-                return branch
-        raise KeyError(f"dev branch not found: {version}")
+        with get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    version,
+                    version_line,
+                    is_candidate_release,
+                    created_at,
+                    promoted_at
+                FROM dev_versions
+                WHERE project_id = ? AND version = ?
+                LIMIT 1
+                """,
+                (project_id, version),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"dev branch not found: {version}")
+        return {
+            "project_id": project_id,
+            "version": row["version"],
+            "version_series": row["version_line"],
+            "is_candidate_release": bool(row["is_candidate_release"]),
+            "created_at": row["created_at"],
+            "promoted_at": row["promoted_at"],
+            "branch_ref": str(self.dev_branch(row["version"])),
+        }
 
     def versions_in_series(self, version_series: str, project_id: int = DEFAULT_PROJECT_ID) -> list[str]:
         with get_conn() as conn:

@@ -15,6 +15,7 @@
 ## File Map
 
 - `design/pivot-status-design.md`: current design direction for variant-level pivot status with manual `reviewed` recovery and branch-authority ownership
+- `design/read-models-clean-implementation.md`: target architecture for rebuilding scope-first read models around stable datasets and derived views
 - `archive/pivot-language-design.md`: older archived exploration for fingerprint- and child-drift-based pivot design
 
 ## Suggested Workflow

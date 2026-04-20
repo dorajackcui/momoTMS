@@ -17,14 +17,14 @@ from app.services.shared.io import (
     normalize_non_content_value,
 )
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
-from app.services.variant.records import FillCandidateRecord
-from app.services.workflows.fill_queries import FillQueryService
+from app.services.read_models.datasets.history import ProjectHistoryDataset
+from app.services.read_models.types import FillCandidate
 
 
 class FillService:
     def __init__(self) -> None:
         self.projects = ProjectService()
-        self.fill_queries = FillQueryService()
+        self.history = ProjectHistoryDataset()
 
     def fill_and_export(
         self,
@@ -40,7 +40,7 @@ class FillService:
         if not root.exists() or not root.is_dir():
             raise ValueError(f"fill source directory not found: {source_dir}")
 
-        candidates = self.fill_queries.list_fill_candidates(project_id, lang)
+        candidates = self.history.fill_candidates(lang, project_id=project_id)
         keys_in_project, strings_by_combo = self._build_fill_indexes(candidates)
 
         export_dir = Path(work_dir) if work_dir else root.parent / f"{root.name}_filled"
@@ -217,17 +217,17 @@ class FillService:
 
     def _build_fill_indexes(
         self,
-        candidates: list[FillCandidateRecord],
-    ) -> tuple[set[str], dict[tuple[str, str], FillCandidateRecord]]:
+        candidates: list[FillCandidate],
+    ) -> tuple[set[str], dict[tuple[str, str], FillCandidate]]:
         keys_in_project: set[str] = set()
-        candidates_by_combo: dict[tuple[str, str], list[FillCandidateRecord]] = {}
+        candidates_by_combo: dict[tuple[str, str], list[FillCandidate]] = {}
         for candidate in candidates:
             business_key = normalize_non_content_value(candidate["business_key"])
             source = normalize_non_content_value(candidate["source"])
             keys_in_project.add(business_key)
             candidates_by_combo.setdefault((business_key, source), []).append(candidate)
 
-        best_candidates: dict[tuple[str, str], FillCandidateRecord] = {}
+        best_candidates: dict[tuple[str, str], FillCandidate] = {}
         for combined_key, grouped_candidates in candidates_by_combo.items():
             best_candidates[combined_key] = self._pick_best_candidate(combined_key, grouped_candidates)
         return keys_in_project, best_candidates
@@ -235,8 +235,8 @@ class FillService:
     def _pick_best_candidate(
         self,
         combined_key: tuple[str, str],
-        candidates: list[FillCandidateRecord],
-    ) -> FillCandidateRecord:
+        candidates: list[FillCandidate],
+    ) -> FillCandidate:
         live_candidates = [candidate for candidate in candidates if candidate["trashed_at"] is None]
         if len(live_candidates) > 1:
             raise RuntimeError(
@@ -251,7 +251,7 @@ class FillService:
             reverse=True,
         )[0]
 
-    def _candidate_state(self, candidate: FillCandidateRecord) -> str:
+    def _candidate_state(self, candidate: FillCandidate) -> str:
         if candidate["trashed_at"] is not None:
             return "trashed"
         if candidate["orphaned_at"] is not None:

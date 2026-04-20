@@ -4,12 +4,13 @@ from time import perf_counter
 from typing import Any
 
 from app.db import get_conn
-from app.services.branch.details import BranchDetailService
 from app.services.branch.models import BranchRef
 from app.services.branch.policy import BranchReplacePolicy
-from app.services.branch.queries import BranchQueryRepository
 from app.services.branch.registry import BranchRegistryService
 from app.services.project.service import DEFAULT_PROJECT_ID
+from app.services.read_models.derived.replace_preview import ReplacePreviewView
+from app.services.read_models.repository import ReadModelRepository
+from app.services.read_models.selectors import ScopeSelector
 from app.services.shared.utils import now_iso
 from app.services.variant.bindings import BindingCommandService
 from app.services.variant.lifecycle import VariantLifecycleService
@@ -17,9 +18,9 @@ from app.services.variant.lifecycle import VariantLifecycleService
 
 class BranchReplaceService:
     def __init__(self) -> None:
-        self.branch_details = BranchDetailService()
+        self.preview_view = ReplacePreviewView()
         self.branch_registry = BranchRegistryService()
-        self.branch_queries = BranchQueryRepository()
+        self.read_models = ReadModelRepository()
         self.binding_commands = BindingCommandService()
         self.bindings = self.binding_commands
         self.lifecycle = VariantLifecycleService()
@@ -30,39 +31,11 @@ class BranchReplaceService:
         target_branch_ref: BranchRef,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
-        policy = BranchReplacePolicy.for_branches(source_branch_ref, target_branch_ref)
-        source_entries = self.branch_details.list_branch_entries(source_branch_ref, project_id)
-        target_entries = self.branch_details.list_branch_entries(target_branch_ref, project_id)
-        source_keys = {item["business_key"] for item in source_entries}
-        target_keys = {item["business_key"] for item in target_entries}
-        added = sorted(source_keys - target_keys)
-        already = sorted(source_keys & target_keys)
-        removed = sorted(target_keys - source_keys)
-        cleanup_branch_refs = policy.cleanup_branch_refs(self.branch_registry, self.branch_details, project_id)
-        cleanup_binding_count = sum(
-            self.branch_queries.count_scope_entries(project_id, *branch_ref.as_tuple())
-            for branch_ref in cleanup_branch_refs
+        return self.preview_view.build(
+            source_branch_ref,
+            target_branch_ref,
+            project_id=project_id,
         )
-        report_rows = [
-            {"business_key": key, "status": "ADD_TO_TARGET"}
-            for key in added
-        ] + [
-            {"business_key": key, "status": "KEEP_IN_TARGET"}
-            for key in already
-        ] + [
-            {"business_key": key, "status": "REMOVE_FROM_TARGET"}
-            for key in removed
-        ]
-        return {
-            "source_branch_ref": str(source_branch_ref),
-            "target_branch_ref": str(target_branch_ref),
-            "target_entry_count": len(source_keys),
-            "added_to_target_count": len(added),
-            "already_in_target_count": len(already),
-            "removed_from_target_count": len(removed),
-            "cleanup_binding_count": cleanup_binding_count,
-            "report_rows": report_rows,
-        }
 
     def execute(
         self,
@@ -73,17 +46,17 @@ class BranchReplaceService:
         started = perf_counter()
         policy = BranchReplacePolicy.for_branches(source_branch_ref, target_branch_ref)
         preview = self.preview(source_branch_ref, target_branch_ref, project_id)
-        cleanup_branch_refs = policy.cleanup_branch_refs(self.branch_registry, self.branch_details, project_id)
+        cleanup_branch_refs = policy.cleanup_branch_refs(self.branch_registry, project_id)
         target_scope_type, target_scope_value = target_branch_ref.as_tuple()
-        source_scope_type, source_scope_value = source_branch_ref.as_tuple()
         timestamp = now_iso()
-        removed_binding_count = 0
+        cleanup_binding_count = 0
         with get_conn() as conn:
             try:
-                source_members = self.branch_queries.list_scope_rows(
+                source_members = self.read_models.select_scope_member_rows(
                     project_id,
-                    source_scope_type,
-                    source_scope_value,
+                    ScopeSelector.from_branch(source_branch_ref),
+                    page=1,
+                    page_size=None,
                     conn=conn,
                 )
                 removed_target_bindings = self.binding_commands.clear_scope_bindings(
@@ -105,7 +78,7 @@ class BranchReplaceService:
                         conn=conn,
                     )
                 removed_binding_rows = self._cleanup_scope_bindings(cleanup_branch_refs, project_id, conn)
-                removed_binding_count = len(removed_binding_rows)
+                cleanup_binding_count = len(removed_binding_rows)
                 affected_entry_ids.update(int(row["entry_id"]) for row in removed_binding_rows)
                 self._mark_cleanup_branches(cleanup_branch_refs, project_id, timestamp, conn)
                 for entry_id in sorted(affected_entry_ids):
@@ -118,9 +91,10 @@ class BranchReplaceService:
             "target_branch_ref": str(target_branch_ref),
             "target_entry_count": preview["target_entry_count"],
             "added_to_target_count": preview["added_to_target_count"],
-            "already_in_target_count": preview["already_in_target_count"],
+            "kept_in_target_count": preview["kept_in_target_count"],
+            "rebind_target_count": preview["rebind_target_count"],
             "removed_from_target_count": preview["removed_from_target_count"],
-            "cleanup_binding_count": removed_binding_count,
+            "cleanup_binding_count": cleanup_binding_count,
             "stages": [
                 {
                     "stage": "execute_branch_replace",

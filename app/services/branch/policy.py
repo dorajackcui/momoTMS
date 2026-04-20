@@ -34,6 +34,18 @@ class AuthorityPolicy:
         highest_bound = max(cls.key_for_branch(branch_ref) for branch_ref in bound_branch_refs)
         return actor_key >= highest_bound
 
+    @classmethod
+    def content_mutation_status(
+        cls,
+        actor_branch_ref: BranchRef,
+        bound_branch_refs: list[BranchRef],
+        *,
+        content_changed: bool,
+    ) -> str | None:
+        if not content_changed or cls.can_mutate_variant(actor_branch_ref, bound_branch_refs):
+            return None
+        return "FORBIDDEN_BY_AUTHORITY"
+
 
 @dataclass(frozen=True)
 class BranchMutationPolicy:
@@ -85,14 +97,14 @@ class BranchReplacePolicy:
             return DevToReleaseReplacePolicy(source_branch_ref, target_branch_ref)
         raise ValueError(f"unsupported branch replace pair: {source_branch_ref} -> {target_branch_ref}")
 
-    def cleanup_branch_refs(self, branch_registry, branch_details, project_id: int) -> list[BranchRef]:
+    def cleanup_branch_refs(self, branch_registry, project_id: int) -> list[BranchRef]:
         return []
 
 
 @dataclass(frozen=True)
 class DevToReleaseReplacePolicy(BranchReplacePolicy):
-    def cleanup_branch_refs(self, branch_registry, branch_details, project_id: int) -> list[BranchRef]:
-        branch = branch_details.get_dev_branch(self.source_branch_ref.branch_value, project_id)
+    def cleanup_branch_refs(self, branch_registry, project_id: int) -> list[BranchRef]:
+        branch = branch_registry.get_dev_branch_metadata(self.source_branch_ref.branch_value, project_id)
         return [
             branch_registry.dev_branch(version)
             for version in branch_registry.versions_in_series(branch["version_series"], project_id)

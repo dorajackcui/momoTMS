@@ -6,8 +6,9 @@ from fastapi import APIRouter, Query
 
 from app.routers.common import handle_errors, parse_branch_ref
 from app.schemas import EntryVariantsResponse, OrphanVariantsResponse, ProjectVariantsResponse
-from app.services.read_models.inspection import InspectionReadService
-from app.services.read_models.variants import ProjectVariantsReadService
+from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
+from app.services.read_models.datasets.live_variants import ProjectLiveVariantsDataset
+from app.services.read_models.selectors import VariantFilter
 
 router = APIRouter()
 
@@ -26,18 +27,20 @@ def project_variants(
 ) -> ProjectVariantsResponse:
     return handle_errors(
         lambda: ProjectVariantsResponse(
-            **ProjectVariantsReadService().list_variants(
-                project_id=project_id,
-                state=state,
-                branch_refs=[parse_branch_ref(item) for item in branch_ref or []],
-                search_business_key=search_business_key,
-                search_source=search_source,
-                pivot_status=pivot_status,
-                pivot_changed_by_branch_ref=(
-                    parse_branch_ref(pivot_changed_by_branch_ref)
-                    if pivot_changed_by_branch_ref is not None
-                    else None
+            **ProjectLiveVariantsDataset().list(
+                VariantFilter(
+                    state=state,
+                    branch_refs=tuple(parse_branch_ref(item) for item in branch_ref or []),
+                    search_business_key=search_business_key,
+                    search_source=search_source,
+                    pivot_status=pivot_status,
+                    pivot_changed_by_branch_ref=(
+                        parse_branch_ref(pivot_changed_by_branch_ref)
+                        if pivot_changed_by_branch_ref is not None
+                        else None
+                    ),
                 ),
+                project_id=project_id,
                 page=page,
                 page_size=page_size,
             )
@@ -49,7 +52,7 @@ def project_variants(
 def entry_variants(project_id: int, business_key: str) -> EntryVariantsResponse:
     return handle_errors(
         lambda: EntryVariantsResponse(
-            **InspectionReadService().entry_variants(
+            **EntryTimelineDataset().get(
                 business_key,
                 project_id=project_id,
             )
@@ -59,8 +62,28 @@ def entry_variants(project_id: int, business_key: str) -> EntryVariantsResponse:
 
 @router.get("/api/projects/{project_id}/orphan-variants", response_model=OrphanVariantsResponse)
 def orphan_variants(project_id: int) -> OrphanVariantsResponse:
-    return handle_errors(
-        lambda: OrphanVariantsResponse(
-            **InspectionReadService().orphan_variants(project_id=project_id)
+    def run() -> OrphanVariantsResponse:
+        payload = ProjectLiveVariantsDataset().list(
+            VariantFilter(state="orphan"),
+            project_id=project_id,
         )
-    )
+        return OrphanVariantsResponse(
+            project_id=project_id,
+            results=[
+                {
+                    "project_id": project_id,
+                    "entry_id": row["entry_id"],
+                    "business_key": row["business_key"],
+                    "variant_id": row["variant_id"],
+                    "file_name": row["file_name"],
+                    "source": row["source"],
+                    "translations": row["translations"],
+                    "remarks": row["remarks"],
+                    "orphaned_at": row["orphaned_at"] or "",
+                    "updated_at": row["updated_at"],
+                }
+                for row in payload["rows"]
+            ],
+        )
+
+    return handle_errors(run)

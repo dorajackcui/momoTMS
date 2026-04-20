@@ -16,8 +16,7 @@ from app.schemas import (
     ScopedTrashDeleteRequest,
     VariantTrashRestoreRequest,
 )
-from app.services.branch.details import BranchDetailService
-from app.services.branch.registry import BranchRegistryService
+from app.services.read_models.derived.branch_catalog import BranchCatalogView
 from app.services.workflows.application import WorkflowApplicationService
 
 router = APIRouter()
@@ -42,14 +41,14 @@ def project_list_dev_branches(project_id: int) -> list[DevBranchSummary]:
     return handle_errors(
         lambda: [
             DevBranchSummary(**item)
-            for item in BranchRegistryService().list_dev_branches(project_id=project_id, active_only=True)
+            for item in BranchCatalogView().list_dev_branches(project_id=project_id, active_only=True)
         ]
     )
 
 
 @router.get("/api/projects/{project_id}/branches/dev/{version}", response_model=DevBranchDetail)
 def project_get_dev_branch(project_id: int, version: str) -> DevBranchDetail:
-    return handle_errors(lambda: DevBranchDetail(**BranchDetailService().get_dev_branch(version, project_id)))
+    return handle_errors(lambda: DevBranchDetail(**BranchCatalogView().get_dev_branch(version, project_id)))
 
 
 @router.post("/api/projects/{project_id}/branches/replace/preview", response_model=BranchReplacePreview)

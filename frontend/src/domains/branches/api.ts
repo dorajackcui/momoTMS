@@ -1,14 +1,15 @@
 import { buildQueryString, fetchJson } from "@/shared/api/http";
 
 import type {
-  BranchCompareResponse,
   BranchListResponse,
   BranchMutationInput,
   BranchReplacePreview,
-  BranchQueueResponse,
   DevBranchDetail,
   MasterEntryResponse,
   MasterSearchResponse,
+  SameSourceCandidatesResponse,
+  ScopeLookupResponse,
+  ScopeRowsResponse,
 } from "@/domains/branches/types";
 import type { JobDetail } from "@/domains/jobs/types";
 
@@ -25,40 +26,46 @@ export function getDevBranchDetail(projectId: number, version: string) {
   );
 }
 
-export function getBranchCompare(
+export function getScopeRows(
   projectId: number,
+  scopeRef: string,
   params: {
-    base_branch_ref: string;
-    target_branch_ref: string;
-    lang: string;
-    search?: string;
-    state?: string[];
-    diff_category?: string[];
-    priority_status?: string[];
+    search_business_key?: string;
+    search_source?: string;
     page?: number;
     page_size?: number;
   },
 ) {
   const query = buildQueryString(params);
-  return fetchJson<BranchCompareResponse>(
-    `/api/projects/${projectId}/branches/compare?${query}`,
+  return fetchJson<ScopeRowsResponse>(
+    `/api/projects/${projectId}/scopes/${encodeURIComponent(scopeRef)}/rows?${query}`,
   );
 }
 
-export function getBranchQueue(
+export function lookupScope(
   projectId: number,
+  scopeRef: string,
   params: {
-    target_branch_ref: string;
-    lang: string;
-    search?: string;
-    priority_status?: string[];
-    page?: number;
-    page_size?: number;
+    business_key?: string;
+    source?: string;
   },
 ) {
   const query = buildQueryString(params);
-  return fetchJson<BranchQueueResponse>(
-    `/api/projects/${projectId}/branches/queue?${query}`,
+  return fetchJson<ScopeLookupResponse>(
+    `/api/projects/${projectId}/scopes/${encodeURIComponent(scopeRef)}/lookup?${query}`,
+  );
+}
+
+export function getSameSourceCandidates(
+  projectId: number,
+  params: {
+    business_key: string;
+    source: string;
+  },
+) {
+  const query = buildQueryString(params);
+  return fetchJson<SameSourceCandidatesResponse>(
+    `/api/projects/${projectId}/history/same-source-candidates?${query}`,
   );
 }
 

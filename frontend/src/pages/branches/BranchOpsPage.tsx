@@ -8,14 +8,17 @@ import { useAppShell } from "@/app/shell/AppShellContext";
 import {
   deleteBranchBusinessKeys,
   executeBranchReplace,
-  getBranchCompare,
-  getBranchQueue,
-  lookupMasterByKey,
-  lookupMasterBySource,
+  getSameSourceCandidates,
+  getScopeRows,
+  lookupScope,
   previewBranchReplace,
   runBranchMutation,
 } from "@/domains/branches/api";
-import type { BranchReplacePreview, MasterQueryRow } from "@/domains/branches/types";
+import type {
+  BranchReplacePreview,
+  MasterQueryRow,
+  SameSourceCandidateRow,
+} from "@/domains/branches/types";
 import { getImports } from "@/domains/imports/api";
 import { restoreVariants } from "@/domains/variants/api";
 import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
@@ -28,11 +31,11 @@ import {
   ui,
 } from "@/shared/ui/primitives";
 import {
-  buildDirectColumns,
-  CompareTable,
   KeyValuePreview,
   LookupTable,
-  QueueTable,
+  SameSourceCandidatesTable,
+  ScopeRowsTable,
+  buildDirectColumns,
 } from "@/pages/branches/BranchOpsSections";
 import {
   createDirectPatchRow,
@@ -47,8 +50,7 @@ import styles from "@/pages/branches/BranchOpsPage.module.css";
 
 const PAGE_SIZE = 25;
 const TABS = [
-  { key: "compare", label: "Compare" },
-  { key: "queue", label: "Queue" },
+  { key: "scope", label: "Scope" },
   { key: "lookup", label: "Lookup" },
   { key: "apply", label: "Apply" },
   { key: "replace", label: "Replace" },
@@ -59,18 +61,23 @@ export function BranchOpsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const shell = useAppShell();
-  const [compareSearch, setCompareSearch] = useState("");
-  const [compareState, setCompareState] = useState("");
-  const [compareDiff, setCompareDiff] = useState("");
-  const [comparePage, setComparePage] = useState(1);
-  const [queueSearch, setQueueSearch] = useState("");
-  const [queueStatus, setQueueStatus] = useState("");
-  const [queuePage, setQueuePage] = useState(1);
+  const [scopeSearchKey, setScopeSearchKey] = useState("");
+  const [scopeSearchSource, setScopeSearchSource] = useState("");
+  const [scopePage, setScopePage] = useState(1);
+  const [scopeRef, setScopeRef] = useState(shell.branchRef || "master");
+  const [lookupScopeRef, setLookupScopeRef] = useState("master");
   const [lookupKey, setLookupKey] = useState("");
   const [lookupSource, setLookupSource] = useState("");
   const [lookupRequest, setLookupRequest] = useState<{
+    scopeRef: string;
     mode: "key" | "source";
     value: string;
+  } | null>(null);
+  const [historyKey, setHistoryKey] = useState("");
+  const [historySource, setHistorySource] = useState("");
+  const [historyRequest, setHistoryRequest] = useState<{
+    businessKey: string;
+    source: string;
   } | null>(null);
   const [applyMode, setApplyMode] = useState<"import_batch" | "direct">("import_batch");
   const [selectedImportBatchId, setSelectedImportBatchId] = useState<number | null>(
@@ -85,7 +92,7 @@ export function BranchOpsPage() {
   const lastApplyProjectIdRef = useRef<number | null>(null);
   const lastAutoApplyBranchRefRef = useRef("");
 
-  const selectedTab = shell.tab || "compare";
+  const selectedTab = resolveBranchOpsTab(shell.tab);
   const projectId = shell.projectId;
   const bootstrap = shell.bootstrap;
   const schema = bootstrap?.schema || null;
@@ -94,12 +101,29 @@ export function BranchOpsPage() {
     bootstrap?.dev_branches[0]?.branch_ref ||
     null;
   const currentDevBranch = ensureDevBranch(shell.branchRef, preferredDevBranch);
+  const scopeOptions = [
+    "master",
+    "rel/current",
+    ...(bootstrap?.dev_branches.map((branch) => branch.branch_ref) || []),
+  ];
 
   useEffect(() => {
     if (schema && directRows.length === 0) {
       setDirectRows([createDirectPatchRow(schema)]);
     }
   }, [directRows.length, schema]);
+
+  useEffect(() => {
+    if (shell.branchRef && scopeRef !== "master" && scopeRef !== shell.branchRef) {
+      setScopeRef(shell.branchRef);
+    }
+  }, [scopeRef, shell.branchRef]);
+
+  useEffect(() => {
+    if (!scopeOptions.includes(lookupScopeRef)) {
+      setLookupScopeRef("master");
+    }
+  }, [lookupScopeRef, scopeOptions]);
 
   useEffect(() => {
     if (!projectId || !bootstrap) {
@@ -133,54 +157,23 @@ export function BranchOpsPage() {
     shell.branchSummary,
   ]);
 
-  const compareQuery = useQuery({
+  const scopeRowsQuery = useQuery({
     queryKey:
-      projectId && shell.lang && currentDevBranch
-        ? queryKeys.branchCompare(projectId, {
-            base_branch_ref: "rel/current",
-            target_branch_ref: currentDevBranch,
-            lang: shell.lang,
-            search: compareSearch,
-            state: compareState,
-            diff: compareDiff,
-            page: comparePage,
+      projectId && shell.lang
+        ? queryKeys.scopeRows(projectId, scopeRef, {
+            search_business_key: scopeSearchKey,
+            search_source: scopeSearchSource,
+            page: scopePage,
           })
-        : ["branch-compare", "idle"],
+        : ["scope-rows", "idle"],
     queryFn: () =>
-      getBranchCompare(projectId!, {
-        base_branch_ref: "rel/current",
-        target_branch_ref: currentDevBranch!,
-        lang: shell.lang,
-        search: compareSearch || undefined,
-        state: compareState ? [compareState] : undefined,
-        diff_category: compareDiff ? [compareDiff] : undefined,
-        page: comparePage,
+      getScopeRows(projectId!, scopeRef, {
+        search_business_key: scopeSearchKey || undefined,
+        search_source: scopeSearchSource || undefined,
+        page: scopePage,
         page_size: PAGE_SIZE,
       }),
-    enabled: Boolean(projectId && shell.lang && currentDevBranch),
-  });
-
-  const queueQuery = useQuery({
-    queryKey:
-      projectId && shell.lang && currentDevBranch
-        ? queryKeys.branchQueue(projectId, {
-            target_branch_ref: currentDevBranch,
-            lang: shell.lang,
-            search: queueSearch,
-            status: queueStatus,
-            page: queuePage,
-          })
-        : ["branch-queue", "idle"],
-    queryFn: () =>
-      getBranchQueue(projectId!, {
-        target_branch_ref: currentDevBranch!,
-        lang: shell.lang,
-        search: queueSearch || undefined,
-        priority_status: queueStatus ? [queueStatus] : undefined,
-        page: queuePage,
-        page_size: PAGE_SIZE,
-      }),
-    enabled: Boolean(projectId && shell.lang && currentDevBranch),
+    enabled: Boolean(projectId && shell.lang),
   });
 
   const importsQuery = useQuery({
@@ -206,20 +199,54 @@ export function BranchOpsPage() {
   const lookupQuery = useQuery({
     queryKey:
       projectId && lookupRequest
-        ? lookupRequest.mode === "key"
-          ? queryKeys.masterByKey(projectId, lookupRequest.value)
-          : queryKeys.masterBySource(projectId, lookupRequest.value)
-        : ["master-lookup", "idle"],
+        ? queryKeys.scopeLookup(projectId, lookupRequest.scopeRef, {
+            [lookupRequest.mode === "key" ? "business_key" : "source"]:
+              lookupRequest.value,
+          })
+        : ["scope-lookup", "idle"],
     queryFn: async () => {
       if (!projectId || !lookupRequest) {
-        return { results: [] as MasterQueryRow[] };
+        return { rows: [] as MasterQueryRow[] };
       }
-      if (lookupRequest.mode === "key") {
-        return lookupMasterByKey(projectId, lookupRequest.value);
-      }
-      return lookupMasterBySource(projectId, lookupRequest.value);
+      const payload = await lookupScope(projectId, lookupRequest.scopeRef, {
+        business_key:
+          lookupRequest.mode === "key" ? lookupRequest.value : undefined,
+        source: lookupRequest.mode === "source" ? lookupRequest.value : undefined,
+      });
+      return {
+        rows: payload.rows.map((row) => ({
+          business_key: row.business_key,
+          scope_ref: payload.scope_ref,
+          variant_id: row.variant_id,
+          file_name: row.file_name,
+          source: row.source,
+          translations: row.translations,
+          remarks: row.remarks,
+        })),
+      };
     },
     enabled: Boolean(projectId && lookupRequest),
+  });
+
+  const historyQuery = useQuery({
+    queryKey:
+      projectId && historyRequest
+        ? queryKeys.sameSourceCandidates(
+            projectId,
+            historyRequest.businessKey,
+            historyRequest.source,
+          )
+        : ["same-source-candidates", "idle"],
+    queryFn: async () => {
+      if (!projectId || !historyRequest) {
+        return { rows: [] as SameSourceCandidateRow[] };
+      }
+      return getSameSourceCandidates(projectId, {
+        business_key: historyRequest.businessKey,
+        source: historyRequest.source,
+      });
+    },
+    enabled: Boolean(projectId && historyRequest),
   });
 
   const normalizedApplyBranchRef = normalizeBranchRef(applyBranchRef);
@@ -280,8 +307,8 @@ export function BranchOpsPage() {
     <div className={styles.layout}>
       <Panel
         kicker="Branch Ops"
-        title="Branch-oriented reads and writes"
-        description="Compare, queue, lookup, apply, replace, and trash flows are centralized here."
+        title="Scope-first reads and workflow actions"
+        description="Scope catalog, project lookup, apply, replace, and trash flows are separated here."
         testId="branches-page"
       >
         <div className={styles.tabs}>
@@ -300,83 +327,71 @@ export function BranchOpsPage() {
         </div>
       </Panel>
 
-      {selectedTab === "compare" ? (
-        <CompareTab
-          currentDevBranch={currentDevBranch}
-          compareSearch={compareSearch}
-          compareState={compareState}
-          compareDiff={compareDiff}
-          comparePage={comparePage}
-          rows={compareQuery.data?.rows || []}
-          totalRows={compareQuery.data?.total_rows || 0}
+      {selectedTab === "scope" ? (
+        <ScopeTab
+          currentScopeRef={scopeRef}
+          scopeOptions={scopeOptions}
+          scopeSearchKey={scopeSearchKey}
+          scopeSearchSource={scopeSearchSource}
+          scopePage={scopePage}
+          rows={scopeRowsQuery.data?.rows || []}
+          totalRows={scopeRowsQuery.data?.total_rows || 0}
           lang={shell.lang}
-          devBranches={bootstrap.dev_branches.map((branch) => branch.branch_ref)}
-          error={compareQuery.error instanceof Error ? compareQuery.error.message : null}
-          onBranchChange={(branchRef) => {
-            setComparePage(1);
-            shell.setBranchRef(branchRef);
+          error={scopeRowsQuery.error instanceof Error ? scopeRowsQuery.error.message : null}
+          onScopeChange={(nextScopeRef) => {
+            setScopePage(1);
+            setScopeRef(nextScopeRef);
+            shell.setBranchRef(nextScopeRef === "master" ? null : nextScopeRef);
           }}
-          onSearchChange={(value) => {
-            setCompareSearch(value);
-            setComparePage(1);
+          onSearchKeyChange={(value) => {
+            setScopeSearchKey(value);
+            setScopePage(1);
           }}
-          onStateChange={(value) => {
-            setCompareState(value);
-            setComparePage(1);
+          onSearchSourceChange={(value) => {
+            setScopeSearchSource(value);
+            setScopePage(1);
           }}
-          onDiffChange={(value) => {
-            setCompareDiff(value);
-            setComparePage(1);
-          }}
-          onPrevPage={() => setComparePage((value) => Math.max(1, value - 1))}
-          onNextPage={() => setComparePage((value) => value + 1)}
+          onPrevPage={() => setScopePage((value) => Math.max(1, value - 1))}
+          onNextPage={() => setScopePage((value) => value + 1)}
           onInspect={shell.setBusinessKey}
-        />
-      ) : null}
-
-      {selectedTab === "queue" ? (
-        <QueueTab
-          currentDevBranch={currentDevBranch}
-          queueSearch={queueSearch}
-          queueStatus={queueStatus}
-          queuePage={queuePage}
-          rows={queueQuery.data?.rows || []}
-          totalRows={queueQuery.data?.total_rows || 0}
-          lang={shell.lang}
-          devBranches={bootstrap.dev_branches.map((branch) => branch.branch_ref)}
-          onBranchChange={(branchRef) => {
-            setQueuePage(1);
-            shell.setBranchRef(branchRef);
-          }}
-          onSearchChange={(value) => {
-            setQueueSearch(value);
-            setQueuePage(1);
-          }}
-          onStatusChange={(value) => {
-            setQueueStatus(value);
-            setQueuePage(1);
-          }}
-          onPrevPage={() => setQueuePage((value) => Math.max(1, value - 1))}
-          onNextPage={() => setQueuePage((value) => value + 1)}
-          onInspect={shell.setBusinessKey}
-          onOpenOverview={(businessKey) => {
-            shell.setBusinessKey(businessKey);
-            navigate(shell.buildHref("/app/overview", { branch: currentDevBranch }));
-          }}
         />
       ) : null}
 
       {selectedTab === "lookup" ? (
         <LookupTab
+          lookupScopeRef={lookupScopeRef}
+          scopeOptions={scopeOptions}
           lookupKey={lookupKey}
           lookupSource={lookupSource}
-          rows={lookupQuery.data?.results || []}
+          lookupRows={lookupQuery.data?.rows || []}
+          historyKey={historyKey}
+          historySource={historySource}
+          historyRows={historyQuery.data?.rows || []}
           lang={shell.lang}
+          onLookupScopeChange={setLookupScopeRef}
           onLookupKeyChange={setLookupKey}
           onLookupSourceChange={setLookupSource}
-          onRunKeyLookup={() => setLookupRequest({ mode: "key", value: lookupKey.trim() })}
+          onRunKeyLookup={() =>
+            setLookupRequest({
+              scopeRef: lookupScopeRef,
+              mode: "key",
+              value: lookupKey.trim(),
+            })
+          }
           onRunSourceLookup={() =>
-            setLookupRequest({ mode: "source", value: lookupSource.trim() })
+            setLookupRequest({
+              scopeRef: lookupScopeRef,
+              mode: "source",
+              value: lookupSource.trim(),
+            })
+          }
+          onHistoryKeyChange={setHistoryKey}
+          onHistorySourceChange={setHistorySource}
+          onRunSameSourceLookup={() =>
+            setHistoryRequest({
+              businessKey: historyKey.trim(),
+              source: historySource.trim(),
+            })
           }
           onInspect={shell.setBusinessKey}
         />
@@ -496,195 +511,200 @@ export function BranchOpsPage() {
   );
 }
 
-function CompareTab(props: {
-  currentDevBranch: string | null;
-  compareSearch: string;
-  compareState: string;
-  compareDiff: string;
-  comparePage: number;
+function ScopeTab(props: {
+  currentScopeRef: string;
+  scopeOptions: string[];
+  scopeSearchKey: string;
+  scopeSearchSource: string;
+  scopePage: number;
   rows: Array<{
-    business_key: string;
-    state: string;
-    priority_status: string;
-    diff_categories: string[];
-    base: {
-      source: string;
-      file_name: string | null;
-      translations: Record<string, string | null>;
-    } | null;
-    target: {
-      source: string;
-      file_name: string | null;
-      translations: Record<string, string | null>;
-    } | null;
-  }>;
-  totalRows: number;
-  lang: string;
-  devBranches: string[];
-  error: string | null;
-  onBranchChange: (branchRef: string | null) => void;
-  onSearchChange: (value: string) => void;
-  onStateChange: (value: string) => void;
-  onDiffChange: (value: string) => void;
-  onPrevPage: () => void;
-  onNextPage: () => void;
-  onInspect: (businessKey: string) => void;
-}) {
-  return (
-    <Panel kicker="Compare" title={`rel/current -> ${props.currentDevBranch || "dev/*"}`}>
-      <div className={styles.filters}>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Target branch</span>
-          <select className={ui.select} value={props.currentDevBranch || ""} onChange={(event) => props.onBranchChange(event.target.value)}>
-            {props.devBranches.map((branch) => (
-              <option key={branch} value={branch}>
-                {branch}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Search</span>
-          <input className={ui.input} value={props.compareSearch} onChange={(event) => props.onSearchChange(event.target.value)} />
-        </label>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>State</span>
-          <select className={ui.select} value={props.compareState} onChange={(event) => props.onStateChange(event.target.value)}>
-            <option value="">All</option>
-            <option value="aligned">aligned</option>
-            <option value="diverged">diverged</option>
-            <option value="base_only">base_only</option>
-            <option value="target_only">target_only</option>
-          </select>
-        </label>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Diff</span>
-          <select className={ui.select} value={props.compareDiff} onChange={(event) => props.onDiffChange(event.target.value)}>
-            <option value="">All</option>
-            <option value="source_changed">source_changed</option>
-            <option value="translation_changed">translation_changed</option>
-            <option value="remark_changed">remark_changed</option>
-            <option value="file_name_changed">file_name_changed</option>
-          </select>
-        </label>
-        <div className={ui.field}>
-          <span className={ui.fieldLabel}>Page</span>
-          <div className={styles.toolbar}>
-            <button className={buttonClassName("secondary")} onClick={props.onPrevPage} disabled={props.comparePage <= 1}>
-              Prev
-            </button>
-            <button className={buttonClassName("secondary")} onClick={props.onNextPage} disabled={props.comparePage >= Math.max(1, Math.ceil(props.totalRows / PAGE_SIZE))}>
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
-      {props.error ? <InlineNotice tone="error" title="Failed to load compare rows">{props.error}</InlineNotice> : null}
-      <CompareTable rows={props.rows} lang={props.lang} onInspect={props.onInspect} />
-    </Panel>
-  );
-}
-
-function QueueTab(props: {
-  currentDevBranch: string | null;
-  queueSearch: string;
-  queueStatus: string;
-  queuePage: number;
-  rows: Array<{
+    variant_id: number;
     business_key: string;
     file_name: string | null;
     source: string;
-    target_text: string;
+    translations: Record<string, string | null>;
     state: string;
-    priority_status: string;
-    diff_categories: string[];
+    pivot_status: string;
+    bindings: Array<{ branch_ref: string }>;
   }>;
   totalRows: number;
   lang: string;
-  devBranches: string[];
-  onBranchChange: (branchRef: string | null) => void;
-  onSearchChange: (value: string) => void;
-  onStatusChange: (value: string) => void;
+  error: string | null;
+  onScopeChange: (scopeRef: string) => void;
+  onSearchKeyChange: (value: string) => void;
+  onSearchSourceChange: (value: string) => void;
   onPrevPage: () => void;
   onNextPage: () => void;
   onInspect: (businessKey: string) => void;
-  onOpenOverview: (businessKey: string) => void;
 }) {
   return (
-    <Panel kicker="Queue" title={props.currentDevBranch || "Translation queue"}>
+    <Panel kicker="Scope" title={props.currentScopeRef}>
       <div className={styles.filters}>
         <label className={ui.field}>
-          <span className={ui.fieldLabel}>Target branch</span>
-          <select className={ui.select} value={props.currentDevBranch || ""} onChange={(event) => props.onBranchChange(event.target.value)}>
-            {props.devBranches.map((branch) => (
-              <option key={branch} value={branch}>
-                {branch}
+          <span className={ui.fieldLabel}>Scope</span>
+          <select
+            className={ui.select}
+            value={props.currentScopeRef}
+            onChange={(event) => props.onScopeChange(event.target.value)}
+          >
+            {props.scopeOptions.map((scope) => (
+              <option key={scope} value={scope}>
+                {scope}
               </option>
             ))}
           </select>
         </label>
         <label className={ui.field}>
-          <span className={ui.fieldLabel}>Search</span>
-          <input className={ui.input} value={props.queueSearch} onChange={(event) => props.onSearchChange(event.target.value)} />
+          <span className={ui.fieldLabel}>Business key search</span>
+          <input
+            className={ui.input}
+            value={props.scopeSearchKey}
+            onChange={(event) => props.onSearchKeyChange(event.target.value)}
+          />
         </label>
         <label className={ui.field}>
-          <span className={ui.fieldLabel}>Priority</span>
-          <select className={ui.select} value={props.queueStatus} onChange={(event) => props.onStatusChange(event.target.value)}>
-            <option value="">All</option>
-            <option value="needs_translation">needs_translation</option>
-            <option value="needs_review">needs_review</option>
-            <option value="fillable">fillable</option>
-            <option value="source_mismatch">source_mismatch</option>
-          </select>
+          <span className={ui.fieldLabel}>Source search</span>
+          <input
+            className={ui.input}
+            value={props.scopeSearchSource}
+            onChange={(event) => props.onSearchSourceChange(event.target.value)}
+          />
         </label>
         <div className={ui.field}>
           <span className={ui.fieldLabel}>Page</span>
           <div className={styles.toolbar}>
-            <button className={buttonClassName("secondary")} onClick={props.onPrevPage} disabled={props.queuePage <= 1}>
+            <button
+              className={buttonClassName("secondary")}
+              onClick={props.onPrevPage}
+              disabled={props.scopePage <= 1}
+            >
               Prev
             </button>
-            <button className={buttonClassName("secondary")} onClick={props.onNextPage} disabled={props.queuePage >= Math.max(1, Math.ceil(props.totalRows / PAGE_SIZE))}>
+            <button
+              className={buttonClassName("secondary")}
+              onClick={props.onNextPage}
+              disabled={props.scopePage >= Math.max(1, Math.ceil(props.totalRows / PAGE_SIZE))}
+            >
               Next
             </button>
           </div>
         </div>
       </div>
-      <QueueTable rows={props.rows} lang={props.lang} onInspect={props.onInspect} onOpenOverview={props.onOpenOverview} />
+      {props.error ? (
+        <InlineNotice tone="error" title="Failed to load scope rows">
+          {props.error}
+        </InlineNotice>
+      ) : null}
+      <ScopeRowsTable rows={props.rows} lang={props.lang} onInspect={props.onInspect} />
     </Panel>
   );
 }
 
 function LookupTab(props: {
+  lookupScopeRef: string;
+  scopeOptions: string[];
   lookupKey: string;
   lookupSource: string;
-  rows: MasterQueryRow[];
+  lookupRows: MasterQueryRow[];
+  historyKey: string;
+  historySource: string;
+  historyRows: SameSourceCandidateRow[];
   lang: string;
+  onLookupScopeChange: (value: string) => void;
   onLookupKeyChange: (value: string) => void;
   onLookupSourceChange: (value: string) => void;
   onRunKeyLookup: () => void;
   onRunSourceLookup: () => void;
+  onHistoryKeyChange: (value: string) => void;
+  onHistorySourceChange: (value: string) => void;
+  onRunSameSourceLookup: () => void;
   onInspect: (businessKey: string) => void;
 }) {
   return (
-    <Panel kicker="Lookup" title="Key and exact-source lookup">
-      <div className={styles.twoColumn}>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Business key</span>
-          <input className={ui.input} value={props.lookupKey} onChange={(event) => props.onLookupKeyChange(event.target.value)} />
-          <button className={buttonClassName("secondary")} onClick={props.onRunKeyLookup}>Lookup key</button>
-        </label>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Exact source</span>
-          <input className={ui.input} value={props.lookupSource} onChange={(event) => props.onLookupSourceChange(event.target.value)} />
-          <button className={buttonClassName("secondary")} onClick={props.onRunSourceLookup}>Lookup source</button>
-        </label>
-      </div>
-      {props.rows.length ? (
-        <LookupTable rows={props.rows} lang={props.lang} onInspect={props.onInspect} />
-      ) : (
-        <EmptyState title="No lookup results yet" body="Run a key or exact-source lookup to populate this panel." />
-      )}
-    </Panel>
+    <div className={styles.stack}>
+      <Panel kicker="Lookup" title="Scope lookup">
+        <div className={styles.filters}>
+          <label className={ui.field}>
+            <span className={ui.fieldLabel}>Scope</span>
+            <select
+              className={ui.select}
+              value={props.lookupScopeRef}
+              onChange={(event) => props.onLookupScopeChange(event.target.value)}
+            >
+              {props.scopeOptions.map((scope) => (
+                <option key={scope} value={scope}>
+                  {scope}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={ui.field}>
+            <span className={ui.fieldLabel}>Business key</span>
+            <input
+              className={ui.input}
+              value={props.lookupKey}
+              onChange={(event) => props.onLookupKeyChange(event.target.value)}
+            />
+            <button className={buttonClassName("secondary")} onClick={props.onRunKeyLookup}>
+              Lookup key
+            </button>
+          </label>
+          <label className={ui.field}>
+            <span className={ui.fieldLabel}>Exact source</span>
+            <input
+              className={ui.input}
+              value={props.lookupSource}
+              onChange={(event) => props.onLookupSourceChange(event.target.value)}
+            />
+            <button
+              className={buttonClassName("secondary")}
+              onClick={props.onRunSourceLookup}
+            >
+              Lookup source
+            </button>
+          </label>
+        </div>
+        {props.lookupRows.length ? (
+          <LookupTable rows={props.lookupRows} lang={props.lang} onInspect={props.onInspect} />
+        ) : (
+          <EmptyState
+            title="No lookup results yet"
+            body="Run a scope lookup by key or exact source to populate this panel."
+          />
+        )}
+      </Panel>
+
+      <Panel kicker="History" title="Same-source candidates">
+        <div className={styles.twoColumn}>
+          <label className={ui.field}>
+            <span className={ui.fieldLabel}>Business key</span>
+            <input
+              className={ui.input}
+              value={props.historyKey}
+              onChange={(event) => props.onHistoryKeyChange(event.target.value)}
+            />
+          </label>
+          <label className={ui.field}>
+            <span className={ui.fieldLabel}>Exact source</span>
+            <input
+              className={ui.input}
+              value={props.historySource}
+              onChange={(event) => props.onHistorySourceChange(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className={styles.toolbar}>
+          <button className={buttonClassName("secondary")} onClick={props.onRunSameSourceLookup}>
+            Find same-source candidates
+          </button>
+        </div>
+        <SameSourceCandidatesTable
+          rows={props.historyRows}
+          lang={props.lang}
+          onInspect={props.onInspect}
+        />
+      </Panel>
+    </div>
   );
 }
 
@@ -700,7 +720,7 @@ function ApplyTab(props: {
   directPatchTargetError: string | null;
   onBranchChange: (branchRef: string) => void;
   onModeChange: (mode: "import_batch" | "direct") => void;
-  onImportBatchChange: (importBatchId: number) => void;
+  onImportBatchChange: (importBatchId: number | null) => void;
   onDirectRowsChange: (rows: DirectPatchRow[]) => void;
   onAddRow: () => void;
   onRunImportBatch: () => void;
@@ -720,7 +740,13 @@ function ApplyTab(props: {
         </label>
         <label className={ui.field}>
           <span className={ui.fieldLabel}>Mode</span>
-          <select className={ui.select} value={props.applyMode} onChange={(event) => props.onModeChange(event.target.value as "import_batch" | "direct")}>
+          <select
+            className={ui.select}
+            value={props.applyMode}
+            onChange={(event) =>
+              props.onModeChange(event.target.value as "import_batch" | "direct")
+            }
+          >
             <option value="import_batch">Import Batch</option>
             <option value="direct">Direct Patch</option>
           </select>
@@ -735,7 +761,11 @@ function ApplyTab(props: {
           ) : null}
           <label className={ui.field}>
             <span className={ui.fieldLabel}>Import batch</span>
-            <select className={ui.select} value={props.selectedImportBatchId || ""} onChange={(event) => props.onImportBatchChange(Number(event.target.value))}>
+            <select
+              className={ui.select}
+              value={props.selectedImportBatchId || ""}
+              onChange={(event) => props.onImportBatchChange(Number(event.target.value))}
+            >
               {props.importBatches.map((item) => (
                 <option key={item.import_batch_id} value={item.import_batch_id}>
                   #{item.import_batch_id}
@@ -759,7 +789,9 @@ function ApplyTab(props: {
             </InlineNotice>
           ) : null}
           <div className={styles.toolbar}>
-            <button className={buttonClassName("secondary")} onClick={props.onAddRow}>Add row</button>
+            <button className={buttonClassName("secondary")} onClick={props.onAddRow}>
+              Add row
+            </button>
             <button
               className={buttonClassName("primary")}
               onClick={props.onRunDirectPatch}
@@ -796,7 +828,11 @@ function ReplaceTab(props: {
       <div className={styles.filters}>
         <label className={ui.field}>
           <span className={ui.fieldLabel}>Source dev branch</span>
-          <select className={ui.select} value={props.replaceSource} onChange={(event) => props.onSourceChange(event.target.value)}>
+          <select
+            className={ui.select}
+            value={props.replaceSource}
+            onChange={(event) => props.onSourceChange(event.target.value)}
+          >
             {props.devBranches.map((branch) => (
               <option key={branch} value={branch}>
                 {branch}
@@ -807,12 +843,27 @@ function ReplaceTab(props: {
         <div className={ui.field}>
           <span className={ui.fieldLabel}>Actions</span>
           <div className={styles.toolbar}>
-            <button className={buttonClassName("secondary")} onClick={props.onPreview}>Preview replace</button>
-            <button className={buttonClassName("primary")} onClick={props.onExecute} disabled={!props.preview}>Execute replace</button>
+            <button className={buttonClassName("secondary")} onClick={props.onPreview}>
+              Preview replace
+            </button>
+            <button
+              className={buttonClassName("primary")}
+              onClick={props.onExecute}
+              disabled={!props.preview}
+            >
+              Execute replace
+            </button>
           </div>
         </div>
       </div>
-      {props.preview ? <KeyValuePreview preview={props.preview} /> : <EmptyState title="Preview required" body="Run preview first to inspect impact before enabling execute." />}
+      {props.preview ? (
+        <KeyValuePreview preview={props.preview} />
+      ) : (
+        <EmptyState
+          title="Preview required"
+          body="Run preview first to inspect impact before enabling execute."
+        />
+      )}
     </Panel>
   );
 }
@@ -830,13 +881,27 @@ function TrashTab(props: {
       <div className={styles.twoColumn}>
         <label className={ui.field}>
           <span className={ui.fieldLabel}>Delete business keys</span>
-          <textarea className={ui.textarea} value={props.deleteKeys} onChange={(event) => props.onDeleteKeysChange(event.target.value)} placeholder="One key per line" />
-          <button className={buttonClassName("danger")} onClick={props.onDelete}>Delete from branch</button>
+          <textarea
+            className={ui.textarea}
+            value={props.deleteKeys}
+            onChange={(event) => props.onDeleteKeysChange(event.target.value)}
+            placeholder="One key per line"
+          />
+          <button className={buttonClassName("danger")} onClick={props.onDelete}>
+            Delete from branch
+          </button>
         </label>
         <label className={ui.field}>
           <span className={ui.fieldLabel}>Restore variant IDs</span>
-          <textarea className={ui.textarea} value={props.restoreIds} onChange={(event) => props.onRestoreIdsChange(event.target.value)} placeholder={"101\n102"} />
-          <button className={buttonClassName("primary")} onClick={props.onRestore}>Restore variants</button>
+          <textarea
+            className={ui.textarea}
+            value={props.restoreIds}
+            onChange={(event) => props.onRestoreIdsChange(event.target.value)}
+            placeholder={"101\n102"}
+          />
+          <button className={buttonClassName("primary")} onClick={props.onRestore}>
+            Restore variants
+          </button>
         </label>
       </div>
     </Panel>
@@ -853,6 +918,16 @@ function isDevBranchRef(value: string) {
 
 function isMutableBranchRef(value: string) {
   return value === "rel/current" || isDevBranchRef(value);
+}
+
+function resolveBranchOpsTab(tab: string | null) {
+  if (tab === "compare" || tab === "queue" || tab === "scope") {
+    return "scope";
+  }
+  if (tab === "lookup" || tab === "apply" || tab === "replace" || tab === "trash") {
+    return tab;
+  }
+  return "scope";
 }
 
 function resolveApplyBranchRef(

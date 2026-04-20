@@ -7,7 +7,7 @@ from typing import Any, Generator
 
 from app.db import json_loads
 from app.services.branch.models import BranchRef
-from app.services.branch.policy import BranchMutationPolicy
+from app.services.branch.policy import AuthorityPolicy
 from app.services.imports.service import ImportService
 from app.services.variant.bindings import BindingLookupService
 from app.services.variant.catalog import VariantCatalogService
@@ -181,8 +181,13 @@ class ImportBatchMutationApplier:
                 bindings,
                 int(current_variant["variant_id"]),
             )
-            if not BranchMutationPolicy.for_branch(target_branch).can_update_hit_variant(target_branch, bound_branch_refs):
-                return "NOOP"
+            forbidden_status = AuthorityPolicy.content_mutation_status(
+                target_branch,
+                bound_branch_refs,
+                content_changed=True,
+            )
+            if forbidden_status is not None:
+                return forbidden_status
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
@@ -217,20 +222,6 @@ class ImportBatchMutationApplier:
         variant_id = int(source_variant["variant_id"])
         current_matches = current_binding is not None and int(current_binding["variant_id"]) == variant_id
         bound_branch_refs = self.resolution.bound_branch_refs_for_variant(bindings, variant_id)
-        if not BranchMutationPolicy.for_branch(target_branch).can_update_hit_variant(target_branch, bound_branch_refs):
-            if current_matches:
-                return "NOOP"
-            self.bindings.bind_scope(
-                entry_id,
-                target_branch,
-                variant_id,
-                conn=conn,
-                refresh_orphan_states=False,
-            )
-            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
-            touched_entry_ids.add(entry_id)
-            return "BOUND_EXISTING_VARIANT"
-
         if self.resolution.variant_matches(source_variant, merged):
             if current_matches:
                 return "NOOP"
@@ -244,6 +235,14 @@ class ImportBatchMutationApplier:
             self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
             touched_entry_ids.add(entry_id)
             return "BOUND_EXISTING_VARIANT"
+
+        forbidden_status = AuthorityPolicy.content_mutation_status(
+            target_branch,
+            bound_branch_refs,
+            content_changed=True,
+        )
+        if forbidden_status is not None:
+            return forbidden_status
 
         self.catalog.update_variant(
             variant_id,
@@ -275,6 +274,7 @@ class ImportBatchMutationApplier:
             "created_and_bound_variant_count": status_counts["CREATED_AND_BOUND_VARIANT"],
             "missing_in_scope_count": status_counts["MISSING_IN_SCOPE"],
             "noop_count": status_counts["NOOP"],
+            "forbidden_by_authority_count": status_counts["FORBIDDEN_BY_AUTHORITY"],
         }
 
     def _load_chunk(

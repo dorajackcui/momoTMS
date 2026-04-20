@@ -1,36 +1,26 @@
 import type { Column } from "react-data-grid";
 
-import type { BranchReplacePreview, MasterQueryRow } from "@/domains/branches/types";
+import type {
+  BranchReplacePreview,
+  MasterQueryRow,
+  SameSourceCandidateRow,
+} from "@/domains/branches/types";
+import type { ProjectVariantRow } from "@/domains/variants/types";
 import { stringifyValue } from "@/shared/lib/format";
 import { Badge, EmptyState, buttonClassName } from "@/shared/ui/primitives";
 import type { DirectPatchRow } from "@/pages/branches/model";
 
 import styles from "@/pages/branches/BranchOpsPage.module.css";
 
-export function CompareTable(props: {
-  rows: Array<{
-    business_key: string;
-    state: string;
-    priority_status: string;
-    diff_categories: string[];
-    base: {
-      source: string;
-      file_name: string | null;
-      translations: Record<string, string | null>;
-    } | null;
-    target: {
-      source: string;
-      file_name: string | null;
-      translations: Record<string, string | null>;
-    } | null;
-  }>;
+export function ScopeRowsTable(props: {
+  rows: ProjectVariantRow[];
   lang: string;
   onInspect: (businessKey: string) => void;
 }) {
   if (props.rows.length === 0) {
     return (
       <EmptyState
-        title="No compare rows"
+        title="No scope rows"
         body="Try a different branch or loosen the current filters."
       />
     );
@@ -41,29 +31,27 @@ export function CompareTable(props: {
         <thead>
           <tr>
             <th>business_key</th>
+            <th>variant_id</th>
             <th>file_name</th>
             <th>source</th>
             <th>{props.lang}</th>
             <th>state</th>
-            <th>priority</th>
-            <th>diffs</th>
+            <th>pivot</th>
+            <th>bindings</th>
             <th />
           </tr>
         </thead>
         <tbody>
           {props.rows.map((row) => (
-            <tr key={row.business_key}>
+            <tr key={row.variant_id}>
               <td>{row.business_key}</td>
-              <td>{row.target?.file_name || row.base?.file_name || "-"}</td>
-              <td>{row.target?.source || row.base?.source || "-"}</td>
-              <td>
-                {row.target?.translations?.[props.lang] ||
-                  row.base?.translations?.[props.lang] ||
-                  "-"}
-              </td>
+              <td>{row.variant_id}</td>
+              <td>{row.file_name || "-"}</td>
+              <td>{row.source || "-"}</td>
+              <td>{row.translations?.[props.lang] || "-"}</td>
               <td>{row.state}</td>
-              <td>{row.priority_status}</td>
-              <td>{row.diff_categories.join(", ") || "-"}</td>
+              <td>{row.pivot_status}</td>
+              <td>{row.bindings.map((binding) => binding.branch_ref).join(", ") || "-"}</td>
               <td>
                 <button
                   className={buttonClassName("ghost")}
@@ -80,25 +68,16 @@ export function CompareTable(props: {
   );
 }
 
-export function QueueTable(props: {
-  rows: Array<{
-    business_key: string;
-    file_name: string | null;
-    source: string;
-    target_text: string;
-    state: string;
-    priority_status: string;
-    diff_categories: string[];
-  }>;
+export function SameSourceCandidatesTable(props: {
+  rows: SameSourceCandidateRow[];
   lang: string;
   onInspect: (businessKey: string) => void;
-  onOpenOverview: (businessKey: string) => void;
 }) {
   if (props.rows.length === 0) {
     return (
       <EmptyState
-        title="No queue rows"
-        body="The current queue filters did not return any rows."
+        title="No history candidates"
+        body="No same-source history candidates matched the provided key and source."
       />
     );
   }
@@ -108,40 +87,32 @@ export function QueueTable(props: {
         <thead>
           <tr>
             <th>business_key</th>
+            <th>variant_id</th>
             <th>file_name</th>
             <th>source</th>
             <th>{props.lang}</th>
             <th>state</th>
-            <th>priority</th>
-            <th>diffs</th>
+            <th>pivot</th>
             <th />
           </tr>
         </thead>
         <tbody>
           {props.rows.map((row) => (
-            <tr key={row.business_key}>
+            <tr key={row.variant_id}>
               <td>{row.business_key}</td>
+              <td>{row.variant_id}</td>
               <td>{row.file_name || "-"}</td>
               <td>{row.source}</td>
-              <td>{row.target_text || "-"}</td>
+              <td>{row.translations[props.lang] || "-"}</td>
               <td>{row.state}</td>
-              <td>{row.priority_status}</td>
-              <td>{row.diff_categories.join(", ") || "-"}</td>
+              <td>{row.pivot_status}</td>
               <td>
-                <div className={styles.toolbar}>
-                  <button
-                    className={buttonClassName("ghost")}
-                    onClick={() => props.onInspect(row.business_key)}
-                  >
-                    Drawer
-                  </button>
-                  <button
-                    className={buttonClassName("secondary")}
-                    onClick={() => props.onOpenOverview(row.business_key)}
-                  >
-                    Overview
-                  </button>
-                </div>
+                <button
+                  className={buttonClassName("ghost")}
+                  onClick={() => props.onInspect(row.business_key)}
+                >
+                  Inspect history
+                </button>
               </td>
             </tr>
           ))}
@@ -162,7 +133,7 @@ export function LookupTable(props: {
         <thead>
           <tr>
             <th>business_key</th>
-            <th>branch</th>
+            <th>scope</th>
             <th>file_name</th>
             <th>source</th>
             <th>{props.lang}</th>
@@ -173,7 +144,7 @@ export function LookupTable(props: {
           {props.rows.map((row) => (
             <tr key={`${row.business_key}-${row.variant_id}`}>
               <td>{row.business_key}</td>
-              <td>{row.branch_ref}</td>
+              <td>{row.scope_ref}</td>
               <td>{row.file_name || "-"}</td>
               <td>{row.source}</td>
               <td>{row.translations[props.lang] || "-"}</td>

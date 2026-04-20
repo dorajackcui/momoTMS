@@ -1,3 +1,5 @@
+import type { ProjectVariantRow } from "@/domains/variants/types";
+
 export type BindingSummary = {
   branch_ref: string;
   created_at: string;
@@ -100,7 +102,7 @@ export type BranchQueueResponse = {
 
 export type MasterQueryRow = {
   business_key: string;
-  branch_ref: string;
+  scope_ref: string;
   variant_id: number;
   file_name: string | null;
   source: string;
@@ -119,12 +121,56 @@ export type MasterSearchResponse = {
   results: MasterQueryRow[];
 };
 
+export type ScopeRowsResponse = {
+  scope_ref: string;
+  rows: ProjectVariantRow[];
+  total_rows: number;
+  page: number;
+  page_size: number;
+};
+
+export type ScopeLookupResponse = {
+  scope_ref: string;
+  mode: "business_key" | "source";
+  value: string;
+  rows: ProjectVariantRow[];
+};
+
+export type SameSourceCandidateRow = {
+  variant_id: number;
+  entry_id: number;
+  business_key: string;
+  file_name: string | null;
+  source: string;
+  translations: Record<string, string | null>;
+  remarks: Record<string, string | null>;
+  bindings: BindingSummary[];
+  state: "active" | "orphan" | "trashed";
+  orphaned_at: string | null;
+  trashed_at: string | null;
+  trash_until: string | null;
+  restored_at: string | null;
+  pivot_status: "init" | "changed" | "reviewed";
+  pivot_changed_by_branch_ref: string | null;
+  pivot_changed_at: string | null;
+  pivot_reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SameSourceCandidatesResponse = {
+  business_key: string;
+  source: string;
+  rows: SameSourceCandidateRow[];
+};
+
 export type BranchReplacePreview = {
   source_branch_ref: string;
   target_branch_ref: string;
   target_entry_count: number;
   added_to_target_count: number;
-  already_in_target_count: number;
+  kept_in_target_count: number;
+  rebind_target_count: number;
   removed_from_target_count: number;
   cleanup_binding_count: number;
   report_rows: Array<Record<string, unknown>>;

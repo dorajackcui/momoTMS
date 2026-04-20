@@ -123,6 +123,8 @@ Mutation rules:
 - if `source` is provided and matches the currently bound variant, mutation updates that bound variant in place
 - if `source` is provided and differs, mutation resolves or creates the target same-source canonical variant and rebinds the scope when needed
 - `dev` policy keeps rel-owned canonical content authoritative when same-source hits a rel-bound variant
+- lower-authority content-change attempts report `FORBIDDEN_BY_AUTHORITY`; they do not collapse into `NOOP`
+- pure rebind can still succeed when no content change is needed, because binding an already-matching same-source variant is distinct from mutating that variant's content
 - `dev` policy may create missing entries when `source` is present
 - `rel` policy always starts from the currently bound rel variant and never creates a missing business key from scratch
 - `import_batch` applies persisted sparse patches using the same merge rules as direct mutation: only provided translations and remarks overwrite existing content
@@ -147,6 +149,9 @@ Mutation rules:
 - previews and executes binding changes from one branch into another
 - the live policy only supports `dev/<version> -> rel/current`
 - replace rebinds active variants; it does not copy content or create variants
+- replace preview reports binding-change semantics instead of content-diff semantics
+- preview rows may report `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, or `REMOVE_FROM_TARGET`
+- `REBIND_TARGET` means the target branch already has the same `business_key` but is bound to a different variant than the source branch, so execute will switch the binding to the source branch's variant
 - execute runs in one DB transaction
 - the `dev/<version> -> rel/current` policy still clears same-version-series dev bindings and marks those versions as promoted
 

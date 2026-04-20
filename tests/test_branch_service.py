@@ -10,7 +10,7 @@ from app.services.branch.policy import AuthorityPolicy
 from app.services.branch.replace import BranchReplaceService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
-from app.services.read_models.inspection import InspectionReadService
+from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
 from app.services.workflows.trash_restore import TrashRestoreService
 from tests.service_helpers import branch_services
 
@@ -67,6 +67,52 @@ def test_branch_import_paths_and_promote_cleanup() -> None:
     rel_keys = {item["business_key"] for item in rel_entries}
     assert {"rel.locked.same", "rel.locked.changed", "dev.mutable", "dev.new.entry"}.issubset(rel_keys)
     assert read_service.list_dev_branches(active_only=True) == []
+
+
+def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() -> None:
+    reset_demo()
+    services = branch_services()
+    entry = services.entries.get_or_create_entry("replace.rebind", project_id=1)
+    source_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "replace-source.xlsx",
+            "Shared source",
+            {"fr": "Source branch"},
+            {"context": "source"},
+        ),
+    )
+    target_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "replace-target.xlsx",
+            "Different source",
+            {"fr": "Target branch"},
+            {"context": "target"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.3"), source_variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), target_variant_id)
+
+    preview = BranchReplaceService().preview(BranchRef.dev("2.4.3"), BranchRef.rel_current())
+    row = next(item for item in preview["report_rows"] if item["business_key"] == "replace.rebind")
+    execute = BranchReplaceService().execute(BranchRef.dev("2.4.3"), BranchRef.rel_current())
+    execute_row = next(item for item in execute["report_rows"] if item["business_key"] == "replace.rebind")
+
+    assert row["status"] == "REBIND_TARGET"
+    assert execute_row["status"] == "REBIND_TARGET"
+    assert preview["target_entry_count"] == 1
+    assert preview["added_to_target_count"] == 0
+    assert preview["kept_in_target_count"] == 0
+    assert preview["rebind_target_count"] == 1
+    assert preview["removed_from_target_count"] == 0
+    assert "already_in_target_count" not in preview
+    assert execute["summary"]["target_entry_count"] == 1
+    assert execute["summary"]["added_to_target_count"] == 0
+    assert execute["summary"]["kept_in_target_count"] == 0
+    assert execute["summary"]["rebind_target_count"] == 1
+    assert execute["summary"]["removed_from_target_count"] == 0
+    assert "already_in_target_count" not in execute["summary"]
 
 
 def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
@@ -239,7 +285,7 @@ def test_import_batch_sparse_patch_preserves_unmapped_languages_and_remarks(tmp_
 def test_import_batch_source_switch_preserves_existing_target_variant_fields(tmp_path) -> None:
     reset_demo()
     mutation_service = BranchMutationService()
-    inspection = InspectionReadService()
+    inspection = EntryTimelineDataset()
 
     current_result = mutation_service.apply(
         BranchRef.dev("2.4.3"),
@@ -302,7 +348,7 @@ def test_import_batch_source_switch_preserves_existing_target_variant_fields(tmp
     )
     assert result["report_rows"][0]["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
 
-    variants = inspection.entry_variants("source.switch.existing")["variants"]
+    variants = inspection.get("source.switch.existing")["variants"]
     target_variant = next(item for item in variants if item["source"] == "Target source")
 
     assert target_variant["translations"]["fr"] == "Bonjour import"
@@ -314,7 +360,7 @@ def test_import_batch_source_switch_preserves_existing_target_variant_fields(tmp
 def test_import_batch_source_switch_new_variant_does_not_inherit_current_fields(tmp_path) -> None:
     reset_demo()
     mutation_service = BranchMutationService()
-    inspection = InspectionReadService()
+    inspection = EntryTimelineDataset()
 
     current_result = mutation_service.apply(
         BranchRef.dev("2.4.3"),
@@ -357,7 +403,7 @@ def test_import_batch_source_switch_new_variant_does_not_inherit_current_fields(
     )
     assert result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
 
-    variants = inspection.entry_variants("source.switch.new")["variants"]
+    variants = inspection.get("source.switch.new")["variants"]
     new_variant = next(item for item in variants if item["source"] == "Brand new source")
 
     assert new_variant["translations"] == {"fr": "Bonjour import"}
@@ -418,7 +464,7 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     )
     assert passive["report_rows"][0]["status"] in {"CREATED_AND_BOUND_VARIANT", "UPDATED_AND_BOUND_EXISTING_VARIANT"}
 
-    before_delete = InspectionReadService().entry_variants("common.welcome")
+    before_delete = EntryTimelineDataset().get("common.welcome")
     target_variant_id = before_delete["variants"][0]["variant_id"]
     delete_result = variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     assert delete_result["summary"]["trashed_variant_count"] == 1
@@ -426,7 +472,7 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     restore_result = variant_service.restore([target_variant_id])
     assert restore_result["summary"]["restored_count"] == 1
 
-    after_restore = InspectionReadService().entry_variants("common.welcome")
+    after_restore = EntryTimelineDataset().get("common.welcome")
     restored_variant = next(item for item in after_restore["variants"] if item["variant_id"] == target_variant_id)
     assert restored_variant["restored_at"] is not None
 
@@ -451,9 +497,9 @@ def test_delete_rolls_back_on_failure(monkeypatch) -> None:
 def test_restore_rolls_back_on_failure(monkeypatch) -> None:
     reset_demo()
     variant_service = TrashRestoreService()
-    inspection = InspectionReadService()
+    inspection = EntryTimelineDataset()
 
-    target_variant_id = inspection.entry_variants("common.welcome")["variants"][0]["variant_id"]
+    target_variant_id = inspection.get("common.welcome")["variants"][0]["variant_id"]
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
 
     def fail_refresh(*args, **kwargs):
@@ -465,7 +511,7 @@ def test_restore_rolls_back_on_failure(monkeypatch) -> None:
         variant_service.restore([target_variant_id])
 
     variant = next(
-        item for item in inspection.entry_variants("common.welcome")["variants"] if item["variant_id"] == target_variant_id
+        item for item in inspection.get("common.welcome")["variants"] if item["variant_id"] == target_variant_id
     )
     assert variant["trashed_at"] is not None
     assert variant["restored_at"] is None
@@ -475,9 +521,9 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
     reset_demo()
     read_service = branch_services()
     variant_service = TrashRestoreService()
-    inspection = InspectionReadService()
+    inspection = EntryTimelineDataset()
 
-    conflicted_variant_id = inspection.entry_variants("common.welcome")["variants"][0]["variant_id"]
+    conflicted_variant_id = inspection.get("common.welcome")["variants"][0]["variant_id"]
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     conflict_entry = read_service.entries.get_entry("common.welcome")
     assert conflict_entry is not None
@@ -576,6 +622,23 @@ def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> N
     )
     bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
 
+    rebind_result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.series",
+                    "source": "Shared source",
+                    "translations_by_lang": {"fr": "Series owner"},
+                }
+            ],
+        },
+    )
+
+    assert rebind_result["report_rows"][0]["status"] == "BOUND_EXISTING_VARIANT"
+    assert rebind_result["summary"]["bound_existing_variant_count"] == 1
+
     result = mutation_service.apply(
         BranchRef.dev("2.5.1"),
         {
@@ -590,8 +653,49 @@ def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> N
         },
     )
 
-    assert result["report_rows"][0]["status"] == "BOUND_EXISTING_VARIANT"
+    assert result["report_rows"][0]["status"] == "FORBIDDEN_BY_AUTHORITY"
+    assert result["summary"]["forbidden_by_authority_count"] == 1
     assert catalog.get_variant(variant_id)["translations"]["fr"] == "Series owner"
+
+
+def test_lower_authority_dev_cannot_change_existing_higher_authority_variant_in_import_batch(tmp_path) -> None:
+    reset_demo()
+    service = branch_services()
+    entry = service.entries.get_or_create_entry("authority.import", project_id=1)
+    variant_id = service.catalog.create_variant(
+        int(entry["entry_id"]),
+        service.catalog.build_content(
+            "authority.xlsx",
+            "Shared source",
+            {"fr": "Import owner"},
+            {"context": "authority"},
+        ),
+    )
+    service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+
+    import_root = tmp_path / "authority-import"
+    write_import_workbook(
+        import_root,
+        "bundle/authority.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["authority.import", "Shared source", "Should not win"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = BranchMutationService().apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+            "mark_as_candidate_release": True,
+        },
+    )
+
+    assert result["report_rows"][0]["status"] == "FORBIDDEN_BY_AUTHORITY"
+    assert result["summary"]["forbidden_by_authority_count"] == 1
+    assert service.catalog.get_variant(variant_id)["translations"]["fr"] == "Import owner"
 
 
 def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None:

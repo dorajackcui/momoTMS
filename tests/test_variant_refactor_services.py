@@ -6,7 +6,7 @@ from app.services.branch.models import BranchRef
 from app.services.project.bootstrap import ProjectBootstrapService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
-from app.services.read_models.summary import BranchSummaryReadService
+from app.services.read_models.derived.branch_summary import BranchSummaryView
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
@@ -140,7 +140,7 @@ def test_branch_summary_query_budget_with_active_dev_branch() -> None:
         },
     )
 
-    query_count, summary = count_sql_queries(lambda: BranchSummaryReadService().branch_summary(DEFAULT_PROJECT_ID, lang="fr"))
+    query_count, summary = count_sql_queries(lambda: BranchSummaryView().build(DEFAULT_PROJECT_ID, lang="fr"))
     branches = {item["branch_ref"]: item for item in summary["branches"]}
 
     assert "rel/current" in branches

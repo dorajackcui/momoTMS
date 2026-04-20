@@ -11,7 +11,8 @@ from app.services.branch.models import BranchRef
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
-from app.services.read_models.variants import ProjectVariantsQueryRepository
+from app.services.read_models.repository import ReadModelRepository
+from app.services.read_models.selectors import VariantFilter
 from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
 from app.services.variant.state_coordinator import VariantStateCoordinator
@@ -84,7 +85,7 @@ def create_bound_variant(
     return variant_id
 
 
-def test_branch_routes_and_removed_compatibility_surface() -> None:
+def test_scope_routes_and_removed_compatibility_surface() -> None:
     reset_demo()
     sample = DemoService().get_sample("core-cycle")
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
@@ -120,29 +121,33 @@ def test_branch_routes_and_removed_compatibility_surface() -> None:
         assert any(item["branch_ref"] == "rel/current" for item in branches)
         assert any(item["branch_ref"] == f"dev/{sample['dev_version']}" for item in branches)
 
-        compare_response = client.get(
-            "/api/projects/1/branches/compare",
-            params={
-                "base_branch_ref": "rel/current",
-                "target_branch_ref": f"dev/{sample['dev_version']}",
-                "lang": "fr",
-            },
-        )
-        assert compare_response.status_code == 200
-        compare_payload = compare_response.json()
-        assert compare_payload["base_branch_ref"] == "rel/current"
-        assert compare_payload["target_branch_ref"] == f"dev/{sample['dev_version']}"
+        master_rows_response = client.get("/api/projects/1/scopes/master/rows")
+        assert master_rows_response.status_code == 200
+        master_rows_payload = master_rows_response.json()
+        assert master_rows_payload["scope_ref"] == "master"
+        assert any(row["state"] == "orphan" for row in master_rows_payload["rows"])
+        assert any(row["business_key"] == "common.welcome" for row in master_rows_payload["rows"])
 
-        queue_response = client.get(
-            "/api/projects/1/branches/queue",
-            params={"target_branch_ref": f"dev/{sample['dev_version']}", "lang": "fr"},
+        rel_rows_response = client.get("/api/projects/1/scopes/rel/current/rows")
+        assert rel_rows_response.status_code == 200
+        assert all(
+            any(binding["branch_ref"] == "rel/current" for binding in row["bindings"])
+            for row in rel_rows_response.json()["rows"]
         )
-        assert queue_response.status_code == 200
-        assert queue_response.json()["target_branch_ref"] == f"dev/{sample['dev_version']}"
+
+        dev_lookup_response = client.get(
+            f"/api/projects/1/scopes/dev/{sample['dev_version']}/lookup",
+            params={"business_key": "dev.mutable"},
+        )
+        assert dev_lookup_response.status_code == 200
+        dev_lookup_payload = dev_lookup_response.json()
+        assert dev_lookup_payload["scope_ref"] == f"dev/{sample['dev_version']}"
+        assert dev_lookup_payload["mode"] == "business_key"
+        assert [row["business_key"] for row in dev_lookup_payload["rows"]] == ["dev.mutable"]
 
         master_response = client.get("/api/projects/1/branches/master/entries/rel.locked.same")
         assert master_response.status_code == 200
-        assert any(row["branch_ref"] == "rel/current" for row in master_response.json()["results"])
+        assert all(row["scope_ref"] == "master" for row in master_response.json()["results"])
 
         replace_preview = client.post(
             "/api/projects/1/branches/replace/preview",
@@ -161,21 +166,83 @@ def test_branch_routes_and_removed_compatibility_surface() -> None:
         assert client.get("/workbench").status_code == 410
         assert client.get("/api/state").status_code == 404
         assert client.get("/api/strings").status_code == 404
+        assert client.get("/api/projects/1/branches/compare").status_code == 404
+        assert client.get("/api/projects/1/branches/queue").status_code == 404
         assert client.get("/api/scopes/compare").status_code == 404
 
 
-def test_branch_read_routes_return_404_for_missing_project() -> None:
+def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_ids_differ() -> None:
+    reset_demo()
+    business_key = "replace.rebind"
+    create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source="Source branch content",
+        translations={"fr": "Source branch"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+    create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source="Target branch content",
+        translations={"fr": "Target branch"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        preview_response = client.post(
+            "/api/projects/1/branches/replace/preview",
+            json={
+                "source_branch_ref": "dev/2.4.3",
+                "target_branch_ref": "rel/current",
+            },
+        )
+        execute_response = client.post(
+            "/api/projects/1/branches/replace/execute",
+            json={
+                "source_branch_ref": "dev/2.4.3",
+                "target_branch_ref": "rel/current",
+            },
+        )
+
+    assert preview_response.status_code == 200
+    payload = preview_response.json()
+    row = next(item for item in payload["report_rows"] if item["business_key"] == business_key)
+    assert row["status"] == "REBIND_TARGET"
+    assert payload["target_entry_count"] == 1
+    assert payload["added_to_target_count"] == 0
+    assert payload["kept_in_target_count"] == 0
+    assert payload["rebind_target_count"] == 1
+    assert payload["removed_from_target_count"] == 0
+    assert "already_in_target_count" not in payload
+
+    assert execute_response.status_code == 200
+    execute_detail = execute_response.json()
+    summary = execute_detail["job"]["summary"]
+    execute_row = next(item for item in execute_detail["report"]["rows"] if item["business_key"] == business_key)
+    assert execute_row["status"] == "REBIND_TARGET"
+    assert summary["target_entry_count"] == 1
+    assert summary["added_to_target_count"] == 0
+    assert summary["kept_in_target_count"] == 0
+    assert summary["rebind_target_count"] == 1
+    assert summary["removed_from_target_count"] == 0
+    assert "already_in_target_count" not in summary
+
+
+def test_scope_read_routes_return_404_for_missing_project() -> None:
     reset_demo()
 
     with TestClient(app) as client:
         responses = [
             client.get("/api/projects/999/variants"),
             client.get("/api/projects/999/branches"),
+            client.get("/api/projects/999/scopes/master/rows"),
+            client.get("/api/projects/999/scopes/rel/current/rows"),
+            client.get("/api/projects/999/scopes/master/lookup", params={"business_key": "common.welcome"}),
             client.get(
-                "/api/projects/999/branches/compare",
-                params={"base_branch_ref": "rel/current", "target_branch_ref": "dev/2.4.1"},
+                "/api/projects/999/history/same-source-candidates",
+                params={"business_key": "common.welcome", "source": "Welcome {0}"},
             ),
-            client.get("/api/projects/999/branches/queue", params={"target_branch_ref": "dev/2.4.1"}),
             client.get("/api/projects/999/branches/master/entries/common.welcome"),
             client.get("/api/projects/999/branches/master/search", params={"source": "Welcome {0}"}),
             client.get("/api/projects/999/branches/dev"),
@@ -209,6 +276,45 @@ def test_project_creation_and_bootstrap_expose_single_pivot_schema() -> None:
         assert schema["pivot_language"] == "en"
         assert schema["pivoted_languages"] == ["fr"]
         assert "translation_pivots" not in schema
+
+
+def test_scope_history_same_source_candidates_prioritize_live_before_trashed() -> None:
+    reset_demo()
+    trash_restore = TrashRestoreService()
+
+    business_key = "history.same_source"
+    source = "Shared source"
+    trashed_variant_id = create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source=source,
+        translations={"fr": "Historique"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    trash_restore.delete(BranchRef.rel_current(), [business_key])
+
+    live_variant_id = create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source=source,
+        translations={"fr": "Encore vivant"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/projects/1/history/same-source-candidates",
+            params={"business_key": business_key, "source": source},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["business_key"] == business_key
+    assert payload["source"] == source
+    assert [row["state"] for row in payload["rows"]] == ["active", "trashed"]
+    assert payload["rows"][0]["variant_id"] == live_variant_id
+    assert payload["rows"][1]["variant_id"] == trashed_variant_id
+    assert payload["rows"][1]["trashed_at"] is not None
 
 
 def test_project_variants_route_supports_state_filters_and_project_scope() -> None:
@@ -377,6 +483,111 @@ def test_project_variants_route_returns_dev_bound_rows_after_import_batch_apply(
         assert "dev.new.entry" in keys
 
 
+def test_branch_rows_and_lookup_routes_match_existing_scope_routes() -> None:
+    reset_demo()
+    sample = DemoService().get_sample("core-cycle")
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+
+    with TestClient(app) as client:
+        mutation = client.post(
+            "/api/projects/1/branches/mutations",
+            json={
+                "branch_ref": f"dev/{sample['dev_version']}",
+                "input": {
+                    "kind": "import_batch",
+                    "import_batch_id": batch["import_batch_id"],
+                    "mark_as_candidate_release": True,
+                },
+            },
+        )
+        assert mutation.status_code == 200
+        mutation_detail = wait_for_job(client, mutation.json())
+        assert mutation_detail["job"]["status"] == "success"
+
+        branch_rows_response = client.get(f"/api/projects/1/branches/dev/{sample['dev_version']}/rows")
+        scope_rows_response = client.get(f"/api/projects/1/scopes/dev/{sample['dev_version']}/rows")
+        assert branch_rows_response.status_code == 200
+        assert scope_rows_response.status_code == 200
+
+        branch_rows_payload = branch_rows_response.json()
+        scope_rows_payload = scope_rows_response.json()
+        assert branch_rows_payload["branch_ref"] == f"dev/{sample['dev_version']}"
+        assert "scope_ref" not in branch_rows_payload
+        assert scope_rows_payload["scope_ref"] == f"dev/{sample['dev_version']}"
+        assert branch_rows_payload["rows"] == scope_rows_payload["rows"]
+
+        branch_lookup_response = client.get(
+            f"/api/projects/1/branches/dev/{sample['dev_version']}/lookup",
+            params={"business_key": "dev.mutable"},
+        )
+        scope_lookup_response = client.get(
+            f"/api/projects/1/scopes/dev/{sample['dev_version']}/lookup",
+            params={"business_key": "dev.mutable"},
+        )
+        assert branch_lookup_response.status_code == 200
+        assert scope_lookup_response.status_code == 200
+
+        branch_lookup_payload = branch_lookup_response.json()
+        scope_lookup_payload = scope_lookup_response.json()
+        assert branch_lookup_payload["branch_ref"] == f"dev/{sample['dev_version']}"
+        assert "scope_ref" not in branch_lookup_payload
+        assert scope_lookup_payload["scope_ref"] == f"dev/{sample['dev_version']}"
+        assert branch_lookup_payload["mode"] == scope_lookup_payload["mode"] == "business_key"
+        assert branch_lookup_payload["value"] == scope_lookup_payload["value"] == "dev.mutable"
+        assert branch_lookup_payload["rows"] == scope_lookup_payload["rows"]
+
+        rel_branch_rows_response = client.get("/api/projects/1/branches/rel/current/rows")
+        rel_scope_rows_response = client.get("/api/projects/1/scopes/rel/current/rows")
+        assert rel_branch_rows_response.status_code == 200
+        assert rel_scope_rows_response.status_code == 200
+        assert rel_branch_rows_response.json()["branch_ref"] == "rel/current"
+        assert rel_branch_rows_response.json()["rows"] == rel_scope_rows_response.json()["rows"]
+
+        rel_branch_lookup_response = client.get(
+            "/api/projects/1/branches/rel/current/lookup",
+            params={"business_key": "common.welcome"},
+        )
+        rel_scope_lookup_response = client.get(
+            "/api/projects/1/scopes/rel/current/lookup",
+            params={"business_key": "common.welcome"},
+        )
+        assert rel_branch_lookup_response.status_code == 200
+        assert rel_scope_lookup_response.status_code == 200
+        assert rel_branch_lookup_response.json()["branch_ref"] == "rel/current"
+        assert "scope_ref" not in rel_branch_lookup_response.json()
+        assert rel_branch_lookup_response.json()["rows"] == rel_scope_lookup_response.json()["rows"]
+
+
+def test_branch_first_routes_return_404_for_missing_project() -> None:
+    reset_demo()
+
+    with TestClient(app) as client:
+        responses = [
+            client.get("/api/projects/999/branches/rel/current/rows"),
+            client.get("/api/projects/999/branches/rel/current/lookup", params={"business_key": "common.welcome"}),
+        ]
+
+    for response in responses:
+        assert response.status_code == 404
+        assert "project not found" in response.json()["detail"]
+
+
+def test_branch_first_routes_reject_master_branch_refs() -> None:
+    reset_demo()
+
+    with TestClient(app) as client:
+        rows_response = client.get("/api/projects/1/branches/master/rows")
+        lookup_response = client.get(
+            "/api/projects/1/branches/master/lookup",
+            params={"business_key": "common.welcome"},
+        )
+
+    assert rows_response.status_code == 400
+    assert lookup_response.status_code == 400
+    assert "invalid" in rows_response.json()["detail"].lower()
+    assert "invalid" in lookup_response.json()["detail"].lower()
+
+
 def test_project_variants_route_returns_pivot_fields_and_supports_pivot_filters() -> None:
     reset_demo()
     project = ProjectService().create_project(
@@ -479,14 +690,9 @@ def test_project_variants_route_returns_pivot_fields_and_supports_pivot_filters(
 
 def test_project_variants_query_rows_match_variant_hydration_contract() -> None:
     reset_demo()
-    rows = ProjectVariantsQueryRepository().list_variant_rows(
+    rows = ReadModelRepository().list_live_variant_rows(
         1,
-        state="all",
-        branch_refs=[],
-        search_business_key=None,
-        search_source=None,
-        pivot_status=None,
-        pivot_changed_by_branch_ref=None,
+        VariantFilter(state="all"),
         page=1,
         page_size=5,
     )["rows"]

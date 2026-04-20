@@ -81,14 +81,18 @@
 
 `Read Models`
 
-- product-facing projections include both active-binding branch projections and project-wide variant workspace reads
-- branch summary, branch compare, translation queue, and master query stay projection-based rather than table-shaped
+- product-facing reads are organized as scope catalog reads, project-wide variant workspace reads, and history queries
+- `master` is a read-only scope over all live non-trashed variants in the project; it is not a writable branch
 - the variants workspace query returns one row per live non-trashed variant and can include both `active` and `orphan` lifecycle states
 
 ## Shared Mental Model
 
 - `business_key` identifies the stable slot, not the content itself
 - a single entry may have multiple variants because source text can evolve
+- branch is the operator-facing selection layer: product URLs, branch pickers, and branch-first read or write routes should use branch terminology
+- scope remains an internal selector term and read-model term where the system needs to talk about `master`, selector parsing, or shared read-model machinery
+- `variant` remains the live content entity that branches bind and workflows inspect
+- `pivot` remains variant-local workflow state for pivot-language review; it is not a branch or scope concept
 - scopes decide which variant is active right now
 - authority differences explain why `rel` and `dev` treat the same canonical variant differently
 
@@ -109,7 +113,7 @@ Live states:
 - `orphan`: no active binding but still reusable for future same-source hits
 - `trashed`: explicitly deleted from normal runtime usage
 
-Most product reads still use active variants only. Compare, queue, master query, and QA remain active-binding views. The variants workspace query is the main project-scoped exception on the read side: it may include both `active` and `orphan` variants, while still excluding `trashed` variants in V1. `fill` remains the history-heavy exception: it matches against the project's full variant history, preferring non-trashed same-source variants and only falling back to trashed history when no live same-source candidate remains.
+Most product reads now split into three shapes: scope catalog reads, project-wide variant workspace reads, and project history reads. Branch scopes only expose currently bound active variants. The `master` scope and the variants workspace query may include both `active` and `orphan` variants while still excluding `trashed` variants in V1. `fill` and same-source candidate lookup remain the history-heavy exceptions: they match against the project's full variant history, preferring non-trashed same-source variants and only falling back to trashed history when no live same-source candidate remains.
 
 ## Package Map
 
@@ -118,7 +122,7 @@ HTTP routers:
 - `pages.py`: `/app` plus `/workbench` and `/variant-workbench` tombstones
 - `projects_state.py`: project list or create, bootstrap, and demo reset
 - `imports_jobs.py`: project-scoped import batch APIs, jobs, reports, and artifacts
-- `scopes_read_models.py`: project-scoped branch summary, compare, queue, and master query
+- `scopes_read_models.py`: project-scoped branch summary, scope catalog reads, same-source history candidates, and legacy master-scope lookup aliases
 - `workflows.py`: project-scoped branch mutation, sync, trash, restore, fill, and QA
 - `inspection.py`: read-only project-wide variants workspace plus canonical variant and orphan inspection
 
@@ -126,10 +130,10 @@ Domain services:
 
 - `app/services/project/`: project creation and schema loading live in `service.py`; `/app` bootstrap assembly lives in `bootstrap.py`
 - `app/services/imports/`: import batch parsing and persistence
-- `app/services/branch/`: scope refs and policy live with branch write or replace orchestration; `registry.py` owns dev branch metadata and release summary, `details.py` owns branch entry hydration, `replace.py` owns branch replace execution, and `mutations.py` coordinates branch-scoped writes
+- `app/services/branch/`: scope refs and policy live with branch write or replace orchestration; `replace.py` owns branch replace execution, and `mutations.py` coordinates branch-scoped writes. Operator-facing branch metadata and detail reads live in `app/services/read_models/derived/branch_catalog.py`
 - `app/services/variant/`: pure variant-domain package only. `entries.py` owns entry access, `store.py` plus `repositories.py` own canonical same-source persistence, `catalog.py` owns variant content rules, `pivot.py` owns variant-level pivot status coordination for pivot-language changes and reviews, `bindings.py` owns raw binding commands and lookups, `state_coordinator.py` composes binding writes with orphan refresh, and `lifecycle.py` owns orphan or trash state transitions. Operator-facing inspection, hydration, and workflow orchestration are not part of this package.
-- `app/services/read_models/`: the only operator-facing read side. `summary.py`, `compare.py`, `queue.py`, `master.py`, and `variants.py` expose use-case-specific read services; `hydration.py` and `inspection.py` own row hydration and historical inspection reads; `queries.py` owns lightweight projection queries
-- `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, `fill_queries.py` owns fill-specific candidate reads, and `trash_restore.py`, `fill.py`, and `qa.py` execute workflow behavior
+- `app/services/read_models/`: the only operator-facing read side. `selectors.py`, `types.py`, `repository.py`, and `hydrate.py` define shared selectors, row types, raw queries, and canonical assembly; `datasets/` owns the stable scope-members, live-variants, history, and entry-timeline datasets; `derived/` owns branch catalog, branch summary, plus replace, fill, and pivot preview views built on top of those datasets
+- `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, while `trash_restore.py`, `fill.py`, and `qa.py` execute workflow behavior by consuming the shared read-model datasets when they need project history or live variant reads
 - `app/services/shared/`: IO helpers, job storage, and utility helpers
 - `app/services/demo/`: demo seeding and sample workbook generation
 
@@ -166,9 +170,9 @@ Branch mutation:
 Read models:
 
 1. routers parse scope refs and filters
-2. branch and read-model query repositories load lightweight scope projections and branch summary rows
-3. read-model services compute compare state and queue priority from those projections
-4. only the current page is hydrated into full row payloads for compare or master-style detail
+2. `app/services/read_models/repository.py` loads raw scope members, live variants, history candidates, entry timelines, and projection rows
+3. `app/services/read_models/hydrate.py` is the single assembly path for variant content, bindings, lifecycle state, and pivot metadata
+4. datasets and derived views build on top of that shared repository plus hydrator pair instead of re-defining their own query rules
 
 Bootstrap:
 

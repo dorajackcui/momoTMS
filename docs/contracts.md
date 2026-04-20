@@ -50,7 +50,8 @@ Current SPA routes:
 
 ## Route Policy
 
-- the runtime is project-scoped, with branch-centric workflow reads plus a project-wide variants workspace query
+- the runtime is project-scoped, with branch-first operator reads plus branch-centric workflow writes
+- scope routes remain documented as compatibility aliases and scope-aware read routes during the transition to branch-first operator wording
 - `/app` should call project-scoped APIs only
 - `GET /workbench` and `GET /variant-workbench` stay removed and return `410 Gone`
 - `/app` may use inspection APIs for read-only debugging, but it should not depend on removed compatibility routes
@@ -75,7 +76,7 @@ Usage rules:
 
 - `/app` should bootstrap and refresh project shell state from project-scoped APIs only
 - frontend code should treat this payload as project shell state, not as a page-by-page compatibility blob
-- detailed page data should come from dedicated project-scoped queries such as the variants workspace query, branch detail, compare, queue, imports, jobs, and entry-variant inspection routes
+- detailed page data should come from dedicated project-scoped queries such as the variants workspace query, scope rows, scope lookup, same-source history candidates, imports, jobs, and entry-variant inspection routes
 - project schema is fixed after project creation; bootstrap describes the current schema but does not imply schema-edit support
 - schema includes `pivot_language` plus `pivoted_languages`
 - when `lang` is in `pivoted_languages`, its pivot parent is the project `pivot_language`; all other languages are treated as `null` pivot
@@ -104,12 +105,54 @@ Variants workspace query:
 - `pivot_changed_by_branch_ref` uses the same `rel/current` or `dev/x.y.z` ref format as the rest of the API
 - row payloads include `variant_id`, `entry_id`, `business_key`, `file_name`, `source`, hydrated translations or remarks, `bindings`, `state`, `orphaned_at`, `pivot_status`, `pivot_changed_by_branch_ref`, `pivot_changed_at`, `pivot_reviewed_at`, `created_at`, and `updated_at`
 
+Branch-first catalog reads:
+
+- `GET /api/projects/{project_id}/branches/{branch_ref:path}/rows` accepts `search_business_key`, `search_source`, `page`, and optional `page_size`
+- `branch_ref` supports `rel/current` and `dev/x.y.z`
+- this is the canonical operator-facing rows route for branch-scoped reads
+- branch row payloads reuse the variants workspace row shape so callers can inspect content, bindings, lifecycle state, and pivot metadata consistently across branch views
+
+Branch-first lookup:
+
+- `GET /api/projects/{project_id}/branches/{branch_ref:path}/lookup` accepts exactly one of `business_key` or `source`
+- this is the canonical operator-facing lookup route for branch-scoped reads
+- lookup stays branch-aware: the same key or source may resolve differently in `rel/current` and `dev/x.y.z`
+
+Scope catalog reads:
+
+- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows` accepts `search_business_key`, `search_source`, `page`, and optional `page_size`
+- `scope_ref` supports `master`, `rel/current`, and `dev/x.y.z`
+- scope routes are compatibility aliases for the same branch-scoped read model when `scope_ref` is a branch ref, and they remain the explicit selector form when callers need `master`
+- `master` means the project-wide live variant scope: `active + orphan`, excluding `trashed`
+- branch scopes only expose variants currently bound in that branch, so they return active rows only
+- scope row payloads reuse the variants workspace row shape so callers can inspect content, bindings, lifecycle state, and pivot metadata consistently across scopes
+
+Scope lookup:
+
+- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup` accepts exactly one of `business_key` or `source`
+- scope lookup is the compatibility alias and scope-aware read route during the transition; use the branch lookup route for canonical operator-facing branch reads
+- lookup stays scope-aware: the same key or source may resolve differently in `master`, `rel/current`, and `dev/x.y.z`
+- legacy `GET /api/projects/{project_id}/branches/master/entries/{business_key}` and `.../master/search` remain as transition routes, but their rows now describe the `master` scope rather than a writable branch
+
+Same-source history candidates:
+
+- `GET /api/projects/{project_id}/history/same-source-candidates` accepts exact `business_key` plus exact `source`
+- the response returns project history candidates ordered by reuse preference: live before trashed, then newest `updated_at`
+- candidate rows include `active`, `orphan`, or `trashed` state plus hydrated translations, remarks, bindings, and pivot metadata
+
 Pivot review jobs:
 
 - `POST /api/projects/{project_id}/variants/pivot/review` accepts `branch_ref` plus `variant_ids[]`
 - the action returns synchronous `JobDetail` with report rows in the standard workflow shape
 - row statuses are `REVIEWED`, `NOT_CHANGED`, `NOT_VISIBLE_IN_SCOPE`, `FORBIDDEN_BY_AUTHORITY`, or `MISSING`
 - successful reviews move the variant from `changed` to `reviewed`, clear `pivot_changed_by_branch_ref`, and record `pivot_reviewed_at`
+
+Branch replace preview:
+
+- `POST /api/projects/{project_id}/branches/replace/preview` accepts `source_branch_ref` and `target_branch_ref`
+- preview summary includes `target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, `removed_from_target_count`, and `cleanup_binding_count`
+- preview report rows use binding-change statuses: `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, and `REMOVE_FROM_TARGET`
+- `REBIND_TARGET` means the target branch already has that `business_key`, but it is currently bound to a different variant than the source branch, so execute will switch the target binding without copying content
 
 Import upload and job detail:
 
@@ -126,8 +169,8 @@ The product app depends on:
 
 - project list plus project-scoped bootstrap data from `GET /api/projects` and `GET /api/projects/{project_id}/state`
 - the project-scoped variants workspace query for `Overview` and orphan browsing
-- branch summary plus branch detail, compare, and queue APIs for branch-oriented operations
-- paginated compare and queue APIs for branch operations and release-summary sampling
+- branch summary plus scope rows, scope lookup, and same-source history APIs for branch-oriented operations
+- canonical branch rows and branch lookup remain the documented branch-first routes, but the live frontend still uses the scope-aware compatibility aliases in `frontend/src/domains/branches/api.ts`
 - import preview data with `upload_session_id`, `available_headers`, `suggested_mapping`, and `missing_targets`
 - import-batch list and report APIs
 - job list, detail, report, and artifact APIs
@@ -177,10 +220,13 @@ Imports and jobs:
 Branch read models:
 
 - `GET /api/projects/{project_id}/branches`
-- `GET /api/projects/{project_id}/branches/compare`
-- `GET /api/projects/{project_id}/branches/queue`
+- `GET /api/projects/{project_id}/branches/{branch_ref:path}/rows`
+- `GET /api/projects/{project_id}/branches/{branch_ref:path}/lookup`
 - `GET /api/projects/{project_id}/branches/master/entries/{business_key}`
 - `GET /api/projects/{project_id}/branches/master/search`
+- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows` compatibility alias
+- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup` compatibility alias
+- `GET /api/projects/{project_id}/history/same-source-candidates`
 
 Inspection reads:
 

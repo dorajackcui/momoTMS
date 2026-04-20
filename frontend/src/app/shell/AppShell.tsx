@@ -45,7 +45,7 @@ const NAV_ITEMS = [
   {
     path: "/app/branches",
     label: "Branch Ops",
-    hint: "Compare, queue, lookup, apply, replace, and trash flows.",
+    hint: "Scope catalog, lookup, apply, replace, and trash flows.",
   },
   {
     path: "/app/runs",

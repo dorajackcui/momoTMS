@@ -7,12 +7,18 @@ export const queryKeys = {
     ["branch-summary", projectId, lang] as const,
   devBranchDetail: (projectId: number, version: string) =>
     ["dev-branch-detail", projectId, version] as const,
-  branchCompare: (
+  scopeRows: (
     projectId: number,
+    scopeRef: string,
     params: Record<string, unknown>,
-  ) => ["branch-compare", projectId, params] as const,
-  branchQueue: (projectId: number, params: Record<string, unknown>) =>
-    ["branch-queue", projectId, params] as const,
+  ) => ["scope-rows", projectId, scopeRef, params] as const,
+  scopeLookup: (
+    projectId: number,
+    scopeRef: string,
+    params: Record<string, unknown>,
+  ) => ["scope-lookup", projectId, scopeRef, params] as const,
+  sameSourceCandidates: (projectId: number, businessKey: string, source: string) =>
+    ["same-source-candidates", projectId, businessKey, source] as const,
   masterByKey: (projectId: number, businessKey: string) =>
     ["master-by-key", projectId, businessKey] as const,
   masterBySource: (projectId: number, source: string) =>
@@ -46,8 +52,11 @@ export async function invalidateProjectScope(
     queryClient.invalidateQueries({
       queryKey: ["branch-summary", projectId],
     }),
-    queryClient.invalidateQueries({ queryKey: ["branch-compare", projectId] }),
-    queryClient.invalidateQueries({ queryKey: ["branch-queue", projectId] }),
+    queryClient.invalidateQueries({ queryKey: ["scope-rows", projectId] }),
+    queryClient.invalidateQueries({ queryKey: ["scope-lookup", projectId] }),
+    queryClient.invalidateQueries({
+      queryKey: ["same-source-candidates", projectId],
+    }),
     queryClient.invalidateQueries({
       queryKey: queryKeys.imports(projectId),
     }),

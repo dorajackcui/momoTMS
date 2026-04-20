@@ -44,7 +44,7 @@
 
 - [`FillRequest`](../app/schemas.py) 还没有 `branch_ref`
 - [`/api/projects/{project_id}/fill`](../app/routers/workflows.py) 和 upload-folder Fill 也都只有目录或上传文件、`lang`、`output_name`
-- 当前入口是 [`WorkflowApplicationService`](../app/services/workflows/application.py) -> [`FillService`](../app/services/workflows/fill.py) -> [`FillQueryService`](../app/services/workflows/fill_queries.py)
+- 当前入口是 [`WorkflowApplicationService`](../app/services/workflows/application.py) -> [`FillService`](../app/services/workflows/fill.py) -> `FillQueryService`（后续实现已收敛到共享 read-model dataset）
 - 当前查询是 project-scoped：`FillQueryService.list_fill_candidates(project_id, lang)` 直接扫描项目下所有 recorded variants
 - 当前匹配仍然按 `(business_key, source)` 建索引，并优先 live variant，只有没有 live same-source 候选时才回退到 trashed history
 - 当前 runtime 里没有 `translation_pivots`
@@ -330,7 +330,7 @@ Fill 不负责推导 pivot drift，它只负责消费。
 按当前服务拆分，Fill 侧的未来落点应该明确成：
 
 - [`FillService`](../app/services/workflows/fill.py) 继续保留 workbook 遍历、报告生成、artifact 输出
-- Fill 专属读查询仍由 [`FillQueryService`](../app/services/workflows/fill_queries.py) 承担
+- Fill 专属读查询仍由 `FillQueryService` 承担
 - pivot 相关读取发生在“Fill 已经命中 candidate variant”之后，而不是让 Fill 重新定义 variant identity
 
 因此 V1 Fill 的语义应该是：

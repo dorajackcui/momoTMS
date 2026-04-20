@@ -129,7 +129,8 @@ class BranchReplacePreview(BaseModel):
     target_branch_ref: str
     target_entry_count: int
     added_to_target_count: int
-    already_in_target_count: int
+    kept_in_target_count: int
+    rebind_target_count: int
     removed_from_target_count: int
     cleanup_binding_count: int
     report_rows: list[dict[str, Any]] = Field(default_factory=list)
@@ -157,6 +158,36 @@ class BranchSummaryItem(BaseModel):
 
 class BranchListResponse(BaseModel):
     branches: list[BranchSummaryItem] = Field(default_factory=list)
+
+
+class ScopeRowsResponse(BaseModel):
+    scope_ref: str
+    rows: list["ProjectVariantRow"] = Field(default_factory=list)
+    total_rows: int = 0
+    page: int = 1
+    page_size: int = 0
+
+
+class BranchRowsResponse(BaseModel):
+    branch_ref: str
+    rows: list["ProjectVariantRow"] = Field(default_factory=list)
+    total_rows: int = 0
+    page: int = 1
+    page_size: int = 0
+
+
+class ScopeLookupResponse(BaseModel):
+    scope_ref: str
+    mode: Literal["business_key", "source"]
+    value: str
+    rows: list["ProjectVariantRow"] = Field(default_factory=list)
+
+
+class BranchLookupResponse(BaseModel):
+    branch_ref: str
+    mode: Literal["business_key", "source"]
+    value: str
+    rows: list["ProjectVariantRow"] = Field(default_factory=list)
 
 
 class BranchSide(BaseModel):
@@ -211,7 +242,7 @@ class BranchQueueResponse(BaseModel):
 
 class MasterQueryRow(BaseModel):
     business_key: str
-    branch_ref: str
+    scope_ref: str
     variant_id: int
     file_name: str | None = None
     source: str
@@ -254,6 +285,34 @@ class ProjectVariantsResponse(BaseModel):
     total_rows: int = 0
     page: int = 1
     page_size: int = 0
+
+
+class SameSourceCandidateRow(BaseModel):
+    variant_id: int
+    entry_id: int
+    business_key: str
+    file_name: str | None = None
+    source: str
+    translations: dict[str, str | None] = Field(default_factory=dict)
+    remarks: dict[str, str | None] = Field(default_factory=dict)
+    bindings: list[BindingSummary] = Field(default_factory=list)
+    state: Literal["active", "orphan", "trashed"]
+    orphaned_at: str | None = None
+    trashed_at: str | None = None
+    trash_until: str | None = None
+    restored_at: str | None = None
+    pivot_status: Literal["init", "changed", "reviewed"]
+    pivot_changed_by_branch_ref: str | None = None
+    pivot_changed_at: str | None = None
+    pivot_reviewed_at: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class SameSourceCandidatesResponse(BaseModel):
+    business_key: str
+    source: str
+    rows: list[SameSourceCandidateRow] = Field(default_factory=list)
 
 
 class EntryVariantInspection(BaseModel):

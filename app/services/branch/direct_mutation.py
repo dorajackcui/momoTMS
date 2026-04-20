@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from app.services.branch.models import BranchRef
-from app.services.branch.policy import BranchMutationPolicy
+from app.services.branch.policy import AuthorityPolicy, BranchMutationPolicy
 from app.services.project.service import ProjectService
 from app.services.shared.io import normalize_non_content_value
 from app.services.variant.bindings import BindingLookupService
@@ -135,12 +135,17 @@ class DirectMutationApplier:
                 self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
             )
-            if not policy.can_update_hit_variant(branch_ref, bound_branch_refs):
+            forbidden_status = AuthorityPolicy.content_mutation_status(
+                branch_ref,
+                bound_branch_refs,
+                content_changed=not self.resolution.variant_matches(current_variant, merged),
+            )
+            if forbidden_status is not None:
                 return {
                     "business_key": business_key,
                     "branch_ref": str(branch_ref),
                     "variant_id": int(current_variant["variant_id"]),
-                    "status": "NOOP",
+                    "status": forbidden_status,
                     "created_entry": created_entry,
                 }
             self.catalog.update_variant(
@@ -174,12 +179,17 @@ class DirectMutationApplier:
                 self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
             )
-            if not policy.can_update_hit_variant(branch_ref, bound_branch_refs):
+            forbidden_status = AuthorityPolicy.content_mutation_status(
+                branch_ref,
+                bound_branch_refs,
+                content_changed=True,
+            )
+            if forbidden_status is not None:
                 return {
                     "business_key": business_key,
                     "branch_ref": str(branch_ref),
                     "variant_id": int(current_variant["variant_id"]),
-                    "status": "NOOP",
+                    "status": forbidden_status,
                     "created_entry": created_entry,
                 }
             self.catalog.update_variant(
@@ -232,21 +242,17 @@ class DirectMutationApplier:
             self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
             target_variant_id,
         )
-        if not policy.can_update_hit_variant(branch_ref, bound_branch_refs):
-            if current_matches_target:
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "variant_id": target_variant_id,
-                    "status": "NOOP",
-                    "created_entry": created_entry,
-                }
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
+        forbidden_status = AuthorityPolicy.content_mutation_status(
+            branch_ref,
+            bound_branch_refs,
+            content_changed=not self.resolution.variant_matches(target_variant, merged),
+        )
+        if forbidden_status is not None:
             return {
                 "business_key": business_key,
                 "branch_ref": str(branch_ref),
                 "variant_id": target_variant_id,
-                "status": "BOUND_EXISTING_VARIANT",
+                "status": forbidden_status,
                 "created_entry": created_entry,
             }
 
@@ -296,4 +302,5 @@ class DirectMutationApplier:
             "created_and_bound_variant_count": status_counts["CREATED_AND_BOUND_VARIANT"],
             "missing_in_scope_count": status_counts["MISSING_IN_SCOPE"],
             "noop_count": status_counts["NOOP"],
+            "forbidden_by_authority_count": status_counts["FORBIDDEN_BY_AUTHORITY"],
         }
