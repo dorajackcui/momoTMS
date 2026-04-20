@@ -206,7 +206,7 @@ class ImportBatchMutationApplier:
             return {"status": "UPDATED_BOUND_VARIANT"}
 
         source_variant = self.resolution.find_source_variant_in_cache(entry_id, variants, requested_source)
-        content_base = current_variant or source_variant
+        content_base = source_variant
         merged = self.resolution.merged_variant_payload(content_base, change, requested_source)
 
         if source_variant is None:
