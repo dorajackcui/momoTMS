@@ -22,7 +22,6 @@ What is already clear:
 
 What is not fully closed yet:
 
-- `branch authority` is not yet a complete, explicit policy system
 - `create` and `update` flows for branches are not yet expressed as one unified infra contract
 - preview capabilities are still only partially systematized
 - `scope` compatibility still exists in the runtime and frontend contract surface
@@ -68,7 +67,7 @@ Artifacts:
 
 Status:
 
-- in progress
+- complete
 
 Goal:
 
@@ -81,7 +80,7 @@ Questions to answer:
 - when a variant is shared across multiple branches, who may mutate content
 - which actions are authority-controlled content changes versus allowed rebinds
 
-Current session decisions:
+Completed decisions:
 
 - authority protects only in-place edits on shared `translations + remarks`
 - `source` change is variant resolution, not shared-content mutation
@@ -90,19 +89,21 @@ Current session decisions:
 - same-source authority bypass by auto-fork is not allowed
 - orphan variants without any current bindings may be rebound and edited by the first branch that reuses them
 
-Target outputs:
+Delivered outputs:
 
 - explicit authority matrix
 - stable status vocabulary for authority outcomes
 - service-level rules that can be reused by later mutation work
 
-Artifacts so far:
+Artifacts:
 
 - [branch-authority-model.md](branch-authority-model.md): Phase 2 authority scope, ordering, matrix, and internal authority-filtered outcome vocabulary
+- [branch-authority-implementation-plan.md](branch-authority-implementation-plan.md): execution plan used to land the Phase 2 runtime changes
 
-Session focus:
+Implementation result:
 
-- one session can be dedicated purely to the authority matrix and edge-case semantics
+- branch mutation flows now preserve legal bind or rebind effects while filtering unauthorized shared-content edits
+- mutation reporting now exposes filtered-content outcomes through row metadata and summary counts
 
 ### Phase 3: Branch Creation And Bootstrap
 
@@ -298,14 +299,13 @@ Session focus:
 
 ## Recommended Session Order
 
-1. Phase 2: Authority Model
-2. Phase 3: Branch Creation And Bootstrap
-3. Phase 4: Mutation Contract
-4. Phase 5: Preview System
-5. Phase 6: Branch-To-Branch Operations
-6. Phase 7: Pivot Workflow And Preview
-7. Phase 8: Lifecycle And Recovery
-8. Phase 9: Contract Convergence
+1. Phase 3: Branch Creation And Bootstrap
+2. Phase 4: Mutation Contract
+3. Phase 5: Preview System
+4. Phase 6: Branch-To-Branch Operations
+5. Phase 7: Pivot Workflow And Preview
+6. Phase 8: Lifecycle And Recovery
+7. Phase 9: Contract Convergence
 
 ## Why This Order
 
@@ -319,20 +319,20 @@ Session focus:
 
 ## Suggested Next Session
 
-Start with `Phase 2: Authority Model`.
+Start with `Phase 3: Branch Creation And Bootstrap`.
 
 Concrete goal for that session:
 
-- write the branch authority matrix
-- define which actions are blocked, allowed, or conditionally allowed
-- decide how authority applies to content mutation, pure rebind, replace, and pivot review
+- define how a dev branch is created or bootstrapped
+- settle the semantic meaning of an initial branch-wide `key + source` upload
+- decide what branch metadata and follow-up merge rules bootstrap must establish
 
 Success condition:
 
-- after that session, the project should be able to explain branch power relationships without relying on scattered special cases
+- after that session, the project should have a stable bootstrap contract that later mutation and preview work can build on
 
 ## Simple Memory Hook
 
 If a future session needs a quick restart point, use this sentence:
 
-`Phase 1 is done; next close the authority model before branch bootstrap, mutation, preview, pivot, and lifecycle are expanded.`
+`Phase 1 and Phase 2 are done; next define branch bootstrap before mutation, preview, pivot, and lifecycle are expanded.`

@@ -53,6 +53,28 @@ Docs regression:
 - `scripts/playwright.js` keeps browsers under `.playwright`, starts an isolated backend automatically when needed, and fails fast when required local prerequisites are missing
 - if a test or script depends on a writable runtime, prefer `MOMO_TMS_DB_PATH`, `MOMO_TMS_JOBS_DIR`, and `MOMO_TMS_DEMO_ROOT` over hard-coded `data/` paths
 
+## Windows Sandbox Note
+
+- in Codex or other workspace-sandboxed agents, `.\.venv\Scripts\python.exe` only runs without escalation when the venv is backed by a Python interpreter that is also inside the repo or another allowed execution root
+- if `.venv\pyvenv.cfg` points to a user-profile install such as `C:\Users\...\AppData\Local\Programs\Python\Python311`, the Windows venv launcher will try to execute that external base interpreter and the sandbox will reject it with errors such as `Unable to create process using ...` or `Access denied`
+- when that happens, do not keep retrying pytest commands or switch to ad hoc invocation tricks first; check `.venv\pyvenv.cfg` and fix the venv root cause once
+- preferred fix: rebuild `.venv` from a repo-local Python copy so test commands stay inside the workspace boundary
+- in workspace-sandboxed agents, the one-time bootstrap copy from `AppData` into the repo may itself require escalation because the source interpreter is outside the workspace; that is expected
+
+Windows PowerShell:
+
+```powershell
+Get-Content -Encoding utf8 .venv\pyvenv.cfg
+scripts\bootstrap_local_python.ps1 -PythonHome C:\Users\<you>\AppData\Local\Programs\Python\Python311
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Expected result after the rebuild:
+
+- `.venv\pyvenv.cfg` should point at `D:\...\momoTMS\.python-home\python.exe` or another repo-local path
+- after that, the standard Windows pytest commands below should run without repeated escalation requests
+- if pytest still needs escalation after the rebuild, treat that as a new problem and inspect the current `.venv\pyvenv.cfg` again
+
 ## Verification Commands
 
 All commands assume the repo root is the current working directory.
@@ -70,6 +92,8 @@ Windows PowerShell:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+If this command fails with `Unable to create process using ...` on a path outside the repo, read `Windows Sandbox Note` above before retrying.
 
 API and routing regression:
 
@@ -170,6 +194,7 @@ Use this section after selecting the owner doc from [docs/README.md](README.md).
 - frontend `/app` changes: run `npm run build:app`, then `npm run test:e2e` when user-visible flows changed
 - docs-only changes: run `scripts/validate_docs.py`, then manually verify wording, ownership, and behavior claims the validator cannot prove
 - test-harness changes: run the directly impacted suite plus any docs validation needed for changed test references or commands
+- on Windows agent sessions, if pytest unexpectedly needs escalation, inspect `.venv\pyvenv.cfg` before retrying; a venv rooted in `AppData` is an environment problem, not a flaky test failure
 
 ## Final Summary Expectation
 

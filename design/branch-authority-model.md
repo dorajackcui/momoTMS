@@ -1,5 +1,10 @@
 # Branch Authority Model
 
+## Status
+
+- complete
+- implemented in current runtime for branch mutation filtering and reporting
+
 ## Purpose
 
 - define the Phase 2 authority core for branch-shared variants
