@@ -596,8 +596,7 @@ def test_direct_dev_mutation_reuses_rel_owned_variant_and_creates_missing_entrie
     assert any(item["business_key"] == "dev.direct.new" for item in dev_entries)
 
 
-@pytest.mark.shared_current
-def test_lower_authority_same_variant_edit_is_filtered_but_binding_is_kept() -> None:
+def test_lower_authority_shared_current_same_variant_edit_is_filtered_but_binding_is_kept() -> None:
     reset_demo()
     services = branch_services()
     mutation_service = BranchMutationService()
@@ -639,8 +638,7 @@ def test_lower_authority_same_variant_edit_is_filtered_but_binding_is_kept() -> 
     assert current_variant["remarks"]["context"] == "authoritative"
 
 
-@pytest.mark.rebind_filtered
-def test_lower_authority_source_switch_rebinds_existing_target_and_filters_content() -> None:
+def test_lower_authority_rebind_filtered_source_switch_rebinds_existing_target_and_filters_content() -> None:
     reset_demo()
     services = branch_services()
     mutation_service = BranchMutationService()
@@ -686,13 +684,15 @@ def test_lower_authority_source_switch_rebinds_existing_target_and_filters_conte
     assert row["status"] == "BOUND_EXISTING_VARIANT"
     assert row["content_filtered_by_authority"] is True
 
+    dev_entries = services.list_branch_entries(BranchRef.dev("2.5.1"))
+    dev_entry = next(item for item in dev_entries if item["business_key"] == "authority.rebind.filtered")
+    assert dev_entry["variant_id"] == target_variant_id
     target_variant = services.catalog.get_variant(target_variant_id)
     assert target_variant["translations"]["fr"] == "Target text"
     assert target_variant["remarks"]["context"] == "target"
 
 
-@pytest.mark.orphan
-def test_orphan_variant_can_be_rebound_and_edited_in_one_row() -> None:
+def test_lower_authority_orphan_variant_can_be_rebound_and_edited_in_one_row() -> None:
     reset_demo()
     services = branch_services()
     mutation_service = BranchMutationService()
@@ -729,6 +729,9 @@ def test_orphan_variant_can_be_rebound_and_edited_in_one_row() -> None:
     assert row["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
     assert not row.get("content_filtered_by_authority")
 
+    dev_entries = services.list_branch_entries(BranchRef.dev("2.5.1"))
+    dev_entry = next(item for item in dev_entries if item["business_key"] == "authority.orphan.rebind")
+    assert dev_entry["variant_id"] == orphan_variant_id
     orphan_variant = services.catalog.get_variant(orphan_variant_id)
     assert orphan_variant["translations"]["fr"] == "Edited orphan text"
     assert orphan_variant["remarks"]["context"] == "Edited orphan remark"
