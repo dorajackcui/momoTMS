@@ -6,7 +6,7 @@ import { useAppShell } from "@/app/shell/AppShellContext";
 import { getJobDetail, getJobs } from "@/domains/jobs/api";
 import { runFillUpload, runQaUpload } from "@/domains/workflows/api";
 import { JobDetailPanel } from "@/features/job-detail/JobDetailPanel";
-import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
+import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { formatTimestamp, summarizeJob, titleCase } from "@/shared/lib/format";
 import {
   EmptyState,
@@ -52,7 +52,7 @@ export function RunsPage() {
       if (!shell.projectId) {
         return;
       }
-      await invalidateProjectScope(queryClient, shell.projectId, {
+      await invalidateProject(queryClient, shell.projectId, {
         businessKey: shell.businessKey,
       });
       shell.setJobId(detail.job.job_id);

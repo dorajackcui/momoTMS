@@ -33,7 +33,7 @@ class VariantStateCoordinator:
             binding_lookup=self._binding_lookup,
         )
 
-    def bind_scope(
+    def bind(
         self,
         entry_id: int,
         scope_ref: Any,
@@ -43,7 +43,7 @@ class VariantStateCoordinator:
         refresh_orphan_states: bool = True,
     ) -> None:
         marker = timestamp or now_iso()
-        self._binding_commands.bind_scope(entry_id, scope_ref, variant_id, conn=conn, timestamp=marker)
+        self._binding_commands.bind(entry_id, scope_ref, variant_id, conn=conn, timestamp=marker)
         if refresh_orphan_states:
             self._lifecycle.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
 
@@ -63,11 +63,11 @@ class VariantStateCoordinator:
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> None:
         scope_type, scope_value = _scope_tuple(scope_ref)
-        removed = self._binding_commands.clear_scope_bindings(project_id, scope_type, scope_value)
+        removed = self._binding_commands.clear_bindings(project_id, scope_type, scope_value)
         for row in removed:
             self._lifecycle.refresh_orphan_states(int(row["entry_id"]))
 
-    def remove_scope_bindings(
+    def remove_bindings(
         self,
         scope_refs: list[Any],
         project_id: int = DEFAULT_PROJECT_ID,
@@ -79,7 +79,7 @@ class VariantStateCoordinator:
             grouped_scope_values.setdefault(scope_type, []).append(scope_value)
         removed: list[BindingRecord] = []
         for scope_type, scope_values in grouped_scope_values.items():
-            removed.extend(self._binding_commands.remove_scope_binding_rows(project_id, scope_type, scope_values, conn=conn))
+            removed.extend(self._binding_commands.remove_binding_rows(project_id, scope_type, scope_values, conn=conn))
         refreshed_entry_ids = sorted({int(row["entry_id"]) for row in removed})
         for entry_id in refreshed_entry_ids:
             self._lifecycle.refresh_orphan_states(entry_id, conn=conn)

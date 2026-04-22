@@ -11,7 +11,7 @@ import {
   reviewPivotVariants,
 } from "@/domains/variants/api";
 import type { PivotStatus } from "@/domains/variants/types";
-import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
+import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { cx } from "@/shared/lib/cx";
 import { formatTimestamp } from "@/shared/lib/format";
 import {
@@ -108,7 +108,7 @@ export function VariantsPage() {
       if (!shell.projectId) {
         return;
       }
-      await invalidateProjectScope(queryClient, shell.projectId, {
+      await invalidateProject(queryClient, shell.projectId, {
         businessKey: shell.businessKey,
       });
       shell.notify(`Restore job #${detail.job.job_id} completed.`, "success");
@@ -127,7 +127,7 @@ export function VariantsPage() {
         return;
       }
       setSelectedVariantIds([]);
-      await invalidateProjectScope(queryClient, shell.projectId, {
+      await invalidateProject(queryClient, shell.projectId, {
         businessKey: shell.businessKey,
       });
       shell.notify(`Pivot review job #${detail.job.job_id} completed.`, "success");

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
 import { getEntryVariants, restoreVariants } from "@/domains/variants/api";
-import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
+import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { formatTimestamp } from "@/shared/lib/format";
 import {
   Badge,
@@ -40,7 +40,7 @@ export function VariantDrawer(props: {
       if (!props.projectId || !props.businessKey) {
         return;
       }
-      await invalidateProjectScope(queryClient, props.projectId, {
+      await invalidateProject(queryClient, props.projectId, {
         businessKey: props.businessKey,
       });
       shell.notify(`Restore job #${detail.job.job_id} completed.`, "success");

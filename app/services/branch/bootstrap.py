@@ -398,7 +398,7 @@ class BranchBootstrapService:
         if source_variant is not None:
             variant_id = int(source_variant["variant_id"])
             if current_binding is None or int(current_binding["variant_id"]) != variant_id:
-                self.bindings.bind_scope(
+                self.bindings.bind(
                     entry_id,
                     branch_ref,
                     variant_id,
@@ -429,7 +429,7 @@ class BranchBootstrapService:
             payload.get("translations", {}),
             payload.get("remarks", {}),
         )
-        self.bindings.bind_scope(
+        self.bindings.bind(
             entry_id,
             branch_ref,
             variant_id,

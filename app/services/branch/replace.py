@@ -59,7 +59,7 @@ class BranchReplaceService:
                     page_size=None,
                     conn=conn,
                 )
-                removed_target_bindings = self.binding_commands.clear_scope_bindings(
+                removed_target_bindings = self.binding_commands.clear_bindings(
                     project_id,
                     target_scope_type,
                     target_scope_value,
@@ -77,7 +77,7 @@ class BranchReplaceService:
                         timestamp,
                         conn=conn,
                     )
-                removed_binding_rows = self._cleanup_scope_bindings(cleanup_branch_refs, project_id, conn)
+                removed_binding_rows = self._cleanup_bindings(cleanup_branch_refs, project_id, conn)
                 cleanup_binding_count = len(removed_binding_rows)
                 affected_entry_ids.update(int(row["entry_id"]) for row in removed_binding_rows)
                 self._mark_cleanup_branches(cleanup_branch_refs, project_id, timestamp, conn)
@@ -112,7 +112,7 @@ class BranchReplaceService:
         }
         return {"summary": summary, "report_rows": preview["rows"]}
 
-    def _cleanup_scope_bindings(
+    def _cleanup_bindings(
         self,
         branch_refs: list[BranchRef],
         project_id: int,
@@ -125,7 +125,7 @@ class BranchReplaceService:
         removed_binding_rows: list[dict[str, Any]] = []
         for scope_type, scope_values in grouped_scope_values.items():
             removed_binding_rows.extend(
-                self.binding_commands.remove_scope_binding_rows(
+                self.binding_commands.remove_binding_rows(
                     project_id,
                     scope_type,
                     scope_values,

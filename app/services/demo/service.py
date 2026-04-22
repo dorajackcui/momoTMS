@@ -94,9 +94,9 @@ class DemoService:
             )
             for membership in item.get("memberships", []):
                 if membership == "rel":
-                    self.binding_commands.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), string_id)
+                    self.binding_commands.bind(int(entry["entry_id"]), BranchRef.rel_current(), string_id)
                 elif membership.startswith("dev:"):
-                    self.binding_commands.bind_scope(
+                    self.binding_commands.bind(
                         int(entry["entry_id"]),
                         BranchRef.dev(membership.split(":", 1)[1]),
                         string_id,

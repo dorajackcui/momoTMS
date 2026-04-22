@@ -84,7 +84,7 @@ def create_bound_variant(
     for branch_ref in branch_refs:
         if branch_ref.is_dev:
             BranchRegistryService().ensure_dev_branch(branch_ref.version, project_id=project_id)
-        bindings.bind_scope(int(entry["entry_id"]), branch_ref, variant_id)
+        bindings.bind(int(entry["entry_id"]), branch_ref, variant_id)
     return variant_id
 
 
@@ -583,7 +583,7 @@ def test_project_variants_route_supports_state_filters_and_project_scope() -> No
             {"context": "other project"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
 
     with TestClient(app) as client:
         active_response = client.get("/api/projects/1/variants")
@@ -625,7 +625,7 @@ def test_project_variants_route_supports_branch_filters_search_and_multi_binding
     entry = services.entries.get_entry("common.welcome")
     assert entry is not None
     variant = services.catalog.list_variants(int(entry["entry_id"]), include_trashed=True)[0]
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.3"), int(variant["variant_id"]))
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.3"), int(variant["variant_id"]))
 
     with TestClient(app) as client:
         filtered_response = client.get(
@@ -668,7 +668,7 @@ def test_project_variants_route_excludes_trashed_variants_and_paginates_stably()
     entry = services.entries.get_entry("trash.me")
     assert entry is not None
     variant = services.catalog.list_variants(int(entry["entry_id"]), include_trashed=True)[0]
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), int(variant["variant_id"]))
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), int(variant["variant_id"]))
     trash_restore.delete(BranchRef.rel_current(), ["trash.me"])
 
     with TestClient(app) as client:
@@ -756,8 +756,8 @@ def test_branch_mutation_api_authority_filtered_import_batch_reports_filtered_me
             {"context": "owner"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), actor_variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), actor_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
 
     import_root = tmp_path / "authority-api-filtered"
     workbook_path = import_root / "bundle" / "authority.xlsx"

@@ -159,7 +159,7 @@ def test_bootstrap_processes_bind_heavy_rows_across_chunk_boundary(tmp_path) -> 
                 {"context": f"Existing context {index}"},
             ),
         )
-        read_service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+        read_service.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
 
     import_root = tmp_path / "bootstrap-chunk-boundary"
     rows: list[list[object]] = [["business_key", "source", "fr", "context"]]
@@ -374,8 +374,8 @@ def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() 
             {"context": "target"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.3"), source_variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), target_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.3"), source_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), target_variant_id)
 
     preview = BranchReplaceService().preview(BranchRef.dev("2.4.3"), BranchRef.rel_current())
     row = next(item for item in preview["rows"] if item["business_key"] == "replace.rebind")
@@ -437,7 +437,7 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
     def fail_cleanup(*args, **kwargs):
         raise RuntimeError("promote cleanup failed")
 
-    monkeypatch.setattr(replace_service.binding_commands, "remove_scope_binding_rows", fail_cleanup)
+    monkeypatch.setattr(replace_service.binding_commands, "remove_binding_rows", fail_cleanup)
 
     with pytest.raises(RuntimeError, match="promote cleanup failed"):
         replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
@@ -456,16 +456,16 @@ def test_direct_mutation_rolls_back_on_failure(monkeypatch) -> None:
     reset_demo()
     mutation_service = BranchMutationService()
     read_service = branch_services()
-    original_bind_scope = mutation_service.bindings.bind_scope
+    original_bind = mutation_service.bindings.bind
     call_count = {"value": 0}
 
     def fail_on_second_bind(*args, **kwargs):
         call_count["value"] += 1
         if call_count["value"] == 2:
             raise RuntimeError("direct mutation failed")
-        return original_bind_scope(*args, **kwargs)
+        return original_bind(*args, **kwargs)
 
-    monkeypatch.setattr(mutation_service.bindings, "bind_scope", fail_on_second_bind)
+    monkeypatch.setattr(mutation_service.bindings, "bind", fail_on_second_bind)
 
     with pytest.raises(RuntimeError, match="direct mutation failed"):
         mutation_service.apply(
@@ -501,16 +501,16 @@ def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
     mutation_service = BranchMutationService()
     read_service = branch_services()
-    original_bind_scope = mutation_service.bindings.bind_scope
+    original_bind = mutation_service.bindings.bind
     call_count = {"value": 0}
 
     def fail_on_second_bind(*args, **kwargs):
         call_count["value"] += 1
         if call_count["value"] == 2:
             raise RuntimeError("import batch failed")
-        return original_bind_scope(*args, **kwargs)
+        return original_bind(*args, **kwargs)
 
-    monkeypatch.setattr(mutation_service.bindings, "bind_scope", fail_on_second_bind)
+    monkeypatch.setattr(mutation_service.bindings, "bind", fail_on_second_bind)
 
     with pytest.raises(RuntimeError, match="import batch failed"):
         mutation_service.apply(
@@ -543,7 +543,7 @@ def test_direct_content_update_emits_phase4_semantics() -> None:
             {"context": "original phase 4"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
 
     result = mutation_service.apply(
         BranchRef.rel_current(),
@@ -692,8 +692,8 @@ def test_direct_filtered_rebind_emits_range_rebind_filtered_semantics() -> None:
             {"context": "target"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
 
     result = mutation_service.apply(
         BranchRef.dev("2.5.1"),
@@ -744,7 +744,7 @@ def test_direct_mutation_preview_is_read_only_and_reports_effect_forecast() -> N
             {"context": "preview"},
         ),
     )
-    services.bindings.bind_scope(int(content_entry["entry_id"]), BranchRef.dev("2.5.1"), content_variant_id)
+    services.bindings.bind(int(content_entry["entry_id"]), BranchRef.dev("2.5.1"), content_variant_id)
 
     rebind_entry = services.entries.get_or_create_entry("preview.direct.rebind", project_id=1)
     rebind_current_variant_id = services.catalog.create_variant(
@@ -765,7 +765,7 @@ def test_direct_mutation_preview_is_read_only_and_reports_effect_forecast() -> N
             {"context": "target"},
         ),
     )
-    services.bindings.bind_scope(int(rebind_entry["entry_id"]), BranchRef.dev("2.5.1"), rebind_current_variant_id)
+    services.bindings.bind(int(rebind_entry["entry_id"]), BranchRef.dev("2.5.1"), rebind_current_variant_id)
 
     services.entries.get_or_create_entry("preview.direct.create", project_id=1)
 
@@ -858,7 +858,7 @@ def test_import_batch_content_update_emits_phase4_semantics(tmp_path) -> None:
             {"context": "original"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.3"), variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.3"), variant_id)
 
     import_root = tmp_path / "content-update-import"
     write_import_workbook(
@@ -917,8 +917,8 @@ def test_import_batch_filtered_rebind_emits_phase4_semantics(tmp_path) -> None:
             {"context": "target"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
 
     import_root = tmp_path / "filtered-rebind-import"
     write_import_workbook(
@@ -1262,7 +1262,7 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
             conflict_variant["remarks"],
         ),
     )
-    read_service.bindings.bind_scope(int(conflict_entry["entry_id"]), BranchRef.dev("2.4.1"), replacement_variant_id)
+    read_service.bindings.bind(int(conflict_entry["entry_id"]), BranchRef.dev("2.4.1"), replacement_variant_id)
 
     restore_entry = read_service.entries.get_or_create_entry("restore.ok")
     restore_variant_id = read_service.catalog.create_variant(
@@ -1274,7 +1274,7 @@ def test_restore_variants_reports_source_conflicts_and_continues() -> None:
             {"context": "restore"},
         ),
     )
-    read_service.bindings.bind_scope(int(restore_entry["entry_id"]), BranchRef.rel_current(), restore_variant_id)
+    read_service.bindings.bind(int(restore_entry["entry_id"]), BranchRef.rel_current(), restore_variant_id)
     variant_service.delete(BranchRef.rel_current(), ["restore.ok"])
 
     restore_result = variant_service.restore([conflicted_variant_id, restore_variant_id])
@@ -1336,8 +1336,8 @@ def test_lower_authority_shared_current_same_variant_edit_is_filtered_but_bindin
             {"context": "authoritative"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), variant_id)
 
     result = mutation_service.apply(
         BranchRef.dev("2.5.1"),
@@ -1387,8 +1387,8 @@ def test_lower_authority_rebind_filtered_source_switch_rebinds_existing_target_a
             {"context": "target"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
 
     result = mutation_service.apply(
         BranchRef.dev("2.5.1"),
@@ -1432,8 +1432,8 @@ def test_lower_authority_orphan_variant_can_be_rebound_and_edited_in_one_row() -
             {"context": "orphan"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), orphan_variant_id)
-    services.bindings.remove_scope_bindings([BranchRef.dev("2.4.2")])
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), orphan_variant_id)
+    services.bindings.remove_bindings([BranchRef.dev("2.4.2")])
 
     result = mutation_service.apply(
         BranchRef.dev("2.5.1"),
@@ -1486,7 +1486,7 @@ def test_lower_authority_dev_cannot_override_higher_authority_dev_variant() -> N
             {"context": "authority"},
         ),
     )
-    bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+    bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
 
     rebind_result = mutation_service.apply(
         BranchRef.dev("2.5.1"),
@@ -1539,7 +1539,7 @@ def test_lower_authority_dev_cannot_change_existing_higher_authority_variant_in_
             {"context": "authority"},
         ),
     )
-    service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+    service.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
 
     import_root = tmp_path / "authority-import"
     write_import_workbook(
@@ -1593,8 +1593,8 @@ def test_lower_authority_import_batch_rebinds_existing_target_and_filtered_conte
             {"context": "target"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), actor_variant_id)
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), actor_variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
 
     import_root = tmp_path / "authority-import-filtered"
     write_import_workbook(
@@ -1640,7 +1640,7 @@ def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None
             {"context": "authority"},
         ),
     )
-    service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
+    service.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.2"), variant_id)
 
     result = BranchMutationService().apply(
         BranchRef.dev("2.4.3"),
@@ -1685,7 +1685,7 @@ def test_bootstrap_preview_reuse_hit_always_reports_bind(tmp_path) -> None:
         for item in services.list_branch_entries(BranchRef.rel_current())
         if item["business_key"] == "rel.locked.same"
     )
-    services.bindings.bind_scope(
+    services.bindings.bind(
         int(existing["entry_id"]),
         BranchRef.dev(sample["dev_version"]),
         int(existing["variant_id"]),
@@ -1725,7 +1725,7 @@ def test_mutation_preview_blank_source_returns_invalid_row() -> None:
             {"context": "original"},
         ),
     )
-    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), variant_id)
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.5.1"), variant_id)
 
     preview = BranchMutationService().preview(
         BranchRef.dev("2.5.1"),

@@ -56,7 +56,7 @@ def create_bound_variant(
         ),
     )
     for branch_ref in branch_refs:
-        bindings.bind_scope(int(entry["entry_id"]), branch_ref, variant_id)
+        bindings.bind(int(entry["entry_id"]), branch_ref, variant_id)
     return int(entry["entry_id"]), variant_id
 
 

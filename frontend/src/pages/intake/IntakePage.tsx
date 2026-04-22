@@ -16,7 +16,7 @@ import type {
 } from "@/domains/imports/types";
 import { getJobDetail } from "@/domains/jobs/api";
 import { ImportPreviewDialog } from "@/features/import-preview/ImportPreviewDialog";
-import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
+import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { formatTimestamp, stringifyValue } from "@/shared/lib/format";
 import {
   EmptyState,
@@ -112,7 +112,7 @@ export function IntakePage() {
       if (!shell.projectId) {
         return;
       }
-      await invalidateProjectScope(queryClient, shell.projectId);
+      await invalidateProject(queryClient, shell.projectId);
       setPreview(null);
       setMappings({});
       const importBatchId = Number(detail.job.summary.import_batch_id || 0) || null;

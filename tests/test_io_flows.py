@@ -92,7 +92,7 @@ def test_fill_uses_trashed_candidate_when_no_live_variant_exists() -> None:
     entry = read_service.entries.get_entry("trash.me")
     assert entry is not None
     original_variant = read_service.catalog.list_variants(int(entry["entry_id"]), include_trashed=True)[0]
-    read_service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), int(original_variant["variant_id"]))
+    read_service.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), int(original_variant["variant_id"]))
     variant_service.delete(BranchRef.rel_current(), ["trash.me"])
 
     source_dir = Path(sample["paths"]["root"]) / "trashed-only-source"
@@ -126,7 +126,7 @@ def test_fill_prefers_live_candidate_over_trashed_history() -> None:
     assert entry is not None
     entry_id = int(entry["entry_id"])
     original_variant = read_service.catalog.list_variants(entry_id, include_trashed=True)[0]
-    read_service.bindings.bind_scope(entry_id, BranchRef.rel_current(), int(original_variant["variant_id"]))
+    read_service.bindings.bind(entry_id, BranchRef.rel_current(), int(original_variant["variant_id"]))
     variant_service.delete(BranchRef.rel_current(), ["trash.me"])
 
     live_variant_id = read_service.catalog.create_variant(
@@ -138,7 +138,7 @@ def test_fill_prefers_live_candidate_over_trashed_history() -> None:
             {"context": "live replacement"},
         ),
     )
-    read_service.bindings.bind_scope(entry_id, BranchRef.rel_current(), live_variant_id)
+    read_service.bindings.bind(entry_id, BranchRef.rel_current(), live_variant_id)
 
     source_dir = Path(sample["paths"]["root"]) / "prefer-live-source"
     write_fill_workbook(
@@ -171,7 +171,7 @@ def test_fill_uses_latest_trashed_candidate_when_only_trashed_history_exists() -
     assert entry is not None
     entry_id = int(entry["entry_id"])
     first_variant = read_service.catalog.list_variants(entry_id, include_trashed=True)[0]
-    read_service.bindings.bind_scope(entry_id, BranchRef.rel_current(), int(first_variant["variant_id"]))
+    read_service.bindings.bind(entry_id, BranchRef.rel_current(), int(first_variant["variant_id"]))
     variant_service.delete(BranchRef.rel_current(), ["trash.me"])
 
     second_variant_id = read_service.catalog.create_variant(
@@ -183,7 +183,7 @@ def test_fill_uses_latest_trashed_candidate_when_only_trashed_history_exists() -
             {"context": "newest trashed"},
         ),
     )
-    read_service.bindings.bind_scope(entry_id, BranchRef.rel_current(), second_variant_id)
+    read_service.bindings.bind(entry_id, BranchRef.rel_current(), second_variant_id)
     variant_service.delete(BranchRef.rel_current(), ["trash.me"])
     touch_variant_updated_at(int(first_variant["variant_id"]), "2024-01-01T00:00:00+00:00")
     touch_variant_updated_at(second_variant_id, "2024-01-02T00:00:00+00:00")

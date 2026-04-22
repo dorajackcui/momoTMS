@@ -422,7 +422,7 @@ class BranchBootstrapRequest(BaseModel):
     import_batch_id: int
 
 
-class ScopedTrashDeleteRequest(BaseModel):
+class BranchTrashDeleteRequest(BaseModel):
     branch_ref: str
     business_keys: list[str]
 

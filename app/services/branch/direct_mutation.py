@@ -293,7 +293,7 @@ class DirectMutationApplier:
                 merged,
                 conn=conn,
             )
-            self.bindings.bind_scope(entry_id, branch_ref, variant_id, conn=conn)
+            self.bindings.bind(entry_id, branch_ref, variant_id, conn=conn)
             return semantics_row(
                 {
                     "business_key": business_key,
@@ -339,7 +339,7 @@ class DirectMutationApplier:
                     variant_resolution="stay_current",
                     row_outcome="noop",
                 )
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
+            self.bindings.bind(entry_id, branch_ref, target_variant_id, conn=conn)
             row["status"] = "BOUND_EXISTING_VARIANT"
             return semantics_row(
                 row,
@@ -365,7 +365,7 @@ class DirectMutationApplier:
                 row_outcome="noop",
             )
         if payload_matches_target:
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
+            self.bindings.bind(entry_id, branch_ref, target_variant_id, conn=conn)
             return semantics_row(
                 {
                     "business_key": business_key,
@@ -388,7 +388,7 @@ class DirectMutationApplier:
             conn=conn,
         )
         if not current_matches_target:
-            self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
+            self.bindings.bind(entry_id, branch_ref, target_variant_id, conn=conn)
             status = "UPDATED_AND_BOUND_EXISTING_VARIANT"
             return semantics_row(
                 {

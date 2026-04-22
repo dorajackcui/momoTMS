@@ -59,7 +59,7 @@ class PivotReviewService:
                     )
                     continue
 
-                if not self._variant_visible_in_scope(int(entry["entry_id"]), variant_id, branch_ref, conn=conn):
+                if not self._variant_visible_in_branch(int(entry["entry_id"]), variant_id, branch_ref, conn=conn):
                     not_visible_count += 1
                     report_rows.append(
                         {
@@ -104,13 +104,13 @@ class PivotReviewService:
             "processed_count": len(report_rows),
             "reviewed_count": reviewed_count,
             "not_changed_count": not_changed_count,
-            "not_visible_in_scope_count": not_visible_count,
+            "not_visible_in_branch_count": not_visible_count,
             "forbidden_by_authority_count": forbidden_count,
             "missing_count": missing_count,
         }
         return {"summary": summary, "report_rows": report_rows}
 
-    def _variant_visible_in_scope(
+    def _variant_visible_in_branch(
         self,
         entry_id: int,
         variant_id: int,

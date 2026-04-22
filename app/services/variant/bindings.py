@@ -578,7 +578,7 @@ class BindingCommandService:
     ) -> int | None:
         return self._binding_commands.upsert(entry_id, scope_type, scope_value, variant_id, timestamp, conn=conn)
 
-    def clear_scope_bindings(
+    def clear_bindings(
         self,
         project_id: int,
         scope_type: str,
@@ -587,7 +587,7 @@ class BindingCommandService:
     ) -> list[BindingRecord]:
         return self._binding_commands.clear_scope(project_id, scope_type, scope_value, conn=conn)
 
-    def remove_scope_binding_rows(
+    def remove_binding_rows(
         self,
         project_id: int,
         scope_type: str,
@@ -596,7 +596,7 @@ class BindingCommandService:
     ) -> list[BindingRecord]:
         return self._binding_commands.remove_scope_bindings(project_id, scope_type, scope_values, conn=conn)
 
-    def bind_scope(
+    def bind(
         self,
         entry_id: int,
         scope_ref: Any,
@@ -624,7 +624,7 @@ class BindingCommandService:
         scope_type, scope_value = _scope_tuple(scope_ref)
         self._binding_commands.clear_scope(project_id, scope_type, scope_value)
 
-    def remove_scope_bindings(
+    def remove_bindings(
         self,
         scope_refs: list[Any],
         project_id: int = DEFAULT_PROJECT_ID,
@@ -636,7 +636,7 @@ class BindingCommandService:
             grouped_scope_values.setdefault(scope_type, []).append(scope_value)
         removed: list[BindingRecord] = []
         for scope_type, scope_values in grouped_scope_values.items():
-            removed.extend(self.remove_scope_binding_rows(project_id, scope_type, scope_values, conn=conn))
+            removed.extend(self.remove_binding_rows(project_id, scope_type, scope_values, conn=conn))
         return len(removed)
 
     def remove_binding(

@@ -21,7 +21,7 @@ import type {
 } from "@/domains/branches/types";
 import { getImports } from "@/domains/imports/api";
 import { restoreVariants } from "@/domains/variants/api";
-import { invalidateProjectScope, queryKeys } from "@/shared/api/queryKeys";
+import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { cx } from "@/shared/lib/cx";
 import {
   EmptyState,
@@ -157,15 +157,15 @@ export function BranchOpsPage() {
     shell.branchSummary,
   ]);
 
-  const scopeRowsQuery = useQuery({
+  const branchRowsQuery = useQuery({
     queryKey:
       projectId && shell.lang
-        ? queryKeys.scopeRows(projectId, scopeRef, {
+        ? queryKeys.branchRows(projectId, scopeRef, {
             search_business_key: scopeSearchKey,
             search_source: scopeSearchSource,
             page: scopePage,
           })
-        : ["scope-rows", "idle"],
+        : ["branch-rows", "idle"],
     queryFn: () =>
       getScopeRows(projectId!, scopeRef, {
         search_business_key: scopeSearchKey || undefined,
@@ -199,11 +199,11 @@ export function BranchOpsPage() {
   const lookupQuery = useQuery({
     queryKey:
       projectId && lookupRequest
-        ? queryKeys.scopeLookup(projectId, lookupRequest.scopeRef, {
+        ? queryKeys.branchLookup(projectId, lookupRequest.scopeRef, {
             [lookupRequest.mode === "key" ? "business_key" : "source"]:
               lookupRequest.value,
           })
-        : ["scope-lookup", "idle"],
+        : ["branch-lookup", "idle"],
     queryFn: async () => {
       if (!projectId || !lookupRequest) {
         return { rows: [] as MasterQueryRow[] };
@@ -276,7 +276,7 @@ export function BranchOpsPage() {
       if (!projectId) {
         return;
       }
-      await invalidateProjectScope(queryClient, projectId, {
+      await invalidateProject(queryClient, projectId, {
         devVersion:
           devVersion ||
           (shell.branchRef?.startsWith("dev/") ? shell.branchRef.slice(4) : null),
@@ -334,10 +334,10 @@ export function BranchOpsPage() {
           scopeSearchKey={scopeSearchKey}
           scopeSearchSource={scopeSearchSource}
           scopePage={scopePage}
-          rows={scopeRowsQuery.data?.rows || []}
-          totalRows={scopeRowsQuery.data?.total_rows || 0}
+          rows={branchRowsQuery.data?.rows || []}
+          totalRows={branchRowsQuery.data?.total_rows || 0}
           lang={shell.lang}
-          error={scopeRowsQuery.error instanceof Error ? scopeRowsQuery.error.message : null}
+          error={branchRowsQuery.error instanceof Error ? branchRowsQuery.error.message : null}
           onScopeChange={(nextScopeRef) => {
             setScopePage(1);
             setScopeRef(nextScopeRef);

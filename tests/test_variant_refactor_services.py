@@ -93,8 +93,8 @@ def test_entry_variant_view_uses_variant_and_branch_ref_names() -> None:
             {"context": "dev"},
         ),
     )
-    bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
-    bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.1"), dev_variant_id)
+    bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+    bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.1"), dev_variant_id)
     lifecycle.refresh_orphan_states(int(entry["entry_id"]))
 
     view = branch_services().list_branch_entries(BranchRef.rel_current(), DEFAULT_PROJECT_ID)

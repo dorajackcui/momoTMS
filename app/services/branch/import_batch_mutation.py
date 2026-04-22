@@ -249,7 +249,7 @@ class ImportBatchMutationApplier:
                 conn=conn,
             )
             self._append_variant_cache(variants, entry_id, variant_id, merged)
-            self.bindings.bind_scope(
+            self.bindings.bind(
                 entry_id,
                 target_branch,
                 variant_id,
@@ -290,7 +290,7 @@ class ImportBatchMutationApplier:
                     variant_resolution="stay_current",
                     row_outcome="noop",
                 )
-            self.bindings.bind_scope(
+            self.bindings.bind(
                 entry_id,
                 target_branch,
                 variant_id,
@@ -317,7 +317,7 @@ class ImportBatchMutationApplier:
                 row_outcome="noop",
             )
         if payload_matches_target:
-            self.bindings.bind_scope(
+            self.bindings.bind(
                 entry_id,
                 target_branch,
                 variant_id,
@@ -351,7 +351,7 @@ class ImportBatchMutationApplier:
                 variant_resolution="stay_current",
                 row_outcome="applied",
             )
-        self.bindings.bind_scope(
+        self.bindings.bind(
             entry_id,
             target_branch,
             variant_id,
