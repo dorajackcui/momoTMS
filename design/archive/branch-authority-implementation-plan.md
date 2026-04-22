@@ -583,13 +583,13 @@ Documentation validation passed
 - [ ] **Step 5: Commit the docs and verification follow-through**
 
 ```bash
-git add docs/workflows.md docs/contracts.md design/branch-authority-model.md design/branch-authority-implementation-plan.md
+git add docs/workflows.md docs/contracts.md design/branch-authority-model.md design/archive/branch-authority-implementation-plan.md
 git commit -m "docs: align branch authority workflow semantics"
 ```
 
 ## Coverage Check
 
-This plan covers every requirement in [design/branch-authority-model.md](branch-authority-model.md):
+This plan covers every requirement in [design/branch-authority-model.md](../branch-authority-model.md):
 
 - authority protects only `translations + remarks`
 - `source` change is handled by target resolution first

@@ -7,13 +7,15 @@ from typing import Literal
 MutationClass = Literal["range", "content"]
 BindingEffect = Literal["none", "bind", "rebind"]
 ContentEffect = Literal["none", "create", "update", "filtered"]
-RowOutcome = Literal["applied", "noop", "missing"]
+VariantResolution = Literal["stay_current", "reuse_existing", "create_new"]
+RowOutcome = Literal["applied", "noop", "missing", "invalid"]
 
 _SEMANTIC_VOCAB: dict[str, tuple[str, ...]] = {
     "mutation_class": ("range", "content"),
     "binding_effect": ("none", "bind", "rebind"),
     "content_effect": ("none", "create", "update", "filtered"),
-    "row_outcome": ("applied", "noop", "missing"),
+    "variant_resolution": ("stay_current", "reuse_existing", "create_new"),
+    "row_outcome": ("applied", "noop", "missing", "invalid"),
 }
 
 _COUNT_SUFFIXES: dict[str, dict[str, str]] = {
@@ -32,10 +34,16 @@ _COUNT_SUFFIXES: dict[str, dict[str, str]] = {
         "update": "update_count",
         "filtered": "filtered_count",
     },
+    "variant_resolution": {
+        "stay_current": "stay_current_count",
+        "reuse_existing": "reuse_existing_count",
+        "create_new": "create_new_count",
+    },
     "row_outcome": {
         "applied": "applied_count",
         "noop": "noop_count",
         "missing": "missing_count",
+        "invalid": "invalid_count",
     },
 }
 
@@ -45,6 +53,7 @@ class MutationSemantics:
     mutation_class: MutationClass
     binding_effect: BindingEffect
     content_effect: ContentEffect
+    variant_resolution: VariantResolution
     row_outcome: RowOutcome
 
     def as_dict(self) -> dict[str, str]:
@@ -52,6 +61,7 @@ class MutationSemantics:
             "mutation_class": self.mutation_class,
             "binding_effect": self.binding_effect,
             "content_effect": self.content_effect,
+            "variant_resolution": self.variant_resolution,
             "row_outcome": self.row_outcome,
         }
 
@@ -62,6 +72,7 @@ def semantics_row(
     mutation_class: MutationClass,
     binding_effect: BindingEffect,
     content_effect: ContentEffect,
+    variant_resolution: VariantResolution,
     row_outcome: RowOutcome,
 ) -> dict[str, object]:
     row = dict(base)
@@ -70,6 +81,7 @@ def semantics_row(
             mutation_class=mutation_class,
             binding_effect=binding_effect,
             content_effect=content_effect,
+            variant_resolution=variant_resolution,
             row_outcome=row_outcome,
         ).as_dict()
     )
@@ -81,6 +93,7 @@ class MutationSemanticSummaryBuilder:
     _mutation_class_counts: Counter[str] = field(default_factory=Counter, init=False, repr=False)
     _binding_effect_counts: Counter[str] = field(default_factory=Counter, init=False, repr=False)
     _content_effect_counts: Counter[str] = field(default_factory=Counter, init=False, repr=False)
+    _variant_resolution_counts: Counter[str] = field(default_factory=Counter, init=False, repr=False)
     _row_outcome_counts: Counter[str] = field(default_factory=Counter, init=False, repr=False)
 
     def add_row(self, row: dict[str, object]) -> None:
@@ -117,6 +130,9 @@ class MutationSemanticSummaryBuilder:
             ),
             "content_effect_counts": grouped_counts(
                 "content_effect", self._content_effect_counts
+            ),
+            "variant_resolution_counts": grouped_counts(
+                "variant_resolution", self._variant_resolution_counts
             ),
             "row_outcome_counts": grouped_counts("row_outcome", self._row_outcome_counts),
         }

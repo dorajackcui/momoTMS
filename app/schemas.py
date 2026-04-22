@@ -128,16 +128,24 @@ class JobDetail(BaseModel):
     report: ReportPayload
 
 
-class BranchReplacePreview(BaseModel):
-    source_branch_ref: str
-    target_branch_ref: str
-    target_entry_count: int
-    added_to_target_count: int
-    kept_in_target_count: int
-    rebind_target_count: int
-    removed_from_target_count: int
-    cleanup_binding_count: int
-    report_rows: list[dict[str, Any]] = Field(default_factory=list)
+class EffectForecastPreview(BaseModel):
+    preview_kind: Literal["effect_forecast"]
+    workflow_kind: Literal["branch_bootstrap", "branch_mutation", "branch_replace"]
+    request_echo: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class BranchBootstrapPreview(EffectForecastPreview):
+    workflow_kind: Literal["branch_bootstrap"]
+
+
+class BranchMutationPreview(EffectForecastPreview):
+    workflow_kind: Literal["branch_mutation"]
+
+
+class BranchReplacePreview(EffectForecastPreview):
+    workflow_kind: Literal["branch_replace"]
 
 
 class ProductStateResponse(BaseModel):

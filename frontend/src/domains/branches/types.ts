@@ -164,16 +164,20 @@ export type SameSourceCandidatesResponse = {
   rows: SameSourceCandidateRow[];
 };
 
-export type BranchReplacePreview = {
-  source_branch_ref: string;
-  target_branch_ref: string;
-  target_entry_count: number;
-  added_to_target_count: number;
-  kept_in_target_count: number;
-  rebind_target_count: number;
-  removed_from_target_count: number;
-  cleanup_binding_count: number;
-  report_rows: Array<Record<string, unknown>>;
+export type EffectForecastPreview = {
+  preview_kind: "effect_forecast";
+  workflow_kind: "branch_bootstrap" | "branch_mutation" | "branch_replace";
+  request_echo: Record<string, unknown>;
+  summary: Record<string, unknown>;
+  rows: Array<Record<string, unknown>>;
+};
+
+export type BranchReplacePreview = EffectForecastPreview & {
+  workflow_kind: "branch_replace";
+  request_echo: {
+    source_branch_ref: string;
+    target_branch_ref: string;
+  };
 };
 
 export type BranchMutationChange = {

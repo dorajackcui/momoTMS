@@ -99,15 +99,32 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - upload preview returns `available_headers`, `suggested_mapping`, and `missing_targets`
 - import jobs are async: preview uploads once, confirm starts a job, and clients poll job status separately
 
+## Preview Rules
+
+- preview is a first-class operator contract and the preview family distinguishes `input_precheck` from `effect_forecast`
+- `input_precheck` is for intake validation and mapping readiness before a workflow is accepted
+- `effect_forecast` is for summary-first, read-only preview of workflow-visible outcomes
+- current branch workflow previews use `effect_forecast`; import upload preview remains an `input_precheck`
+- read-only preview means no job creation, no binding or variant writes, and no bootstrap-state mutation
+- preview rows stay minimal so large batches remain tractable; summaries carry the main operator signal first
+- shared effect-forecast vocabulary includes `binding_effect`, `variant_resolution`, and `row_outcome`
+- `variant_resolution` answers whether a row would `stay_current`, `reuse_existing`, or `create_new`
+
 ## Branch Bootstrap Rules
 
 - branch bootstrap is a dedicated async workflow for establishing the initial working range of `dev/<version>`
+- bootstrap preview is the read-only preview family entrypoint for this workflow
+- bootstrap preview reads persisted import rows in chunks but never creates entries, variants, bindings, or bootstrap metadata
+- bootstrap preview requires an existing non-bootstrapped `dev/<version>` branch row
 - bootstrap accepts a persisted import batch whose rows must provide normalized `business_key` and `source`; optional `file_name`, translation columns, and remark columns may be present as sparse content for newly created variants
 - bootstrap reads persisted `import_rows` in chunks, primes entry and variant caches per chunk, and refreshes orphan state after the touched entries in that chunk instead of doing a single giant in-memory apply
 - rows that match an existing same-source canonical variant under the entry are reported as `BOUND_EXISTING_VARIANT`; uploaded translation or remark content is ignored for those reuse hits because bootstrap only needs to bind the already-existing variant
 - rows that have no same-source canonical variant create the variant, bind it to the dev branch, and report `CREATED_AND_BOUND_VARIANT`
 - rows missing normalized `business_key` or `source`, or rows that come from a non-`ok` import row status, are reported as `INVALID_ROW`
 - repeated `business_key` values inside the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`
+- bootstrap effect-forecast rows classify reuse hits as `binding_effect = bind`, `variant_resolution = reuse_existing`, `row_outcome = applied`
+- bootstrap effect-forecast rows classify new-source or new-entry work as `binding_effect = bind`, `variant_resolution = create_new`, `row_outcome = applied`
+- bootstrap preview treats invalid and duplicate rows as `row_outcome = invalid`
 - bootstrap is rejected once the dev branch has already been marked `bootstrapped`
 - bootstrap summaries report `processed_count`, `bound_existing_variant_count`, `created_and_bound_variant_count`, `invalid_row_count`, `duplicate_key_count`, `created_entry_count`, `created_variant_count`, and the branch bootstrap metadata copied from `dev_versions`
 
@@ -158,14 +175,18 @@ Mutation rules:
 - import-batch apply reads persisted `import_rows` in chunks, batches entry or variant or binding hydration, and refreshes orphan state once per touched entry set instead of once per row
 - content mutation must never implicitly change branch range
 - a missing-target content mutation reports `MISSING_IN_SCOPE` plus `row_outcome = missing` instead of silently degrading into range mutation
+- mutation preview is the read-only preview family entrypoint for branch mutation work
+- the current runtime mutation preview is an `effect_forecast` for `direct` input and keeps execute semantics unchanged
 - mutation report rows add semantic fields: `mutation_class`, `binding_effect`, `content_effect`, and `row_outcome`
 - `mutation_class` normalizes the top-level semantic intent as `range` or `content`
 - `binding_effect` reports `none`, `bind`, or `rebind`
+- `variant_resolution` reports `stay_current`, `reuse_existing`, or `create_new`
 - `content_effect` reports `none`, `create`, `update`, or `filtered`
 - `row_outcome` reports `applied`, `noop`, or `missing`
-- mutation summaries add grouped semantic counters under `mutation_class_counts`, `binding_effect_counts`, `content_effect_counts`, and `row_outcome_counts`
+- mutation summaries add grouped semantic counters under `mutation_class_counts`, `binding_effect_counts`, `variant_resolution_counts`, `content_effect_counts`, and `row_outcome_counts`
 - `mutation_class_counts` groups rows as `range_count` and `content_count`
 - `binding_effect_counts` groups rows as `none_count`, `bind_count`, and `rebind_count`
+- `variant_resolution_counts` groups rows as `stay_current_count`, `reuse_existing_count`, and `create_new_count`
 - `content_effect_counts` groups rows as `none_count`, `create_count`, `update_count`, and `filtered_count`
 - `row_outcome_counts` groups rows as `applied_count`, `noop_count`, and `missing_count`
 - legacy status wording remains authoritative for compatibility reporting, and `content_filtered_by_authority` remains the compatibility flag for filtered content edits
@@ -187,7 +208,8 @@ Mutation rules:
 - previews and executes binding changes from one branch into another
 - the live policy only supports `dev/<version> -> rel/current`
 - replace rebinds active variants; it does not copy content or create variants
-- replace preview reports binding-change semantics instead of content-diff semantics
+- replace preview is an `effect_forecast` and reports binding-change semantics instead of content-diff semantics
+- replace preview is read-only preview and keeps rows minimal while surfacing the shared semantic block when it has a clear meaning
 - preview rows may report `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, or `REMOVE_FROM_TARGET`
 - `REBIND_TARGET` means the target branch already has the same `business_key` but is bound to a different variant than the source branch, so execute will switch the binding to the source branch's variant
 - execute runs in one DB transaction

@@ -8,6 +8,7 @@ import sqlite3
 from typing import Any
 
 from app.db import get_conn, json_dumps, json_loads
+from app.services.branch.bootstrap_preview import BootstrapPreviewService
 from app.services.branch.models import BranchRef
 from app.services.branch.registry import BranchRegistryService
 from app.services.imports.service import ImportService
@@ -150,6 +151,22 @@ class BranchBootstrapService:
             raise
         result["report_rows"] = self._load_report_rows(result["report_path"])
         return result
+
+    def preview(
+        self,
+        branch_ref: BranchRef,
+        import_batch_id: int,
+        *,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        return BootstrapPreviewService(
+            imports=self.imports,
+            projects=self.projects,
+            registry=self.registry,
+            entries=self.entries,
+            catalog=self.catalog,
+            binding_lookup=self.binding_lookup,
+        ).preview(branch_ref, import_batch_id, project_id=project_id)
 
     def _bootstrap_in_transaction(
         self,

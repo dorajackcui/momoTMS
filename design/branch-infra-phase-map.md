@@ -98,7 +98,7 @@ Delivered outputs:
 Artifacts:
 
 - [branch-authority-model.md](branch-authority-model.md): Phase 2 authority scope, ordering, matrix, and internal authority-filtered outcome vocabulary
-- [branch-authority-implementation-plan.md](branch-authority-implementation-plan.md): execution plan used to land the Phase 2 runtime changes
+- [branch-authority-implementation-plan.md](archive/branch-authority-implementation-plan.md): execution plan used to land the Phase 2 runtime changes
 
 Implementation result:
 
@@ -126,7 +126,7 @@ Completed decisions:
 Artifacts:
 
 - [branch-bootstrap-design.md](branch-bootstrap-design.md): Phase 3 bootstrap design note
-- [branch-bootstrap-implementation-plan.md](branch-bootstrap-implementation-plan.md): execution plan and implementation record for the bootstrap workflow
+- [branch-bootstrap-implementation-plan.md](archive/branch-bootstrap-implementation-plan.md): execution plan and implementation record for the bootstrap workflow
 
 Session focus:
 
@@ -161,7 +161,7 @@ Delivered outputs:
 Artifacts:
 
 - [phase-4-mutation-contract-design.md](phase-4-mutation-contract-design.md): Phase 4 canonical mutation semantics and compatibility model
-- [phase-4-mutation-contract-implementation-plan.md](phase-4-mutation-contract-implementation-plan.md): implementation plan and verification checklist used to land the Phase 4 contract
+- [phase-4-mutation-contract-implementation-plan.md](archive/phase-4-mutation-contract-implementation-plan.md): implementation plan and verification checklist used to land the Phase 4 contract
 
 Implementation result:
 
@@ -175,7 +175,7 @@ Session focus:
 
 Status:
 
-- not started as a unified design
+- design complete; replace, mutation, and bootstrap `effect_forecast` previews are implemented
 
 Goal:
 
@@ -185,7 +185,7 @@ Questions to answer:
 
 - what is the common preview row shape
 - which previews describe content change versus binding change
-- how should bootstrap import preview differ from mutation preview
+- how should later `input_precheck` and `effect_forecast` flows stay aligned
 - what should pivot preview show
 - how should preview results line up with job reports and execute summaries
 
@@ -197,7 +197,7 @@ Target outputs:
 
 Session focus:
 
-- align bootstrap preview, mutation preview, replace preview, and pivot preview into one conceptual family
+- align replace preview, mutation preview, and bootstrap preview into one conceptual family; keep pivot preview deferred to Phase 7
 
 ### Phase 6: Branch-To-Branch Operations
 

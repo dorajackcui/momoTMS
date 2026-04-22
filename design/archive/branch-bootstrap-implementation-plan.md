@@ -1002,7 +1002,7 @@ Status:
 
 Artifacts:
 
-- [branch-bootstrap-design.md](branch-bootstrap-design.md)
+- [branch-bootstrap-design.md](../branch-bootstrap-design.md)
 - [branch-bootstrap-implementation-plan.md](branch-bootstrap-implementation-plan.md)
 ```
 

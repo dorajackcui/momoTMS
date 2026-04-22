@@ -131,6 +131,7 @@ class ImportBatchMutationApplier:
                     "mutation_class": status["mutation_class"],
                     "binding_effect": status["binding_effect"],
                     "content_effect": status["content_effect"],
+                    "variant_resolution": status["variant_resolution"],
                     "row_outcome": status["row_outcome"],
                 }
                 if status.get("content_filtered_by_authority"):
@@ -197,6 +198,7 @@ class ImportBatchMutationApplier:
                     mutation_class="content",
                     binding_effect="none",
                     content_effect="none",
+                    variant_resolution="stay_current",
                     row_outcome="noop",
                 )
             bound_branch_refs = self.resolution.bound_branch_refs_for_variant(
@@ -217,6 +219,7 @@ class ImportBatchMutationApplier:
                     mutation_class="content",
                     binding_effect="none",
                     content_effect="filtered",
+                    variant_resolution="stay_current",
                     row_outcome="noop",
                 )
             self.catalog.update_variant(
@@ -231,6 +234,7 @@ class ImportBatchMutationApplier:
                 mutation_class="content",
                 binding_effect="none",
                 content_effect="update",
+                variant_resolution="stay_current",
                 row_outcome="applied",
             )
 
@@ -259,6 +263,7 @@ class ImportBatchMutationApplier:
                 mutation_class="range",
                 binding_effect="bind" if current_binding is None else "rebind",
                 content_effect="create",
+                variant_resolution="create_new",
                 row_outcome="applied",
             )
 
@@ -282,6 +287,7 @@ class ImportBatchMutationApplier:
                     mutation_class="range",
                     binding_effect="none",
                     content_effect="filtered",
+                    variant_resolution="stay_current",
                     row_outcome="noop",
                 )
             self.bindings.bind_scope(
@@ -298,6 +304,7 @@ class ImportBatchMutationApplier:
                 mutation_class="range",
                 binding_effect="bind" if current_binding is None else "rebind",
                 content_effect="filtered",
+                variant_resolution="reuse_existing",
                 row_outcome="applied",
             )
         if current_matches and payload_matches_target:
@@ -306,6 +313,7 @@ class ImportBatchMutationApplier:
                 mutation_class="range",
                 binding_effect="none",
                 content_effect="none",
+                variant_resolution="stay_current",
                 row_outcome="noop",
             )
         if payload_matches_target:
@@ -323,6 +331,7 @@ class ImportBatchMutationApplier:
                 mutation_class="range",
                 binding_effect="bind" if current_binding is None else "rebind",
                 content_effect="none",
+                variant_resolution="reuse_existing",
                 row_outcome="applied",
             )
 
@@ -339,6 +348,7 @@ class ImportBatchMutationApplier:
                 mutation_class="content",
                 binding_effect="none",
                 content_effect="update",
+                variant_resolution="stay_current",
                 row_outcome="applied",
             )
         self.bindings.bind_scope(
@@ -355,6 +365,7 @@ class ImportBatchMutationApplier:
             mutation_class="range",
             binding_effect="bind" if current_binding is None else "rebind",
             content_effect="update",
+            variant_resolution="reuse_existing",
             row_outcome="applied",
         )
 

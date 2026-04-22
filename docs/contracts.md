@@ -91,6 +91,15 @@ Branch bootstrap:
 - report rows use the bootstrap row statuses `BOUND_EXISTING_VARIANT`, `CREATED_AND_BOUND_VARIANT`, `INVALID_ROW`, and `DUPLICATE_KEY_IN_BOOTSTRAP`
 - job summaries include `processed_count`, `bound_existing_variant_count`, `created_and_bound_variant_count`, `invalid_row_count`, `duplicate_key_count`, `created_entry_count`, `created_variant_count`, `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id`
 
+Preview family:
+
+- preview endpoints use a shared envelope with `preview_kind`, `workflow_kind`, `request_echo`, `summary`, and `rows`
+- the preview family distinguishes `input_precheck` from `effect_forecast`
+- current branch workflow previews use `preview_kind = effect_forecast`
+- current import upload preview remains the `input_precheck` style workflow
+- workflow previews are read-only: they must not create jobs, write bindings or variants, or mutate branch bootstrap metadata
+- effect-forecast rows keep payloads summary-first and row-minimal, and may add shared semantic fields such as `binding_effect`, `variant_resolution`, and `row_outcome`
+
 ## Request And Report Shapes
 
 `POST /api/projects`
@@ -109,6 +118,15 @@ Branch bootstrap jobs:
 - missing or invalid rows are reported as `INVALID_ROW`
 - repeated keys within the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`
 - the job summary includes the bootstrap counters plus the branch metadata fields copied from `dev_versions`
+
+Branch bootstrap preview:
+
+- `POST /api/projects/{project_id}/branches/bootstrap/preview` accepts `branch_ref` plus `import_batch_id`
+- the route is read-only and returns the shared preview envelope instead of `JobDetail`
+- the route requires an existing `dev/<version>` branch row and leaves `bootstrap_state = not_bootstrapped` unchanged
+- preview rows use the bootstrap statuses `BOUND_EXISTING_VARIANT`, `CREATED_AND_BOUND_VARIANT`, `INVALID_ROW`, and `DUPLICATE_KEY_IN_BOOTSTRAP`
+- bootstrap preview rows add `binding_effect`, `variant_resolution`, and `row_outcome`
+- bootstrap preview summaries add `binding_effect_counts`, `variant_resolution_counts`, and `row_outcome_counts`
 
 Fill jobs:
 
@@ -170,8 +188,10 @@ Pivot review jobs:
 Branch replace preview:
 
 - `POST /api/projects/{project_id}/branches/replace/preview` accepts `source_branch_ref` and `target_branch_ref`
-- preview summary includes `target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, `removed_from_target_count`, and `cleanup_binding_count`
-- preview report rows use binding-change statuses: `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, and `REMOVE_FROM_TARGET`
+- preview returns the shared effect-forecast envelope with `preview_kind = effect_forecast` and `workflow_kind = branch_replace`
+- preview summary includes `target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, `removed_from_target_count`, `cleanup_binding_count`, plus `binding_effect_counts`, `variant_resolution_counts`, and `row_outcome_counts`
+- preview rows use binding-change statuses: `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, and `REMOVE_FROM_TARGET`
+- replace preview rows may also add `binding_effect`, `variant_resolution`, and `row_outcome` when those generic fields have a clear meaning for the row
 - `REBIND_TARGET` means the target branch already has that `business_key`, but it is currently bound to a different variant than the source branch, so execute will switch the target binding without copying content
 
 Import upload and job detail:
@@ -185,19 +205,25 @@ Import upload and job detail:
 
 Branch mutation reporting:
 
+- `POST /api/projects/{project_id}/branches/mutations/preview` is the read-only mutation preview route
+- the current runtime mutation preview returns the shared effect-forecast envelope for `direct` input
+- mutation preview rows may report `UPDATED_BOUND_VARIANT`, `BOUND_EXISTING_VARIANT`, `CREATED_AND_BOUND_VARIANT`, `MISSING_IN_SCOPE`, or `INVALID_ROW`
+- mutation preview summaries are summary-first and add `binding_effect_counts`, `variant_resolution_counts`, and `row_outcome_counts`
 - `POST /api/projects/{project_id}/branches/mutations` remains the same route for both `direct` and `import_batch` mutation inputs
 - `direct` and `import_batch` remain accepted runtime input kinds, but they are legacy input shapes or transports rather than the top-level Phase 4 semantic model
 - `POST /api/projects/{project_id}/branches/mutations` may return mutation report rows with `content_filtered_by_authority = true` when a requested `translations` or `remarks` edit is dropped after authority evaluation on the resolved target variant
 - branch mutation summaries may include `content_filtered_by_authority_count`
 - row `status` still describes the applied bind or update effect; the authority-filtered flag explains whether requested content edits were omitted
-- mutation report rows now also add `mutation_class`, `binding_effect`, `content_effect`, and `row_outcome`
+- mutation report rows now also add `mutation_class`, `binding_effect`, `variant_resolution`, `content_effect`, and `row_outcome`
 - `mutation_class` reports the canonical Phase 4 semantic class as `range` or `content`
 - `binding_effect` reports `none`, `bind`, or `rebind`
+- `variant_resolution` reports `stay_current`, `reuse_existing`, or `create_new`
 - `content_effect` reports `none`, `create`, `update`, or `filtered`
 - `row_outcome` reports `applied`, `noop`, or `missing`
-- branch mutation summaries now also add grouped semantic counters under `mutation_class_counts`, `binding_effect_counts`, `content_effect_counts`, and `row_outcome_counts`
+- branch mutation summaries now also add grouped semantic counters under `mutation_class_counts`, `binding_effect_counts`, `variant_resolution_counts`, `content_effect_counts`, and `row_outcome_counts`
 - `mutation_class_counts` groups rows as `range_count` and `content_count`
 - `binding_effect_counts` groups rows as `none_count`, `bind_count`, and `rebind_count`
+- `variant_resolution_counts` groups rows as `stay_current_count`, `reuse_existing_count`, and `create_new_count`
 - `content_effect_counts` groups rows as `none_count`, `create_count`, `update_count`, and `filtered_count`
 - `row_outcome_counts` groups rows as `applied_count`, `noop_count`, and `missing_count`
 
@@ -274,7 +300,9 @@ Inspection reads:
 
 Workflow actions:
 
+- `POST /api/projects/{project_id}/branches/bootstrap/preview`
 - `POST /api/projects/{project_id}/branches/mutations`
+- `POST /api/projects/{project_id}/branches/mutations/preview`
 - `POST /api/projects/{project_id}/branches/bootstrap`
 - `GET /api/projects/{project_id}/branches/dev`
 - `GET /api/projects/{project_id}/branches/dev/{version}`

@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.branch.models import BranchRef
+from app.services.branch.preview_contract import (
+    EffectPreviewSummaryBuilder,
+    effect_forecast_row,
+)
 from app.services.branch.policy import BranchReplacePolicy
 from app.services.branch.registry import BranchRegistryService
 from app.services.project.service import DEFAULT_PROJECT_ID
@@ -62,18 +66,59 @@ class ReplacePreviewView:
             self.repository.count_scope_members(project_id, ScopeSelector.from_branch(branch_ref))
             for branch_ref in cleanup_branch_refs
         )
-        report_rows = [{"business_key": key, "status": "ADD_TO_TARGET"} for key in added]
-        report_rows.extend({"business_key": key, "status": "KEEP_IN_TARGET"} for key in kept)
-        report_rows.extend({"business_key": key, "status": "REBIND_TARGET"} for key in rebind)
-        report_rows.extend({"business_key": key, "status": "REMOVE_FROM_TARGET"} for key in removed)
-        return {
-            "source_branch_ref": str(source_branch_ref),
-            "target_branch_ref": str(target_branch_ref),
+        summary_builder = EffectPreviewSummaryBuilder()
+        rows = [
+            effect_forecast_row(
+                {"business_key": key, "status": "ADD_TO_TARGET"},
+                binding_effect="bind",
+                variant_resolution="reuse_existing",
+                row_outcome="applied",
+            )
+            for key in added
+        ]
+        rows.extend(
+            effect_forecast_row(
+                {"business_key": key, "status": "KEEP_IN_TARGET"},
+                binding_effect="none",
+                variant_resolution="stay_current",
+                row_outcome="noop",
+            )
+            for key in kept
+        )
+        rows.extend(
+            effect_forecast_row(
+                {"business_key": key, "status": "REBIND_TARGET"},
+                binding_effect="rebind",
+                variant_resolution="reuse_existing",
+                row_outcome="applied",
+            )
+            for key in rebind
+        )
+        rows.extend(
+            effect_forecast_row(
+                {"business_key": key, "status": "REMOVE_FROM_TARGET"},
+                row_outcome="applied",
+            )
+            for key in removed
+        )
+        for row in rows:
+            summary_builder.add_row(row)
+        summary = {
             "target_entry_count": len(source_keys),
             "added_to_target_count": len(added),
             "kept_in_target_count": len(kept),
             "rebind_target_count": len(rebind),
             "removed_from_target_count": len(removed),
             "cleanup_binding_count": cleanup_binding_count,
-            "report_rows": report_rows,
+            **summary_builder.as_dict(),
+        }
+        return {
+            "preview_kind": "effect_forecast",
+            "workflow_kind": "branch_replace",
+            "request_echo": {
+                "source_branch_ref": str(source_branch_ref),
+                "target_branch_ref": str(target_branch_ref),
+            },
+            "summary": summary,
+            "rows": rows,
         }

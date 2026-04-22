@@ -123,14 +123,23 @@ def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     assert "REBIND_TARGET" in contracts_doc
     assert "kept_in_target_count" in contracts_doc
     assert "rebind_target_count" in contracts_doc
+    assert "preview_kind" in contracts_doc
+    assert "input_precheck" in contracts_doc
+    assert "effect_forecast" in contracts_doc
     assert "mutation_class" in contracts_doc
     assert "binding_effect" in contracts_doc
+    assert "variant_resolution" in contracts_doc
     assert "content_effect" in contracts_doc
     assert "row_outcome" in contracts_doc
     assert "mutation_class_counts" in contracts_doc
     assert "binding_effect_counts" in contracts_doc
+    assert "variant_resolution_counts" in contracts_doc
     assert "content_effect_counts" in contracts_doc
     assert "row_outcome_counts" in contracts_doc
+    assert "POST /api/projects/{project_id}/branches/bootstrap/preview" in contracts_doc
+    assert "POST /api/projects/{project_id}/branches/mutations/preview" in contracts_doc
+    assert "POST /api/projects/{project_id}/branches/replace/preview" in contracts_doc
+    assert "read-only" in contracts_doc
 
     assert "branch bootstrap" in workflows_doc
     assert "dedicated async workflow" in workflows_doc
@@ -143,6 +152,11 @@ def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     assert "legacy input shapes" in workflows_doc
     assert "MISSING_IN_SCOPE" in workflows_doc
     assert "row_outcome = missing" in workflows_doc
+    assert "preview family" in workflows_doc
+    assert "effect_forecast" in workflows_doc
+    assert "variant_resolution" in workflows_doc
+    assert "summary-first" in workflows_doc
+    assert "read-only preview" in workflows_doc
 
     assert "dev_versions" in system_doc
     assert "bootstrap_state" in system_doc

@@ -160,7 +160,10 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
             },
         )
         assert replace_preview.status_code == 200
-        assert replace_preview.json()["source_branch_ref"] == f"dev/{sample['dev_version']}"
+        replace_preview_payload = replace_preview.json()
+        assert replace_preview_payload["preview_kind"] == "effect_forecast"
+        assert replace_preview_payload["workflow_kind"] == "branch_replace"
+        assert replace_preview_payload["request_echo"]["source_branch_ref"] == f"dev/{sample['dev_version']}"
 
         assert client.post("/api/projects/1/branches/dev/import", json={}).status_code == 405
         assert client.post(f"/api/projects/1/branches/dev/{sample['dev_version']}/promote/preview").status_code == 404
@@ -210,25 +213,41 @@ def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_id
 
     assert preview_response.status_code == 200
     payload = preview_response.json()
-    row = next(item for item in payload["report_rows"] if item["business_key"] == business_key)
+    row = next(item for item in payload["rows"] if item["business_key"] == business_key)
+    assert payload["preview_kind"] == "effect_forecast"
+    assert payload["workflow_kind"] == "branch_replace"
+    assert payload["request_echo"] == {
+        "source_branch_ref": "dev/2.4.3",
+        "target_branch_ref": "rel/current",
+    }
     assert row["status"] == "REBIND_TARGET"
-    assert payload["target_entry_count"] == 1
-    assert payload["added_to_target_count"] == 0
-    assert payload["kept_in_target_count"] == 0
-    assert payload["rebind_target_count"] == 1
-    assert payload["removed_from_target_count"] == 5
-    assert "already_in_target_count" not in payload
+    assert row["binding_effect"] == "rebind"
+    assert row["variant_resolution"] == "reuse_existing"
+    assert row["row_outcome"] == "applied"
+    assert payload["summary"]["target_entry_count"] == 1
+    assert payload["summary"]["added_to_target_count"] == 0
+    assert payload["summary"]["kept_in_target_count"] == 0
+    assert payload["summary"]["rebind_target_count"] == 1
+    assert payload["summary"]["removed_from_target_count"] == 5
+    assert payload["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert payload["summary"]["variant_resolution_counts"]["reuse_existing_count"] >= 1
+    assert "already_in_target_count" not in payload["summary"]
 
     assert execute_response.status_code == 200
     execute_detail = execute_response.json()
     summary = execute_detail["job"]["summary"]
     execute_row = next(item for item in execute_detail["report"]["rows"] if item["business_key"] == business_key)
     assert execute_row["status"] == "REBIND_TARGET"
+    assert execute_row["binding_effect"] == "rebind"
+    assert execute_row["variant_resolution"] == "reuse_existing"
+    assert execute_row["row_outcome"] == "applied"
     assert summary["target_entry_count"] == 1
     assert summary["added_to_target_count"] == 0
     assert summary["kept_in_target_count"] == 0
     assert summary["rebind_target_count"] == 1
     assert summary["removed_from_target_count"] == 5
+    assert summary["binding_effect_counts"]["rebind_count"] == 1
+    assert summary["variant_resolution_counts"]["reuse_existing_count"] >= 1
     assert "already_in_target_count" not in summary
 
 
@@ -341,6 +360,115 @@ def test_branch_bootstrap_api_runs_async_and_exposes_bootstrap_metadata(tmp_path
     assert dev_branch["bootstrap_import_batch_id"] == batch["import_batch_id"]
     assert dev_branch["bootstrap_job_id"] == detail["job"]["job_id"]
     assert dev_branch["bootstrapped_at"] is not None
+
+
+def test_branch_mutation_preview_api_is_read_only_for_direct_input() -> None:
+    reset_demo()
+    business_key = "preview.api.direct"
+    variant_id = create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source="Preview API source",
+        translations={"fr": "Original API preview text"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        before_jobs = client.get("/api/projects/1/jobs")
+        assert before_jobs.status_code == 200
+
+        response = client.post(
+            "/api/projects/1/branches/mutations/preview",
+            json={
+                "branch_ref": "rel/current",
+                "input": {
+                    "kind": "direct",
+                    "changes": [
+                        {
+                            "business_key": business_key,
+                            "translations_by_lang": {"fr": "Preview API changed"},
+                        }
+                    ],
+                },
+            },
+        )
+
+        after_jobs = client.get("/api/projects/1/jobs")
+        assert after_jobs.status_code == 200
+
+    assert response.status_code == 200
+    payload = response.json()
+    row = payload["rows"][0]
+    variant = VariantCatalogService().get_variant(variant_id)
+    assert payload["preview_kind"] == "effect_forecast"
+    assert payload["workflow_kind"] == "branch_mutation"
+    assert payload["request_echo"]["branch_ref"] == "rel/current"
+    assert payload["request_echo"]["input_kind"] == "direct"
+    assert row["status"] == "UPDATED_BOUND_VARIANT"
+    assert row["binding_effect"] == "none"
+    assert row["variant_resolution"] == "stay_current"
+    assert row["row_outcome"] == "applied"
+    assert payload["summary"]["variant_resolution_counts"]["stay_current_count"] == 1
+    assert variant["translations"]["fr"] == "Original API preview text"
+    assert after_jobs.json() == before_jobs.json()
+
+
+def test_branch_bootstrap_preview_api_is_read_only_and_reports_reuse_existing(tmp_path) -> None:
+    reset_demo()
+    BranchRegistryService().ensure_dev_branch("2.4.3", project_id=1)
+    business_key = "bootstrap.preview.api.reuse"
+    source = "Bootstrap preview source"
+    create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source=source,
+        translations={"fr": "Existing bootstrap preview content"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    import_root = tmp_path / "branch-bootstrap-preview-api"
+    workbook_path = import_root / "bundle" / "branch-bootstrap-preview.xlsx"
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.write_bytes(
+        build_workbook_bytes(
+            ["business_key", "source", "fr", "context"],
+            [[business_key, source, "Uploaded bootstrap preview content", "bootstrap-preview"]],
+        )
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    with TestClient(app) as client:
+        before_jobs = client.get("/api/projects/1/jobs")
+        assert before_jobs.status_code == 200
+
+        response = client.post(
+            "/api/projects/1/branches/bootstrap/preview",
+            json={
+                "branch_ref": "dev/2.4.3",
+                "import_batch_id": batch["import_batch_id"],
+            },
+        )
+
+        after_jobs = client.get("/api/projects/1/jobs")
+        branch_response = client.get("/api/projects/1/branches/dev/2.4.3")
+        assert after_jobs.status_code == 200
+        assert branch_response.status_code == 200
+        assert branch_response.json()["bootstrap_state"] == "not_bootstrapped"
+
+    assert response.status_code == 200
+    payload = response.json()
+    row = payload["rows"][0]
+    assert payload["preview_kind"] == "effect_forecast"
+    assert payload["workflow_kind"] == "branch_bootstrap"
+    assert payload["request_echo"]["branch_ref"] == "dev/2.4.3"
+    assert payload["request_echo"]["import_batch_id"] == batch["import_batch_id"]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["binding_effect"] == "bind"
+    assert row["variant_resolution"] == "reuse_existing"
+    assert row["row_outcome"] == "applied"
+    assert payload["summary"]["bound_existing_variant_count"] == 1
+    assert payload["summary"]["variant_resolution_counts"]["reuse_existing_count"] == 1
+    assert after_jobs.json() == before_jobs.json()
 
 
 def test_branch_bootstrap_api_rejects_rel_current() -> None:

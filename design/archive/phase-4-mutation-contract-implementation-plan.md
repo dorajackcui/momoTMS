@@ -976,7 +976,7 @@ Status:
 
 Artifacts:
 
-- [phase-4-mutation-contract-design.md](phase-4-mutation-contract-design.md)
+- [phase-4-mutation-contract-design.md](../phase-4-mutation-contract-design.md)
 - [phase-4-mutation-contract-implementation-plan.md](phase-4-mutation-contract-implementation-plan.md)
 
 Session focus:

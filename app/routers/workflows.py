@@ -4,7 +4,9 @@ from fastapi import APIRouter, File, Form, UploadFile
 
 from app.routers.common import handle_errors, read_folder_upload
 from app.schemas import (
+    BranchBootstrapPreview,
     BranchBootstrapRequest,
+    BranchMutationPreview,
     BranchMutationRequest,
     BranchReplacePreview,
     BranchReplaceRequest,
@@ -23,6 +25,20 @@ from app.services.workflows.application import WorkflowApplicationService
 router = APIRouter()
 
 
+@router.post("/api/projects/{project_id}/branches/bootstrap/preview", response_model=BranchBootstrapPreview)
+def project_branch_bootstrap_preview(project_id: int, payload: BranchBootstrapRequest) -> BranchBootstrapPreview:
+    service = WorkflowApplicationService()
+    return handle_errors(
+        lambda: BranchBootstrapPreview(
+            **service.branch_bootstrap_preview(
+                payload.branch_ref,
+                payload.import_batch_id,
+                project_id=project_id,
+            )
+        )
+    )
+
+
 @router.post("/api/projects/{project_id}/branches/bootstrap", response_model=JobDetail)
 def project_branch_bootstrap(project_id: int, payload: BranchBootstrapRequest) -> JobDetail:
     service = WorkflowApplicationService()
@@ -31,6 +47,20 @@ def project_branch_bootstrap(project_id: int, payload: BranchBootstrapRequest) -
             **service.branch_bootstrap(
                 payload.branch_ref,
                 payload.import_batch_id,
+                project_id=project_id,
+            )
+        )
+    )
+
+
+@router.post("/api/projects/{project_id}/branches/mutations/preview", response_model=BranchMutationPreview)
+def project_branch_mutation_preview(project_id: int, payload: BranchMutationRequest) -> BranchMutationPreview:
+    service = WorkflowApplicationService()
+    return handle_errors(
+        lambda: BranchMutationPreview(
+            **service.branch_mutation_preview(
+                payload.branch_ref,
+                payload.input.model_dump(mode="python"),
                 project_id=project_id,
             )
         )

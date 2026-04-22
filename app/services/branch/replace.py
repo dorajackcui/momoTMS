@@ -89,12 +89,15 @@ class BranchReplaceService:
         summary = {
             "source_branch_ref": str(source_branch_ref),
             "target_branch_ref": str(target_branch_ref),
-            "target_entry_count": preview["target_entry_count"],
-            "added_to_target_count": preview["added_to_target_count"],
-            "kept_in_target_count": preview["kept_in_target_count"],
-            "rebind_target_count": preview["rebind_target_count"],
-            "removed_from_target_count": preview["removed_from_target_count"],
+            "target_entry_count": preview["summary"]["target_entry_count"],
+            "added_to_target_count": preview["summary"]["added_to_target_count"],
+            "kept_in_target_count": preview["summary"]["kept_in_target_count"],
+            "rebind_target_count": preview["summary"]["rebind_target_count"],
+            "removed_from_target_count": preview["summary"]["removed_from_target_count"],
             "cleanup_binding_count": cleanup_binding_count,
+            "binding_effect_counts": dict(preview["summary"]["binding_effect_counts"]),
+            "variant_resolution_counts": dict(preview["summary"]["variant_resolution_counts"]),
+            "row_outcome_counts": dict(preview["summary"]["row_outcome_counts"]),
             "stages": [
                 {
                     "stage": "execute_branch_replace",
@@ -102,12 +105,12 @@ class BranchReplaceService:
                     "meta": {
                         "source_branch_ref": str(source_branch_ref),
                         "target_branch_ref": str(target_branch_ref),
-                        "target_entry_count": preview["target_entry_count"],
+                        "target_entry_count": preview["summary"]["target_entry_count"],
                     },
                 }
             ],
         }
-        return {"summary": summary, "report_rows": preview["report_rows"]}
+        return {"summary": summary, "report_rows": preview["rows"]}
 
     def _cleanup_scope_bindings(
         self,

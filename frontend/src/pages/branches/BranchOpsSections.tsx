@@ -165,40 +165,49 @@ export function LookupTable(props: {
 }
 
 export function KeyValuePreview(props: { preview: BranchReplacePreview }) {
+  const summaryEntries = Object.entries(props.preview.summary);
+  const previewRows = props.preview.rows;
+
   return (
     <div className={styles.stack}>
       <div className={styles.toolbar}>
-        <Badge tone="info">{props.preview.source_branch_ref}</Badge>
-        <Badge tone="accent">{props.preview.target_branch_ref}</Badge>
+        <Badge tone="info">{props.preview.request_echo.source_branch_ref}</Badge>
+        <Badge tone="accent">{props.preview.request_echo.target_branch_ref}</Badge>
       </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <tbody>
-            {Object.entries(props.preview)
-              .filter(([key]) => key !== "report_rows")
-              .map(([key, value]) => (
-                <tr key={key}>
-                  <th>{key}</th>
-                  <td>{stringifyValue(value)}</td>
-                </tr>
-              ))}
+            <tr>
+              <th>preview_kind</th>
+              <td>{props.preview.preview_kind}</td>
+            </tr>
+            <tr>
+              <th>workflow_kind</th>
+              <td>{props.preview.workflow_kind}</td>
+            </tr>
+            {summaryEntries.map(([key, value]) => (
+              <tr key={key}>
+                <th>{key}</th>
+                <td>{stringifyValue(value)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      {props.preview.report_rows.length > 0 ? (
+      {previewRows.length > 0 ? (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>
               <tr>
-                {Object.keys(props.preview.report_rows[0]).map((column) => (
+                {Object.keys(previewRows[0]).map((column) => (
                   <th key={column}>{column}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {props.preview.report_rows.slice(0, 10).map((row, rowIndex) => (
+              {previewRows.slice(0, 10).map((row, rowIndex) => (
                 <tr key={`preview-${rowIndex}`}>
-                  {Object.keys(props.preview.report_rows[0]).map((column) => (
+                  {Object.keys(previewRows[0]).map((column) => (
                     <td key={`${rowIndex}-${column}`}>{stringifyValue(row[column])}</td>
                   ))}
                 </tr>

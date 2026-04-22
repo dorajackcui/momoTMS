@@ -7,6 +7,7 @@ from app.services.branch.direct_mutation import DirectMutationApplier
 from app.services.branch.import_batch_mutation import ImportBatchMutationApplier
 from app.services.branch.models import BranchRef
 from app.services.branch.policy import BranchMutationPolicy
+from app.services.branch.mutation_preview import MutationPreviewService
 from app.services.branch.registry import BranchRegistryService
 from app.services.imports.service import ImportService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
@@ -45,6 +46,13 @@ class BranchMutationService:
             catalog=self.catalog,
             bindings=self.bindings,
             binding_lookup=self.binding_lookup,
+            resolution=self.resolution,
+        )
+        self.preview_service = MutationPreviewService(
+            entries=self.entries,
+            catalog=self.catalog,
+            binding_lookup=self.binding_lookup,
+            projects=self.projects,
             resolution=self.resolution,
         )
 
@@ -110,3 +118,11 @@ class BranchMutationService:
                 version_series=(dev_branch or {}).get("version_series"),
             )
             return result
+
+    def preview(
+        self,
+        branch_ref: BranchRef,
+        input_payload: dict[str, Any],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        return self.preview_service.preview(branch_ref, input_payload, project_id=project_id)

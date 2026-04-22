@@ -120,6 +120,21 @@ class WorkflowApplicationService:
             project_id=project_id,
         )
 
+    def branch_mutation_preview(
+        self,
+        branch_ref: str,
+        input_payload: dict[str, Any],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        self.branch_mutation_service.projects.require_project(project_id)
+        parsed_branch_ref = BranchRef.parse(branch_ref)
+        BranchMutationPolicy.for_branch(parsed_branch_ref).validate_input_kind(str(input_payload["kind"]))
+        return self.branch_mutation_service.preview(
+            parsed_branch_ref,
+            input_payload,
+            project_id=project_id,
+        )
+
     def branch_bootstrap(
         self,
         branch_ref: str,
@@ -163,6 +178,23 @@ class WorkflowApplicationService:
 
         submit_background_job(run)
         return self.get_job_detail(job_id, project_id=project_id)
+
+    def branch_bootstrap_preview(
+        self,
+        branch_ref: str,
+        import_batch_id: int,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        parsed_branch_ref = BranchRef.parse(branch_ref)
+        if not parsed_branch_ref.is_dev:
+            raise ValueError(f"bootstrap only supports dev branches: {parsed_branch_ref}")
+        self.branch_bootstrap_service.projects.require_project(project_id)
+        self.branch_bootstrap_service.imports.require_batch_project(import_batch_id, project_id)
+        return self.branch_bootstrap_service.preview(
+            parsed_branch_ref,
+            import_batch_id,
+            project_id=project_id,
+        )
 
     def branch_replace_preview(
         self,

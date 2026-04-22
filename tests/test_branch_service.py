@@ -8,6 +8,7 @@ from app.services.branch.bootstrap import BranchBootstrapService
 from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
 from app.services.branch.policy import AuthorityPolicy
+from app.services.branch.preview_contract import EffectPreviewSummaryBuilder
 from app.services.branch.replace import BranchReplaceService
 from app.services.branch.registry import BranchRegistryService
 from app.services.demo.service import DemoService
@@ -194,6 +195,76 @@ def test_bootstrap_processes_bind_heavy_rows_across_chunk_boundary(tmp_path) -> 
     assert all(item["status"] == "BOUND_EXISTING_VARIANT" for item in rows)
 
 
+def test_bootstrap_preview_reports_reuse_create_invalid_and_duplicate_rows_without_writes(tmp_path) -> None:
+    sample = reset_demo()
+    read_service = branch_services()
+    existing_row = next(
+        item
+        for item in read_service.list_branch_entries(BranchRef.rel_current())
+        if item["business_key"] == "rel.locked.same"
+    )
+    BranchRegistryService().ensure_dev_branch(sample["dev_version"], project_id=1)
+    branch_metadata_before = read_service.get_dev_branch(sample["dev_version"])
+
+    import_root = tmp_path / "bootstrap-preview"
+    write_import_workbook(
+        import_root,
+        "bundle/bootstrap-preview.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["rel.locked.same", existing_row["source"], "Uploaded reuse", "reuse"],
+            ["bootstrap.preview.new", "Preview source", "Uploaded create", "create"],
+            ["", "Broken source", "Uploaded invalid", "invalid"],
+            ["bootstrap.preview.new", "Preview source", "Uploaded duplicate", "duplicate"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    preview = BranchBootstrapService().preview(BranchRef.dev(sample["dev_version"]), batch["import_batch_id"])
+    rows = preview["rows"]
+    statuses = [row["status"] for row in rows]
+    branch_metadata_after = read_service.get_dev_branch(sample["dev_version"])
+
+    assert preview["preview_kind"] == "effect_forecast"
+    assert preview["workflow_kind"] == "branch_bootstrap"
+    assert preview["request_echo"] == {
+        "branch_ref": f"dev/{sample['dev_version']}",
+        "import_batch_id": batch["import_batch_id"],
+    }
+    assert statuses == [
+        "BOUND_EXISTING_VARIANT",
+        "CREATED_AND_BOUND_VARIANT",
+        "INVALID_ROW",
+        "DUPLICATE_KEY_IN_BOOTSTRAP",
+    ]
+    assert rows[0]["binding_effect"] == "bind"
+    assert rows[0]["variant_resolution"] == "reuse_existing"
+    assert rows[0]["row_outcome"] == "applied"
+    assert rows[1]["binding_effect"] == "bind"
+    assert rows[1]["variant_resolution"] == "create_new"
+    assert rows[1]["row_outcome"] == "applied"
+    assert rows[2]["binding_effect"] == "none"
+    assert rows[2]["variant_resolution"] == "stay_current"
+    assert rows[2]["row_outcome"] == "invalid"
+    assert rows[3]["binding_effect"] == "none"
+    assert rows[3]["variant_resolution"] == "stay_current"
+    assert rows[3]["row_outcome"] == "invalid"
+    assert preview["summary"]["processed_count"] == 4
+    assert preview["summary"]["bound_existing_variant_count"] == 1
+    assert preview["summary"]["created_and_bound_variant_count"] == 1
+    assert preview["summary"]["invalid_row_count"] == 1
+    assert preview["summary"]["duplicate_key_count"] == 1
+    assert preview["summary"]["created_entry_count"] == 1
+    assert preview["summary"]["created_variant_count"] == 1
+    assert preview["summary"]["binding_effect_counts"]["bind_count"] == 2
+    assert preview["summary"]["variant_resolution_counts"]["reuse_existing_count"] == 1
+    assert preview["summary"]["variant_resolution_counts"]["create_new_count"] == 1
+    assert preview["summary"]["row_outcome_counts"]["applied_count"] == 2
+    assert preview["summary"]["row_outcome_counts"]["invalid_count"] == 2
+    assert branch_metadata_after == branch_metadata_before
+    assert read_service.entries.get_entry("bootstrap.preview.new") is None
+
+
 def test_branch_import_paths_and_promote_cleanup() -> None:
     sample = reset_demo()
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
@@ -216,15 +287,68 @@ def test_branch_import_paths_and_promote_cleanup() -> None:
     assert statuses["dev.new.entry"] == "CREATED_AND_BOUND_VARIANT"
 
     preview = replace_service.preview(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
-    assert preview["source_branch_ref"] == f"dev/{sample['dev_version']}"
-    assert preview["target_branch_ref"] == "rel/current"
-    assert preview["target_entry_count"] >= 4
+    assert preview["request_echo"]["source_branch_ref"] == f"dev/{sample['dev_version']}"
+    assert preview["request_echo"]["target_branch_ref"] == "rel/current"
+    assert preview["summary"]["target_entry_count"] >= 4
 
     replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
     rel_entries = read_service.list_branch_entries(BranchRef.rel_current())
     rel_keys = {item["business_key"] for item in rel_entries}
     assert {"rel.locked.same", "rel.locked.changed", "dev.mutable", "dev.new.entry"}.issubset(rel_keys)
     assert read_service.list_dev_branches(active_only=True) == []
+
+
+def test_effect_preview_summary_builder_counts_binding_variant_and_outcome() -> None:
+    builder = EffectPreviewSummaryBuilder()
+    rows = [
+        {
+            "binding_effect": "bind",
+            "variant_resolution": "reuse_existing",
+            "row_outcome": "applied",
+        },
+        {
+            "binding_effect": "rebind",
+            "variant_resolution": "reuse_existing",
+            "row_outcome": "applied",
+        },
+        {
+            "binding_effect": "none",
+            "variant_resolution": "create_new",
+            "row_outcome": "applied",
+        },
+        {
+            "binding_effect": "none",
+            "variant_resolution": "stay_current",
+            "row_outcome": "noop",
+        },
+        {
+            "binding_effect": "none",
+            "variant_resolution": "stay_current",
+            "row_outcome": "missing",
+        },
+    ]
+
+    for row in rows:
+        builder.add_row(row)
+
+    assert builder.as_dict() == {
+        "binding_effect_counts": {
+            "none_count": 3,
+            "bind_count": 1,
+            "rebind_count": 1,
+        },
+        "variant_resolution_counts": {
+            "stay_current_count": 2,
+            "reuse_existing_count": 2,
+            "create_new_count": 1,
+        },
+        "row_outcome_counts": {
+            "applied_count": 3,
+            "noop_count": 1,
+            "missing_count": 1,
+            "invalid_count": 0,
+        },
+    }
 
 
 def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() -> None:
@@ -254,23 +378,39 @@ def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() 
     services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), target_variant_id)
 
     preview = BranchReplaceService().preview(BranchRef.dev("2.4.3"), BranchRef.rel_current())
-    row = next(item for item in preview["report_rows"] if item["business_key"] == "replace.rebind")
+    row = next(item for item in preview["rows"] if item["business_key"] == "replace.rebind")
     execute = BranchReplaceService().execute(BranchRef.dev("2.4.3"), BranchRef.rel_current())
     execute_row = next(item for item in execute["report_rows"] if item["business_key"] == "replace.rebind")
 
+    assert preview["preview_kind"] == "effect_forecast"
+    assert preview["workflow_kind"] == "branch_replace"
+    assert preview["request_echo"] == {
+        "source_branch_ref": "dev/2.4.3",
+        "target_branch_ref": "rel/current",
+    }
     assert row["status"] == "REBIND_TARGET"
+    assert row["binding_effect"] == "rebind"
+    assert row["variant_resolution"] == "reuse_existing"
+    assert row["row_outcome"] == "applied"
     assert execute_row["status"] == "REBIND_TARGET"
-    assert preview["target_entry_count"] == 1
-    assert preview["added_to_target_count"] == 0
-    assert preview["kept_in_target_count"] == 0
-    assert preview["rebind_target_count"] == 1
-    assert preview["removed_from_target_count"] == 5
-    assert "already_in_target_count" not in preview
+    assert execute_row["binding_effect"] == "rebind"
+    assert execute_row["variant_resolution"] == "reuse_existing"
+    assert execute_row["row_outcome"] == "applied"
+    assert preview["summary"]["target_entry_count"] == 1
+    assert preview["summary"]["added_to_target_count"] == 0
+    assert preview["summary"]["kept_in_target_count"] == 0
+    assert preview["summary"]["rebind_target_count"] == 1
+    assert preview["summary"]["removed_from_target_count"] == 5
+    assert preview["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert preview["summary"]["variant_resolution_counts"]["reuse_existing_count"] >= 1
+    assert "already_in_target_count" not in preview["summary"]
     assert execute["summary"]["target_entry_count"] == 1
     assert execute["summary"]["added_to_target_count"] == 0
     assert execute["summary"]["kept_in_target_count"] == 0
     assert execute["summary"]["rebind_target_count"] == 1
     assert execute["summary"]["removed_from_target_count"] == 5
+    assert execute["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert execute["summary"]["variant_resolution_counts"]["reuse_existing_count"] >= 1
     assert "already_in_target_count" not in execute["summary"]
 
 
@@ -430,6 +570,7 @@ def test_direct_content_update_emits_phase4_semantics() -> None:
     assert row["status"] == "UPDATED_BOUND_VARIANT"
     assert row["mutation_class"] == "content"
     assert row["binding_effect"] == "none"
+    assert row["variant_resolution"] == "stay_current"
     assert row["content_effect"] == "update"
     assert row["row_outcome"] == "applied"
     assert result["summary"]["updated_bound_variant_count"] == 1
@@ -438,6 +579,9 @@ def test_direct_content_update_emits_phase4_semantics() -> None:
     assert result["summary"]["binding_effect_counts"]["none_count"] == 1
     assert result["summary"]["binding_effect_counts"]["bind_count"] == 0
     assert result["summary"]["binding_effect_counts"]["rebind_count"] == 0
+    assert result["summary"]["variant_resolution_counts"]["stay_current_count"] == 1
+    assert result["summary"]["variant_resolution_counts"]["reuse_existing_count"] == 0
+    assert result["summary"]["variant_resolution_counts"]["create_new_count"] == 0
     assert result["summary"]["content_effect_counts"]["none_count"] == 0
     assert result["summary"]["content_effect_counts"]["create_count"] == 0
     assert result["summary"]["content_effect_counts"]["update_count"] == 1
@@ -475,8 +619,10 @@ def test_direct_content_mutation_missing_target_emits_missing_semantics() -> Non
     assert row["status"] == "MISSING_IN_SCOPE"
     assert row["mutation_class"] == "content"
     assert row["binding_effect"] == "none"
+    assert row["variant_resolution"] == "stay_current"
     assert row["content_effect"] == "none"
     assert row["row_outcome"] == "missing"
+    assert result["summary"]["variant_resolution_counts"]["stay_current_count"] == 1
     assert result["summary"]["row_outcome_counts"]["missing_count"] == 1
 
 
@@ -516,8 +662,10 @@ def test_direct_range_create_emits_bind_and_create_semantics() -> None:
     assert row["status"] == "CREATED_AND_BOUND_VARIANT"
     assert row["mutation_class"] == "range"
     assert row["binding_effect"] == "bind"
+    assert row["variant_resolution"] == "create_new"
     assert row["content_effect"] == "create"
     assert row["row_outcome"] == "applied"
+    assert result["summary"]["variant_resolution_counts"]["create_new_count"] == 1
 
 
 def test_direct_filtered_rebind_emits_range_rebind_filtered_semantics() -> None:
@@ -573,10 +721,126 @@ def test_direct_filtered_rebind_emits_range_rebind_filtered_semantics() -> None:
     assert row["content_filtered_by_authority"] is True
     assert row["mutation_class"] == "range"
     assert row["binding_effect"] == "rebind"
+    assert row["variant_resolution"] == "reuse_existing"
     assert row["content_effect"] == "filtered"
     assert row["row_outcome"] == "applied"
     assert result["summary"]["content_effect_counts"]["filtered_count"] == 1
     assert result["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert result["summary"]["variant_resolution_counts"]["reuse_existing_count"] == 1
+
+
+def test_direct_mutation_preview_is_read_only_and_reports_effect_forecast() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    content_entry = services.entries.get_or_create_entry("preview.direct.content", project_id=1)
+    content_variant_id = services.catalog.create_variant(
+        int(content_entry["entry_id"]),
+        services.catalog.build_content(
+            "preview-direct.xlsx",
+            "Preview direct source",
+            {"fr": "Original preview text"},
+            {"context": "preview"},
+        ),
+    )
+    services.bindings.bind_scope(int(content_entry["entry_id"]), BranchRef.dev("2.5.1"), content_variant_id)
+
+    rebind_entry = services.entries.get_or_create_entry("preview.direct.rebind", project_id=1)
+    rebind_current_variant_id = services.catalog.create_variant(
+        int(rebind_entry["entry_id"]),
+        services.catalog.build_content(
+            "preview-rebind-current.xlsx",
+            "Preview rebind current source",
+            {"fr": "Current rebind text"},
+            {"context": "current"},
+        ),
+    )
+    rebind_target_variant_id = services.catalog.create_variant(
+        int(rebind_entry["entry_id"]),
+        services.catalog.build_content(
+            "preview-rebind-target.xlsx",
+            "Preview rebind target source",
+            {"fr": "Target rebind text"},
+            {"context": "target"},
+        ),
+    )
+    services.bindings.bind_scope(int(rebind_entry["entry_id"]), BranchRef.dev("2.5.1"), rebind_current_variant_id)
+
+    services.entries.get_or_create_entry("preview.direct.create", project_id=1)
+
+    preview = mutation_service.preview(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "preview.direct.content",
+                    "translations_by_lang": {"fr": "Preview-only text"},
+                }
+                ,
+                {
+                    "business_key": "preview.direct.rebind",
+                    "source": "Preview rebind target source",
+                },
+                {
+                    "business_key": "preview.direct.create",
+                    "source": "Preview create source",
+                    "translations_by_lang": {"fr": "Created preview text"},
+                    "remarks_by_key": {"context": "create"},
+                    "file_name": "preview-create.xlsx",
+                },
+                {
+                    "business_key": "preview.direct.missing",
+                    "translations_by_lang": {"fr": "Missing preview text"},
+                },
+                {
+                    "translations_by_lang": {"fr": "Invalid preview text"},
+                },
+            ],
+        },
+    )
+
+    rows = {row["business_key"]: row for row in preview["rows"] if row.get("business_key")}
+    invalid_row = next(row for row in preview["rows"] if row["row_outcome"] == "invalid")
+    content_variant = services.catalog.get_variant(content_variant_id)
+    rebind_target_variant = services.catalog.get_variant(rebind_target_variant_id)
+
+    assert preview["preview_kind"] == "effect_forecast"
+    assert preview["workflow_kind"] == "branch_mutation"
+    assert preview["request_echo"]["branch_ref"] == "dev/2.5.1"
+    assert preview["request_echo"]["input_kind"] == "direct"
+    assert rows["preview.direct.content"]["status"] == "UPDATED_BOUND_VARIANT"
+    assert rows["preview.direct.content"]["binding_effect"] == "none"
+    assert rows["preview.direct.content"]["variant_resolution"] == "stay_current"
+    assert rows["preview.direct.content"]["row_outcome"] == "applied"
+    assert rows["preview.direct.rebind"]["status"] == "BOUND_EXISTING_VARIANT"
+    assert rows["preview.direct.rebind"]["binding_effect"] == "rebind"
+    assert rows["preview.direct.rebind"]["variant_resolution"] == "reuse_existing"
+    assert rows["preview.direct.rebind"]["row_outcome"] == "applied"
+    assert rows["preview.direct.create"]["status"] == "CREATED_AND_BOUND_VARIANT"
+    assert rows["preview.direct.create"]["binding_effect"] == "bind"
+    assert rows["preview.direct.create"]["variant_resolution"] == "create_new"
+    assert rows["preview.direct.create"]["row_outcome"] == "applied"
+    assert rows["preview.direct.missing"]["status"] == "MISSING_IN_SCOPE"
+    assert rows["preview.direct.missing"]["binding_effect"] == "none"
+    assert rows["preview.direct.missing"]["variant_resolution"] == "stay_current"
+    assert rows["preview.direct.missing"]["row_outcome"] == "missing"
+    assert invalid_row["status"] == "INVALID_ROW"
+    assert invalid_row["binding_effect"] == "none"
+    assert invalid_row["variant_resolution"] == "stay_current"
+    assert invalid_row["row_outcome"] == "invalid"
+    assert preview["summary"]["binding_effect_counts"]["none_count"] == 3
+    assert preview["summary"]["binding_effect_counts"]["bind_count"] == 1
+    assert preview["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert preview["summary"]["variant_resolution_counts"]["stay_current_count"] == 3
+    assert preview["summary"]["variant_resolution_counts"]["reuse_existing_count"] == 1
+    assert preview["summary"]["variant_resolution_counts"]["create_new_count"] == 1
+    assert preview["summary"]["row_outcome_counts"]["applied_count"] == 3
+    assert preview["summary"]["row_outcome_counts"]["missing_count"] == 1
+    assert preview["summary"]["row_outcome_counts"]["invalid_count"] == 1
+    assert content_variant["translations"]["fr"] == "Original preview text"
+    assert rebind_target_variant["translations"]["fr"] == "Target rebind text"
 
 
 def test_import_batch_content_update_emits_phase4_semantics(tmp_path) -> None:
@@ -619,10 +883,12 @@ def test_import_batch_content_update_emits_phase4_semantics(tmp_path) -> None:
     assert row["status"] == "UPDATED_BOUND_VARIANT"
     assert row["mutation_class"] == "content"
     assert row["binding_effect"] == "none"
+    assert row["variant_resolution"] == "stay_current"
     assert row["content_effect"] == "update"
     assert row["row_outcome"] == "applied"
     assert result["summary"]["mutation_class_counts"]["content_count"] == 1
     assert result["summary"]["binding_effect_counts"]["none_count"] == 1
+    assert result["summary"]["variant_resolution_counts"]["stay_current_count"] == 1
     assert result["summary"]["content_effect_counts"]["update_count"] == 1
     assert result["summary"]["row_outcome_counts"]["applied_count"] == 1
 
@@ -678,10 +944,12 @@ def test_import_batch_filtered_rebind_emits_phase4_semantics(tmp_path) -> None:
     assert row["content_filtered_by_authority"] is True
     assert row["mutation_class"] == "range"
     assert row["binding_effect"] == "rebind"
+    assert row["variant_resolution"] == "reuse_existing"
     assert row["content_effect"] == "filtered"
     assert row["row_outcome"] == "applied"
     assert result["summary"]["mutation_class_counts"]["range_count"] == 1
     assert result["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert result["summary"]["variant_resolution_counts"]["reuse_existing_count"] == 1
     assert result["summary"]["content_effect_counts"]["filtered_count"] == 1
     assert result["summary"]["row_outcome_counts"]["applied_count"] == 1
 
@@ -1390,3 +1658,98 @@ def test_higher_authority_dev_can_override_lower_authority_dev_variant() -> None
 
     assert result["report_rows"][0]["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
     assert service.catalog.get_variant(variant_id)["translations"]["fr"] == "Patch winner"
+
+
+def test_bootstrap_preview_rejects_nonexistent_dev_branch(tmp_path) -> None:
+    reset_demo()
+    import_root = tmp_path / "bootstrap-missing-branch"
+    write_import_workbook(
+        import_root,
+        "bundle/missing.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["some.key", "Some source", "Some text"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+    with pytest.raises(KeyError, match="dev branch not found"):
+        BranchBootstrapService().preview(BranchRef.dev("2.4.99"), batch["import_batch_id"])
+
+
+def test_bootstrap_preview_reuse_hit_always_reports_bind(tmp_path) -> None:
+    sample = reset_demo()
+    services = branch_services()
+    BranchRegistryService().ensure_dev_branch(sample["dev_version"], project_id=1)
+    existing = next(
+        item
+        for item in services.list_branch_entries(BranchRef.rel_current())
+        if item["business_key"] == "rel.locked.same"
+    )
+    services.bindings.bind_scope(
+        int(existing["entry_id"]),
+        BranchRef.dev(sample["dev_version"]),
+        int(existing["variant_id"]),
+    )
+    import_root = tmp_path / "bootstrap-reuse-bind"
+    write_import_workbook(
+        import_root,
+        "bundle/reuse-bind.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            [existing["business_key"], existing["source"], "Reuse text"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+    preview = BranchBootstrapService().preview(
+        BranchRef.dev(sample["dev_version"]), batch["import_batch_id"]
+    )
+    row = preview["rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["binding_effect"] == "rebind"
+    assert row["variant_resolution"] == "reuse_existing"
+    assert row["row_outcome"] == "applied"
+    assert preview["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert preview["summary"]["binding_effect_counts"]["none_count"] == 0
+
+
+def test_mutation_preview_blank_source_returns_invalid_row() -> None:
+    reset_demo()
+    services = branch_services()
+    entry = services.entries.get_or_create_entry("preview.blank.source", project_id=1)
+    variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "blank-source.xlsx",
+            "Original source",
+            {"fr": "Original text"},
+            {"context": "original"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), variant_id)
+
+    preview = BranchMutationService().preview(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "preview.blank.source",
+                    "source": "   ",
+                    "translations_by_lang": {"fr": "New text"},
+                },
+                {
+                    "business_key": "preview.blank.source",
+                    "source": "",
+                    "translations_by_lang": {"fr": "New text"},
+                },
+            ],
+        },
+    )
+
+    assert len(preview["rows"]) == 2
+    for row in preview["rows"]:
+        assert row["status"] == "INVALID_ROW"
+        assert row["row_outcome"] == "invalid"
+        assert row["binding_effect"] == "none"
+        assert row["variant_resolution"] == "stay_current"
+    assert preview["summary"]["row_outcome_counts"]["invalid_count"] == 2
