@@ -105,6 +105,11 @@ Authority rule of thumb:
 
 - rel-owned same-source content stays authoritative when a dev scope hits the same canonical variant
 
+Dev branch bootstrap metadata:
+
+- `dev_versions` stores the per-branch lifecycle fields `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id` alongside the candidate-release flag and branch version fields
+- `bootstrap_state` is derived from `bootstrapped_at`: it is `not_bootstrapped` before the dedicated bootstrap workflow succeeds and `bootstrapped` after it completes
+
 ## Variant Lifecycle
 
 Live states:
@@ -154,6 +159,13 @@ Live tables:
 - `imports`
 - `import_rows`
 - `jobs`
+
+The `dev_versions` table stores dev-branch metadata plus bootstrap state:
+
+- `is_candidate_release`
+- `bootstrapped_at`
+- `bootstrap_job_id`
+- `bootstrap_import_batch_id`
 
 Legacy snapshot and canonical tables are not part of the live model. Old local DBs are not kept design-compatible by default; incompatible runtimes are rebuilt or reseeded to the current schema instead of being migrated in place unless migration work is explicitly part of the task.
 

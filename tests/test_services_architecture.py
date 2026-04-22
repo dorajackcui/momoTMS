@@ -111,9 +111,11 @@ def test_bootstrap_and_workflow_routes_use_branch_catalog_read_model() -> None:
 def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     contracts_doc = _read_doc("docs/contracts.md")
     workflows_doc = _read_doc("docs/workflows.md")
+    system_doc = _read_doc("docs/system.md")
 
     assert "GET /api/projects/{project_id}/branches/{branch_ref:path}/rows" in contracts_doc
     assert "GET /api/projects/{project_id}/branches/{branch_ref:path}/lookup" in contracts_doc
+    assert "POST /api/projects/{project_id}/branches/bootstrap" in contracts_doc
     assert "GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows" in contracts_doc
     assert "GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup" in contracts_doc
     assert "compatibility alias" in contracts_doc
@@ -121,6 +123,31 @@ def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     assert "REBIND_TARGET" in contracts_doc
     assert "kept_in_target_count" in contracts_doc
     assert "rebind_target_count" in contracts_doc
+    assert "mutation_class" in contracts_doc
+    assert "binding_effect" in contracts_doc
+    assert "content_effect" in contracts_doc
+    assert "row_outcome" in contracts_doc
+    assert "mutation_class_counts" in contracts_doc
+    assert "binding_effect_counts" in contracts_doc
+    assert "content_effect_counts" in contracts_doc
+    assert "row_outcome_counts" in contracts_doc
+
+    assert "branch bootstrap" in workflows_doc
+    assert "dedicated async workflow" in workflows_doc
+    assert "BOUND_EXISTING_VARIANT" in workflows_doc
+    assert "INVALID_ROW" in workflows_doc
+    assert "DUPLICATE_KEY_IN_BOOTSTRAP" in workflows_doc
+    assert "range mutation" in workflows_doc
+    assert "content mutation" in workflows_doc
+    assert "content mutation must never implicitly change branch range" in workflows_doc
+    assert "legacy input shapes" in workflows_doc
+    assert "MISSING_IN_SCOPE" in workflows_doc
+    assert "row_outcome = missing" in workflows_doc
+
+    assert "dev_versions" in system_doc
+    assert "bootstrap_state" in system_doc
+    assert "not_bootstrapped" in system_doc
+    assert "bootstrapped" in system_doc
 
     assert "FORBIDDEN_BY_AUTHORITY" in workflows_doc
     assert "REBIND_TARGET" in workflows_doc

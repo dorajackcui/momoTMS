@@ -4,6 +4,7 @@ import pytest
 from openpyxl import Workbook
 
 from app.db import get_db_path
+from app.services.branch.bootstrap import BranchBootstrapService
 from app.services.branch.models import BranchRef
 from app.services.branch.mutations import BranchMutationService
 from app.services.branch.policy import AuthorityPolicy
@@ -35,6 +36,162 @@ def write_import_workbook(root: Path, relative_path: str, rows: list[list[object
     workbook.save(output_path)
     workbook.close()
     return output_path
+
+
+def test_bootstrap_reuses_existing_variant_and_ignores_uploaded_content(tmp_path) -> None:
+    sample = reset_demo()
+    read_service = branch_services()
+    existing_entry = next(
+        item for item in read_service.list_branch_entries(BranchRef.rel_current()) if item["business_key"] == "rel.locked.same"
+    )
+    existing_variant_id = existing_entry["variant_id"]
+    existing_variant = read_service.catalog.get_variant(existing_variant_id)
+    expected_translations = dict(existing_variant["translations"])
+    expected_remarks = dict(existing_variant["remarks"])
+    expected_file_name = existing_variant["file_name"]
+
+    import_root = tmp_path / "bootstrap-reuse"
+    write_import_workbook(
+        import_root,
+        "bundle/bootstrap-reuse.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["rel.locked.same", existing_variant["source"], "Uploaded override", "Uploaded override"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = BranchBootstrapService().bootstrap(BranchRef.dev(sample["dev_version"]), batch["import_batch_id"])
+    row = next(item for item in result["report_rows"] if item["business_key"] == "rel.locked.same")
+    bootstrapped_entry = next(
+        item for item in read_service.list_branch_entries(BranchRef.dev(sample["dev_version"])) if item["business_key"] == "rel.locked.same"
+    )
+    reused_variant = read_service.catalog.get_variant(existing_variant_id)
+    branch_metadata = read_service.get_dev_branch(sample["dev_version"])
+
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert bootstrapped_entry["variant_id"] == existing_variant_id
+    assert reused_variant["translations"] == expected_translations
+    assert reused_variant["remarks"] == expected_remarks
+    assert reused_variant["file_name"] == expected_file_name
+    assert branch_metadata["bootstrap_state"] == "bootstrapped"
+    assert branch_metadata["bootstrap_import_batch_id"] == batch["import_batch_id"]
+    assert branch_metadata["bootstrap_job_id"] is not None
+
+
+def test_bootstrap_reports_duplicate_keys_and_invalid_rows_without_aborting_job(tmp_path) -> None:
+    sample = reset_demo()
+    read_service = branch_services()
+    import_root = tmp_path / "bootstrap-invalid"
+    write_import_workbook(
+        import_root,
+        "bundle/bootstrap-invalid.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["bootstrap.good", "Bootstrap source", "Bonjour good", "good"],
+            ["bootstrap.good", "Bootstrap source", "Bonjour duplicate", "duplicate"],
+            ["", "Blank key source", "Bonjour blank key", "blank-key"],
+            ["bootstrap.blank.source", "", "Bonjour blank source", "blank-source"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = BranchBootstrapService().bootstrap(BranchRef.dev(sample["dev_version"]), batch["import_batch_id"])
+    statuses = [item["status"] for item in result["report_rows"]]
+    dev_entries = read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
+    branch_metadata = read_service.get_dev_branch(sample["dev_version"])
+
+    assert result["summary"]["processed_count"] == 4
+    assert statuses.count("CREATED_AND_BOUND_VARIANT") == 1
+    assert statuses.count("DUPLICATE_KEY_IN_BOOTSTRAP") == 1
+    assert statuses.count("INVALID_ROW") == 2
+    assert sum(1 for item in dev_entries if item["business_key"] == "bootstrap.good") == 1
+    assert any(item["business_key"] == "bootstrap.good" for item in dev_entries)
+    assert not any(item["business_key"] == "" for item in dev_entries)
+    assert not any(item["business_key"] == "bootstrap.blank.source" for item in dev_entries)
+    assert branch_metadata["bootstrap_state"] == "bootstrapped"
+    assert branch_metadata["bootstrap_import_batch_id"] == batch["import_batch_id"]
+    assert branch_metadata["bootstrap_job_id"] is not None
+
+
+def test_bootstrap_rejects_branch_that_is_already_bootstrapped(tmp_path) -> None:
+    sample = reset_demo()
+    import_root = tmp_path / "bootstrap-repeat"
+    write_import_workbook(
+        import_root,
+        "bundle/bootstrap-repeat.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["bootstrap.repeat", "Bootstrap source", "Bonjour bootstrap"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+    bootstrap_service = BranchBootstrapService()
+
+    first_result = bootstrap_service.bootstrap(BranchRef.dev(sample["dev_version"]), batch["import_batch_id"])
+    branch_metadata_before = branch_services().get_dev_branch(sample["dev_version"])
+
+    assert first_result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
+    assert branch_metadata_before["bootstrap_state"] == "bootstrapped"
+    assert branch_metadata_before["bootstrap_import_batch_id"] == batch["import_batch_id"]
+    assert branch_metadata_before["bootstrap_job_id"] is not None
+
+    with pytest.raises(ValueError, match="already bootstrapped"):
+        bootstrap_service.bootstrap(BranchRef.dev(sample["dev_version"]), batch["import_batch_id"])
+
+    branch_metadata_after = branch_services().get_dev_branch(sample["dev_version"])
+    assert branch_metadata_after == branch_metadata_before
+
+
+def test_bootstrap_processes_bind_heavy_rows_across_chunk_boundary(tmp_path) -> None:
+    sample = reset_demo()
+    read_service = branch_services()
+    for index in range(1005):
+        business_key = f"bootstrap.chunk.{index:04d}"
+        entry = read_service.entries.get_or_create_entry(business_key, project_id=1)
+        variant_id = read_service.catalog.create_variant(
+            int(entry["entry_id"]),
+            read_service.catalog.build_content(
+                f"{business_key}.xlsx",
+                f"Shared source {index}",
+                {"fr": f"Existing text {index}"},
+                {"context": f"Existing context {index}"},
+            ),
+        )
+        read_service.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+
+    import_root = tmp_path / "bootstrap-chunk-boundary"
+    rows: list[list[object]] = [["business_key", "source", "fr", "context"]]
+    for index in range(1005):
+        business_key = f"bootstrap.chunk.{index:04d}"
+        rows.append(
+            [
+                business_key,
+                f"Shared source {index}",
+                f"Uploaded text {index}",
+                f"Uploaded context {index}",
+            ]
+        )
+    write_import_workbook(
+        import_root,
+        "bundle/bootstrap-chunk-boundary.xlsx",
+        rows,
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = BranchBootstrapService().bootstrap(BranchRef.dev(sample["dev_version"]), batch["import_batch_id"])
+    rows = result["report_rows"]
+    row_by_key = {item["business_key"]: item for item in rows}
+    row_keys = [item["business_key"] for item in rows]
+    expected_keys = {f"bootstrap.chunk.{index:04d}" for index in range(1005)}
+
+    assert result["summary"]["processed_count"] == 1005
+    assert result["summary"]["bound_existing_variant_count"] == 1005
+    assert result["summary"]["created_and_bound_variant_count"] == 0
+    assert len(rows) == 1005
+    assert len(row_by_key) == 1005
+    assert set(row_keys) == expected_keys
+    assert all(item["status"] == "BOUND_EXISTING_VARIANT" for item in rows)
 
 
 def test_branch_import_paths_and_promote_cleanup() -> None:
@@ -229,6 +386,304 @@ def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
     assert not any(
         branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches(active_only=True)
     )
+
+
+def test_direct_content_update_emits_phase4_semantics() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    entry = services.entries.get_or_create_entry("phase4.content.update", project_id=1)
+    variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "phase4-content.xlsx",
+            "Phase 4 content source",
+            {"fr": "Original phase 4 text"},
+            {"context": "original phase 4"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.rel_current(), variant_id)
+
+    result = mutation_service.apply(
+        BranchRef.rel_current(),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "phase4.content.update",
+                    "translations_by_lang": {"fr": "Updated phase 4 text"},
+                }
+            ],
+        },
+    )
+
+    updated_entry = next(
+        item for item in services.list_branch_entries(BranchRef.rel_current()) if item["business_key"] == "phase4.content.update"
+    )
+    updated_variant = services.catalog.get_variant(variant_id)
+    assert updated_entry["variant_id"] == variant_id
+    assert updated_variant["translations"]["fr"] == "Updated phase 4 text"
+    assert updated_variant["remarks"]["context"] == "original phase 4"
+
+    row = result["report_rows"][0]
+    assert row["status"] == "UPDATED_BOUND_VARIANT"
+    assert row["mutation_class"] == "content"
+    assert row["binding_effect"] == "none"
+    assert row["content_effect"] == "update"
+    assert row["row_outcome"] == "applied"
+    assert result["summary"]["updated_bound_variant_count"] == 1
+    assert result["summary"]["mutation_class_counts"]["range_count"] == 0
+    assert result["summary"]["mutation_class_counts"]["content_count"] == 1
+    assert result["summary"]["binding_effect_counts"]["none_count"] == 1
+    assert result["summary"]["binding_effect_counts"]["bind_count"] == 0
+    assert result["summary"]["binding_effect_counts"]["rebind_count"] == 0
+    assert result["summary"]["content_effect_counts"]["none_count"] == 0
+    assert result["summary"]["content_effect_counts"]["create_count"] == 0
+    assert result["summary"]["content_effect_counts"]["update_count"] == 1
+    assert result["summary"]["content_effect_counts"]["filtered_count"] == 0
+    assert result["summary"]["row_outcome_counts"]["applied_count"] == 1
+    assert result["summary"]["row_outcome_counts"]["noop_count"] == 0
+    assert result["summary"]["row_outcome_counts"]["missing_count"] == 0
+
+
+def test_direct_content_mutation_missing_target_emits_missing_semantics() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    result = mutation_service.apply(
+        BranchRef.rel_current(),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "phase4.direct.missing.target",
+                    "translations_by_lang": {"fr": "Bonjour missing"},
+                }
+            ],
+        },
+    )
+
+    assert services.entries.get_entry("phase4.direct.missing.target") is None
+    assert not any(
+        item["business_key"] == "phase4.direct.missing.target"
+        for item in services.list_branch_entries(BranchRef.rel_current())
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "MISSING_IN_SCOPE"
+    assert row["mutation_class"] == "content"
+    assert row["binding_effect"] == "none"
+    assert row["content_effect"] == "none"
+    assert row["row_outcome"] == "missing"
+    assert result["summary"]["row_outcome_counts"]["missing_count"] == 1
+
+
+def test_direct_range_create_emits_bind_and_create_semantics() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "phase4.direct.create",
+                    "source": "Phase 4 source",
+                    "translations_by_lang": {"fr": "Bonjour phase 4"},
+                    "remarks_by_key": {"context": "phase4"},
+                    "file_name": "phase4.xlsx",
+                }
+            ],
+        },
+    )
+
+    created_entry = services.entries.get_entry("phase4.direct.create")
+    assert created_entry is not None
+    created_dev_entry = next(
+        item for item in services.list_branch_entries(BranchRef.dev("2.4.3")) if item["business_key"] == "phase4.direct.create"
+    )
+    created_variant = services.catalog.get_variant(created_dev_entry["variant_id"])
+    assert created_dev_entry["variant_id"] is not None
+    assert created_variant["file_name"] == "phase4.xlsx"
+    assert created_variant["translations"]["fr"] == "Bonjour phase 4"
+    assert created_variant["remarks"]["context"] == "phase4"
+
+    row = result["report_rows"][0]
+    assert row["status"] == "CREATED_AND_BOUND_VARIANT"
+    assert row["mutation_class"] == "range"
+    assert row["binding_effect"] == "bind"
+    assert row["content_effect"] == "create"
+    assert row["row_outcome"] == "applied"
+
+
+def test_direct_filtered_rebind_emits_range_rebind_filtered_semantics() -> None:
+    reset_demo()
+    services = branch_services()
+    mutation_service = BranchMutationService()
+
+    entry = services.entries.get_or_create_entry("authority.rebind.filtered", project_id=1)
+    current_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "authority-current.xlsx",
+            "Current source",
+            {"fr": "Current text"},
+            {"context": "current"},
+        ),
+    )
+    target_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "authority-target.xlsx",
+            "Target source",
+            {"fr": "Target text"},
+            {"context": "target"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "authority.rebind.filtered",
+                    "source": "Target source",
+                    "translations_by_lang": {"fr": "Filtered target text"},
+                    "remarks_by_key": {"context": "Filtered target remark"},
+                }
+            ],
+        },
+    )
+
+    target_entry = next(item for item in services.list_branch_entries(BranchRef.dev("2.5.1")) if item["business_key"] == "authority.rebind.filtered")
+    target_variant = services.catalog.get_variant(target_variant_id)
+    assert target_entry["variant_id"] == target_variant_id
+    assert target_variant["translations"]["fr"] == "Target text"
+    assert target_variant["remarks"]["context"] == "target"
+
+    row = result["report_rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["content_filtered_by_authority"] is True
+    assert row["mutation_class"] == "range"
+    assert row["binding_effect"] == "rebind"
+    assert row["content_effect"] == "filtered"
+    assert row["row_outcome"] == "applied"
+    assert result["summary"]["content_effect_counts"]["filtered_count"] == 1
+    assert result["summary"]["binding_effect_counts"]["rebind_count"] == 1
+
+
+def test_import_batch_content_update_emits_phase4_semantics(tmp_path) -> None:
+    reset_demo()
+    mutation_service = BranchMutationService()
+    services = branch_services()
+
+    entry = services.entries.get_or_create_entry("import.batch.content.update", project_id=1)
+    variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "content-update.xlsx",
+            "Content source",
+            {"fr": "Original content"},
+            {"context": "original"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.3"), variant_id)
+
+    import_root = tmp_path / "content-update-import"
+    write_import_workbook(
+        import_root,
+        "bundle/content-update.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["import.batch.content.update", "Content source", "Updated content", "Updated context"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+        },
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "UPDATED_BOUND_VARIANT"
+    assert row["mutation_class"] == "content"
+    assert row["binding_effect"] == "none"
+    assert row["content_effect"] == "update"
+    assert row["row_outcome"] == "applied"
+    assert result["summary"]["mutation_class_counts"]["content_count"] == 1
+    assert result["summary"]["binding_effect_counts"]["none_count"] == 1
+    assert result["summary"]["content_effect_counts"]["update_count"] == 1
+    assert result["summary"]["row_outcome_counts"]["applied_count"] == 1
+
+
+def test_import_batch_filtered_rebind_emits_phase4_semantics(tmp_path) -> None:
+    reset_demo()
+    mutation_service = BranchMutationService()
+    services = branch_services()
+
+    entry = services.entries.get_or_create_entry("import.batch.filtered.rebind", project_id=1)
+    current_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "current.xlsx",
+            "Current source",
+            {"fr": "Current content"},
+            {"context": "current"},
+        ),
+    )
+    target_variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "target.xlsx",
+            "Target source",
+            {"fr": "Target content"},
+            {"context": "target"},
+        ),
+    )
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.5.1"), current_variant_id)
+    services.bindings.bind_scope(int(entry["entry_id"]), BranchRef.dev("2.4.2"), target_variant_id)
+
+    import_root = tmp_path / "filtered-rebind-import"
+    write_import_workbook(
+        import_root,
+        "bundle/filtered-rebind.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["import.batch.filtered.rebind", "Target source", "Filtered content", "Filtered context"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    result = mutation_service.apply(
+        BranchRef.dev("2.5.1"),
+        {
+            "kind": "import_batch",
+            "import_batch_id": batch["import_batch_id"],
+        },
+    )
+
+    row = result["report_rows"][0]
+    assert row["status"] == "BOUND_EXISTING_VARIANT"
+    assert row["content_filtered_by_authority"] is True
+    assert row["mutation_class"] == "range"
+    assert row["binding_effect"] == "rebind"
+    assert row["content_effect"] == "filtered"
+    assert row["row_outcome"] == "applied"
+    assert result["summary"]["mutation_class_counts"]["range_count"] == 1
+    assert result["summary"]["binding_effect_counts"]["rebind_count"] == 1
+    assert result["summary"]["content_effect_counts"]["filtered_count"] == 1
+    assert result["summary"]["row_outcome_counts"]["applied_count"] == 1
 
 
 def test_import_batch_sparse_patch_preserves_unmapped_languages_and_remarks(tmp_path) -> None:

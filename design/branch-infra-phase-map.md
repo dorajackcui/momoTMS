@@ -109,57 +109,67 @@ Implementation result:
 
 Status:
 
-- not started
+- complete
 
 Goal:
 
 - define how a branch is created and how its initial working surface is established
 
-Questions to answer:
+Completed decisions:
 
-- is `dev/2.4.3` created explicitly or implicitly during import
-- what is the canonical meaning of uploading a large `key + source` package to define the whole branch range
-- should branch bootstrap be modeled as a dedicated workflow separate from ordinary mutation
-- how should later uploads that add translations or remarks merge into the bootstrapped branch
-- what branch metadata is created at bootstrap time
+- branch bootstrap is a dedicated workflow for establishing the initial working surface of `dev/<version>`
+- bootstrap consumes a persisted import batch with `business_key` plus `source` rows and optional sparse content columns
+- reuse-hit rows bind existing same-source variants and ignore uploaded content on those rows
+- invalid rows, duplicate keys, and already-bootstrapped branches are reported explicitly
+- dev branch summaries, details, and `/state` payloads now carry bootstrap metadata from `dev_versions`
 
-Target outputs:
+Artifacts:
 
-- branch bootstrap model
-- clear API or workflow contract for branch creation
-- consistent semantics for sparse follow-up uploads
+- [branch-bootstrap-design.md](branch-bootstrap-design.md): Phase 3 bootstrap design note
+- [branch-bootstrap-implementation-plan.md](branch-bootstrap-implementation-plan.md): execution plan and implementation record for the bootstrap workflow
 
 Session focus:
 
-- design the operator flow for building a new dev branch from an initial source-only package, then layering translations afterward
+- branch bootstrap is implemented; use the design note and implementation plan as the reference point for any follow-up mutation, preview, or lifecycle work
 
 ### Phase 4: Mutation Contract
 
 Status:
 
-- partially clarified, not fully closed
+- complete
 
 Goal:
 
 - define one coherent write contract for branch-scoped changes
 
-Questions to answer:
+Implemented decisions:
 
-- what exactly counts as content mutation
-- what exactly counts as rebinding
-- when does a write create a new variant
-- when does a write bind an existing variant
-- what result types should be reported for direct and import-batch writes
+- branch mutation now has one canonical semantic contract shared by all branch types
+- the top-level semantic classes are `range mutation` and `content mutation`
+- `direct` and `import_batch` remain accepted runtime inputs, but they are legacy transports rather than the semantic center of the model
+- row reporting keeps legacy `status` values while adding `mutation_class`, `binding_effect`, `content_effect`, and `row_outcome`
+- summary reporting keeps legacy counters while adding grouped semantic counters for mutation class, binding effect, content effect, and row outcome
+- content mutation must never implicitly change branch range; missing-target content work reports `MISSING_IN_SCOPE` with `row_outcome = missing`
+- authority filtering remains compatibility-preserving: legal bind or rebind work can still apply while filtered content edits continue to surface through `content_filtered_by_authority`
 
-Target outputs:
+Delivered outputs:
 
-- mutation result matrix
+- mutation result taxonomy normalized across direct and import-batch execution
 - shared semantics across `direct` and `import_batch`
-- explicit distinction between create, update, bind, rebind, noop, and forbidden outcomes
+- explicit distinction between binding effect, content effect, and overall row outcome
+
+Artifacts:
+
+- [phase-4-mutation-contract-design.md](phase-4-mutation-contract-design.md): Phase 4 canonical mutation semantics and compatibility model
+- [phase-4-mutation-contract-implementation-plan.md](phase-4-mutation-contract-implementation-plan.md): implementation plan and verification checklist used to land the Phase 4 contract
+
+Implementation result:
+
+- active docs and architecture assertions now describe the canonical mutation classes, additive semantic row fields, and additive grouped summary counters without changing the public mutation route or legacy status vocabulary
 
 Session focus:
 
-- take a set of representative write scenarios and normalize them into one result taxonomy
+- Phase 4 semantic convergence is implemented; next move to Phase 5 preview convergence
 
 ### Phase 5: Preview System
 
@@ -319,20 +329,20 @@ Session focus:
 
 ## Suggested Next Session
 
-Start with `Phase 3: Branch Creation And Bootstrap`.
+Start with `Phase 5: Preview System`.
 
 Concrete goal for that session:
 
-- define how a dev branch is created or bootstrapped
-- settle the semantic meaning of an initial branch-wide `key + source` upload
-- decide what branch metadata and follow-up merge rules bootstrap must establish
+- align preview behavior around the now-stable Phase 4 mutation semantics
+- define how mutation preview, replace preview, and later pivot preview should present a consistent operator contract
+- decide which preview rows describe range change versus content change without reopening the underlying mutation contract
 
 Success condition:
 
-- after that session, the project should have a stable bootstrap contract that later mutation and preview work can build on
+- after that session, the project should have a stable preview family that builds on the implemented mutation contract instead of inventing separate preview semantics
 
 ## Simple Memory Hook
 
 If a future session needs a quick restart point, use this sentence:
 
-`Phase 1 and Phase 2 are done; next define branch bootstrap before mutation, preview, pivot, and lifecycle are expanded.`
+`Phase 1 through Phase 4 are done; next converge Phase 5 preview semantics on top of the implemented mutation contract.`

@@ -7,6 +7,10 @@ from typing import Any, Generator
 
 from app.db import json_loads
 from app.services.branch.models import BranchRef
+from app.services.branch.mutation_semantics import (
+    MutationSemanticSummaryBuilder,
+    semantics_row,
+)
 from app.services.branch.policy import AuthorityPolicy
 from app.services.imports.service import ImportService
 from app.services.variant.bindings import BindingLookupService
@@ -81,6 +85,7 @@ class ImportBatchMutationApplier:
         binding_rows_by_entry: dict[int, list[dict[str, Any]]] = {}
         created_entry_keys: set[str] = set()
         status_counts: Counter[str] = Counter()
+        semantic_counts = MutationSemanticSummaryBuilder()
         filtered_count = 0
 
         processed_count = 0
@@ -114,6 +119,7 @@ class ImportBatchMutationApplier:
                     conn=conn,
                 )
                 status_counts.update([status["status"]])
+                semantic_counts.add_row(status)
                 filtered_count += int(bool(status.get("content_filtered_by_authority")))
                 processed_count += 1
                 report_row = {
@@ -122,6 +128,10 @@ class ImportBatchMutationApplier:
                     "sheet_name": row["sheet_name"],
                     "row_index": row["row_index"],
                     "status": status["status"],
+                    "mutation_class": status["mutation_class"],
+                    "binding_effect": status["binding_effect"],
+                    "content_effect": status["content_effect"],
+                    "row_outcome": status["row_outcome"],
                 }
                 if status.get("content_filtered_by_authority"):
                     report_row["content_filtered_by_authority"] = True
@@ -138,6 +148,7 @@ class ImportBatchMutationApplier:
             "processed_count": processed_count,
             "created_entry_count": len(created_entry_keys),
             **self._status_summary(status_counts, filtered_count=filtered_count),
+            **semantic_counts.as_dict(),
             "stages": [
                 {
                     "stage": "apply_scope_mutation",
@@ -181,7 +192,13 @@ class ImportBatchMutationApplier:
         if current_variant is not None and requested_source == current_variant["source"]:
             merged = self.resolution.merged_variant_payload(current_variant, change, requested_source)
             if self.resolution.variant_matches(current_variant, merged):
-                return {"status": "NOOP"}
+                return semantics_row(
+                    {"status": "NOOP"},
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="none",
+                    row_outcome="noop",
+                )
             bound_branch_refs = self.resolution.bound_branch_refs_for_variant(
                 bindings,
                 int(current_variant["variant_id"]),
@@ -192,10 +209,16 @@ class ImportBatchMutationApplier:
                 content_changed=not self.resolution.variant_matches(current_variant, merged),
             )
             if decision.filtered:
-                return {
-                    "status": "NOOP",
-                    "content_filtered_by_authority": True,
-                }
+                return semantics_row(
+                    {
+                        "status": "NOOP",
+                        "content_filtered_by_authority": True,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="filtered",
+                    row_outcome="noop",
+                )
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
@@ -203,7 +226,13 @@ class ImportBatchMutationApplier:
                 conn=conn,
             )
             self._update_variant_cache(variants, int(current_variant["variant_id"]), merged)
-            return {"status": "UPDATED_BOUND_VARIANT"}
+            return semantics_row(
+                {"status": "UPDATED_BOUND_VARIANT"},
+                mutation_class="content",
+                binding_effect="none",
+                content_effect="update",
+                row_outcome="applied",
+            )
 
         source_variant = self.resolution.find_source_variant_in_cache(entry_id, variants, requested_source)
         content_base = source_variant
@@ -225,14 +254,36 @@ class ImportBatchMutationApplier:
             )
             self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
             touched_entry_ids.add(entry_id)
-            return {"status": "CREATED_AND_BOUND_VARIANT"}
+            return semantics_row(
+                {"status": "CREATED_AND_BOUND_VARIANT"},
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="create",
+                row_outcome="applied",
+            )
 
         variant_id = int(source_variant["variant_id"])
         current_matches = current_binding is not None and int(current_binding["variant_id"]) == variant_id
         bound_branch_refs = self.resolution.bound_branch_refs_for_variant(bindings, variant_id)
-        if self.resolution.variant_matches(source_variant, merged):
+        payload_matches_target = self.resolution.variant_matches(source_variant, merged)
+        decision = AuthorityPolicy.evaluate_content_edit(
+            target_branch,
+            bound_branch_refs,
+            content_changed=not payload_matches_target,
+        )
+        if decision.filtered:
+            row = {
+                "status": "NOOP" if current_matches else "BOUND_EXISTING_VARIANT",
+                "content_filtered_by_authority": True,
+            }
             if current_matches:
-                return {"status": "NOOP"}
+                return semantics_row(
+                    row,
+                    mutation_class="range",
+                    binding_effect="none",
+                    content_effect="filtered",
+                    row_outcome="noop",
+                )
             self.bindings.bind_scope(
                 entry_id,
                 target_branch,
@@ -242,32 +293,38 @@ class ImportBatchMutationApplier:
             )
             self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
             touched_entry_ids.add(entry_id)
-            return {"status": "BOUND_EXISTING_VARIANT"}
-
-        decision = AuthorityPolicy.evaluate_content_edit(
-            target_branch,
-            bound_branch_refs,
-            content_changed=not self.resolution.variant_matches(source_variant, merged),
-        )
-        if decision.filtered:
-            if not current_matches:
-                self.bindings.bind_scope(
-                    entry_id,
-                    target_branch,
-                    variant_id,
-                    conn=conn,
-                    refresh_orphan_states=False,
-                )
-                self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
-                touched_entry_ids.add(entry_id)
-                return {
-                    "status": "BOUND_EXISTING_VARIANT",
-                    "content_filtered_by_authority": True,
-                }
-            return {
-                "status": "NOOP",
-                "content_filtered_by_authority": True,
-            }
+            return semantics_row(
+                row,
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="filtered",
+                row_outcome="applied",
+            )
+        if current_matches and payload_matches_target:
+            return semantics_row(
+                {"status": "NOOP"},
+                mutation_class="range",
+                binding_effect="none",
+                content_effect="none",
+                row_outcome="noop",
+            )
+        if payload_matches_target:
+            self.bindings.bind_scope(
+                entry_id,
+                target_branch,
+                variant_id,
+                conn=conn,
+                refresh_orphan_states=False,
+            )
+            self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
+            touched_entry_ids.add(entry_id)
+            return semantics_row(
+                {"status": "BOUND_EXISTING_VARIANT"},
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="none",
+                row_outcome="applied",
+            )
 
         self.catalog.update_variant(
             variant_id,
@@ -277,7 +334,13 @@ class ImportBatchMutationApplier:
         )
         self._update_variant_cache(variants, variant_id, merged)
         if current_matches:
-            return {"status": "UPDATED_BOUND_VARIANT"}
+            return semantics_row(
+                {"status": "UPDATED_BOUND_VARIANT"},
+                mutation_class="content",
+                binding_effect="none",
+                content_effect="update",
+                row_outcome="applied",
+            )
         self.bindings.bind_scope(
             entry_id,
             target_branch,
@@ -287,7 +350,13 @@ class ImportBatchMutationApplier:
         )
         self._upsert_binding_cache(bindings, target_branch, entry_id, variant_id)
         touched_entry_ids.add(entry_id)
-        return {"status": "UPDATED_AND_BOUND_EXISTING_VARIANT"}
+        return semantics_row(
+            {"status": "UPDATED_AND_BOUND_EXISTING_VARIANT"},
+            mutation_class="range",
+            binding_effect="bind" if current_binding is None else "rebind",
+            content_effect="update",
+            row_outcome="applied",
+        )
 
     def _status_summary(self, status_counts: Counter[str], *, filtered_count: int) -> dict[str, int]:
         return {

@@ -9,7 +9,7 @@ from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
 DB_PATH_ENV_VAR = "MOMO_TMS_DB_PATH"
-SCHEMA_VERSION = "variant-v8"
+SCHEMA_VERSION = "variant-v9"
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
@@ -171,6 +171,9 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             is_candidate_release INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             promoted_at TEXT,
+            bootstrapped_at TEXT,
+            bootstrap_job_id INTEGER,
+            bootstrap_import_batch_id INTEGER,
             PRIMARY KEY (project_id, version),
             FOREIGN KEY (project_id) REFERENCES projects(project_id)
         );

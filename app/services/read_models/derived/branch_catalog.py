@@ -80,6 +80,9 @@ class BranchCatalogView:
                 d.is_candidate_release,
                 d.created_at,
                 d.promoted_at,
+                d.bootstrapped_at,
+                d.bootstrap_job_id,
+                d.bootstrap_import_batch_id,
                 COUNT(
                     DISTINCT CASE
                         WHEN e.entry_id IS NOT NULL AND v.trashed_at IS NULL THEN b.entry_id
@@ -101,7 +104,16 @@ class BranchCatalogView:
         if active_only:
             query += " AND d.promoted_at IS NULL"
         query += """
-            GROUP BY d.project_id, d.version, d.version_line, d.is_candidate_release, d.created_at, d.promoted_at
+            GROUP BY
+                d.project_id,
+                d.version,
+                d.version_line,
+                d.is_candidate_release,
+                d.created_at,
+                d.promoted_at,
+                d.bootstrapped_at,
+                d.bootstrap_job_id,
+                d.bootstrap_import_batch_id
             ORDER BY d.created_at DESC, d.version DESC
         """
         with get_conn() as conn:
@@ -116,6 +128,14 @@ class BranchCatalogView:
                 "entry_count": int(row["entry_count"] or 0),
                 "created_at": row["created_at"],
                 "promoted_at": row["promoted_at"],
+                "bootstrap_state": "bootstrapped" if row["bootstrapped_at"] else "not_bootstrapped",
+                "bootstrapped_at": row["bootstrapped_at"],
+                "bootstrap_job_id": (
+                    int(row["bootstrap_job_id"]) if row["bootstrap_job_id"] is not None else None
+                ),
+                "bootstrap_import_batch_id": (
+                    int(row["bootstrap_import_batch_id"]) if row["bootstrap_import_batch_id"] is not None else None
+                ),
             }
             for row in rows
         ]

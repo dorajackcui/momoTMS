@@ -4,6 +4,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 
 from app.routers.common import handle_errors, read_folder_upload
 from app.schemas import (
+    BranchBootstrapRequest,
     BranchMutationRequest,
     BranchReplacePreview,
     BranchReplaceRequest,
@@ -20,6 +21,20 @@ from app.services.read_models.derived.branch_catalog import BranchCatalogView
 from app.services.workflows.application import WorkflowApplicationService
 
 router = APIRouter()
+
+
+@router.post("/api/projects/{project_id}/branches/bootstrap", response_model=JobDetail)
+def project_branch_bootstrap(project_id: int, payload: BranchBootstrapRequest) -> JobDetail:
+    service = WorkflowApplicationService()
+    return handle_errors(
+        lambda: JobDetail(
+            **service.branch_bootstrap(
+                payload.branch_ref,
+                payload.import_batch_id,
+                project_id=project_id,
+            )
+        )
+    )
 
 
 @router.post("/api/projects/{project_id}/branches/mutations", response_model=JobDetail)

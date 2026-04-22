@@ -99,11 +99,30 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - upload preview returns `available_headers`, `suggested_mapping`, and `missing_targets`
 - import jobs are async: preview uploads once, confirm starts a job, and clients poll job status separately
 
+## Branch Bootstrap Rules
+
+- branch bootstrap is a dedicated async workflow for establishing the initial working range of `dev/<version>`
+- bootstrap accepts a persisted import batch whose rows must provide normalized `business_key` and `source`; optional `file_name`, translation columns, and remark columns may be present as sparse content for newly created variants
+- bootstrap reads persisted `import_rows` in chunks, primes entry and variant caches per chunk, and refreshes orphan state after the touched entries in that chunk instead of doing a single giant in-memory apply
+- rows that match an existing same-source canonical variant under the entry are reported as `BOUND_EXISTING_VARIANT`; uploaded translation or remark content is ignored for those reuse hits because bootstrap only needs to bind the already-existing variant
+- rows that have no same-source canonical variant create the variant, bind it to the dev branch, and report `CREATED_AND_BOUND_VARIANT`
+- rows missing normalized `business_key` or `source`, or rows that come from a non-`ok` import row status, are reported as `INVALID_ROW`
+- repeated `business_key` values inside the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`
+- bootstrap is rejected once the dev branch has already been marked `bootstrapped`
+- bootstrap summaries report `processed_count`, `bound_existing_variant_count`, `created_and_bound_variant_count`, `invalid_row_count`, `duplicate_key_count`, `created_entry_count`, `created_variant_count`, and the branch bootstrap metadata copied from `dev_versions`
+
 ## Scope Mutation Rules
 
 Branch writes are capability-based rather than having separate scenario-specific route families.
 
-Input modes:
+Phase 4 defines one canonical semantic model for branch mutation work. The top-level mutation classes are:
+
+- `range mutation`
+- `content mutation`
+
+Current runtime inputs such as `direct` and `import_batch` remain accepted legacy input shapes and transports into the Phase 4 mutation contract. They are not the top-level semantic model.
+
+Accepted runtime inputs:
 
 - `direct`: one or more business-key patches applied to a target scope
 - `import_batch`: one persisted import batch applied to a target scope
@@ -119,9 +138,11 @@ Mutation rules:
 
 - each mutation request executes in one DB transaction
 - unhandled errors roll back the whole request rather than committing per-row partial progress
-- if `source` is omitted, mutation requires an existing binding in the target scope and updates the currently bound variant in place
-- if `source` is provided and matches the currently bound variant, mutation updates that bound variant in place
-- if `source` is provided and differs, mutation resolves or creates the target same-source canonical variant and rebinds the scope when needed
+- `range mutation` changes the branch's effective coverage range by adding a missing branch key or selecting a different same-entry variant identity for an existing key
+- `content mutation` changes only content on the branch-visible current target and keeps branch range unchanged
+- if `source` is omitted, mutation is treated as `content mutation`, requires an existing binding in the target scope, and updates the currently bound variant in place
+- if `source` is provided and matches the currently bound variant, mutation is still `content mutation` and updates that bound variant in place
+- if `source` is provided and differs, mutation is `range mutation` and resolves or creates the target same-source canonical variant before rebinding when needed
 - `dev` policy keeps rel-owned canonical content authoritative when same-source hits a rel-bound variant
 - lower-authority content-change attempts no longer hard-fail by default during branch mutation
 - after target variant resolution, unauthorized `translations + remarks` edits are filtered while otherwise legal bind or rebind work still proceeds
@@ -135,6 +156,19 @@ Mutation rules:
 - `import_batch + dev/<version>` runs as a job and streams report rows into job storage instead of returning the full apply result inline
 - `import_batch + rel/current` remains invalid
 - import-batch apply reads persisted `import_rows` in chunks, batches entry or variant or binding hydration, and refreshes orphan state once per touched entry set instead of once per row
+- content mutation must never implicitly change branch range
+- a missing-target content mutation reports `MISSING_IN_SCOPE` plus `row_outcome = missing` instead of silently degrading into range mutation
+- mutation report rows add semantic fields: `mutation_class`, `binding_effect`, `content_effect`, and `row_outcome`
+- `mutation_class` normalizes the top-level semantic intent as `range` or `content`
+- `binding_effect` reports `none`, `bind`, or `rebind`
+- `content_effect` reports `none`, `create`, `update`, or `filtered`
+- `row_outcome` reports `applied`, `noop`, or `missing`
+- mutation summaries add grouped semantic counters under `mutation_class_counts`, `binding_effect_counts`, `content_effect_counts`, and `row_outcome_counts`
+- `mutation_class_counts` groups rows as `range_count` and `content_count`
+- `binding_effect_counts` groups rows as `none_count`, `bind_count`, and `rebind_count`
+- `content_effect_counts` groups rows as `none_count`, `create_count`, `update_count`, and `filtered_count`
+- `row_outcome_counts` groups rows as `applied_count`, `noop_count`, and `missing_count`
+- legacy status wording remains authoritative for compatibility reporting, and `content_filtered_by_authority` remains the compatibility flag for filtered content edits
 - new variants always start with `pivot_status = init`
 - when a mutation changes the normalized value of the project `pivot_language`, the touched variant becomes `pivot_status = changed`, records the actor branch as owner, and updates `pivot_changed_at`
 - `NOOP` mutations and non-pivot-language changes do not alter pivot status

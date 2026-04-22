@@ -61,6 +61,10 @@ class DevBranchSummary(BaseModel):
     branch_ref: str
     is_candidate_release: bool
     entry_count: int
+    bootstrap_state: Literal["not_bootstrapped", "bootstrapped"] = "not_bootstrapped"
+    bootstrapped_at: str | None = None
+    bootstrap_job_id: int | None = None
+    bootstrap_import_batch_id: int | None = None
     created_at: str
     promoted_at: str | None = None
 
@@ -403,6 +407,11 @@ class BranchMutationRequest(BaseModel):
 class BranchReplaceRequest(BaseModel):
     source_branch_ref: str
     target_branch_ref: str
+
+
+class BranchBootstrapRequest(BaseModel):
+    branch_ref: str
+    import_batch_id: int
 
 
 class ScopedTrashDeleteRequest(BaseModel):

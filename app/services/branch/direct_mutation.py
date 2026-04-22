@@ -6,6 +6,10 @@ from time import perf_counter
 from typing import Any
 
 from app.services.branch.models import BranchRef
+from app.services.branch.mutation_semantics import (
+    MutationSemanticSummaryBuilder,
+    semantics_row,
+)
 from app.services.branch.policy import AuthorityPolicy, BranchMutationPolicy
 from app.services.project.service import ProjectService
 from app.services.shared.io import normalize_non_content_value
@@ -45,6 +49,7 @@ class DirectMutationApplier:
     ) -> dict[str, Any]:
         started = perf_counter()
         status_counts: Counter[str] = Counter()
+        semantic_counts = MutationSemanticSummaryBuilder()
         report_rows: list[dict[str, Any]] = []
         created_entry_count = 0
         filtered_count = 0
@@ -52,6 +57,7 @@ class DirectMutationApplier:
             row = self.apply_change(branch_ref, change, policy, project_id, conn=conn)
             created_entry_count += int(row.pop("created_entry", False))
             status_counts.update([row["status"]])
+            semantic_counts.add_row(row)
             filtered_count += int(bool(row.get("content_filtered_by_authority")))
             report_rows.append(row)
         summary = {
@@ -60,6 +66,7 @@ class DirectMutationApplier:
             "processed_count": len(report_rows),
             "created_entry_count": created_entry_count,
             **self._status_summary(status_counts, filtered_count=filtered_count),
+            **semantic_counts.as_dict(),
             "stages": [
                 {
                     "stage": "apply_scope_mutation",
@@ -94,12 +101,18 @@ class DirectMutationApplier:
             entry = self.entries.get_or_create_entry(business_key, project_id=project_id, conn=conn)
             created_entry = True
         if entry is None:
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "status": "MISSING_IN_SCOPE",
-                "created_entry": created_entry,
-            }
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "status": "MISSING_IN_SCOPE",
+                    "created_entry": created_entry,
+                },
+                mutation_class="content",
+                binding_effect="none",
+                content_effect="none",
+                row_outcome="missing",
+            )
 
         entry_id = int(entry["entry_id"])
         current_binding = self.binding_lookup.get_binding(entry_id, branch_ref, conn=conn)
@@ -108,31 +121,35 @@ class DirectMutationApplier:
             if current_binding is not None
             else None
         )
-        if branch_ref.is_rel and current_variant is None:
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "status": "MISSING_IN_SCOPE",
-                "created_entry": created_entry,
-            }
-
         if change.get("source") is None:
             if current_variant is None:
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "status": "MISSING_IN_SCOPE",
-                    "created_entry": created_entry,
-                }
+                return semantics_row(
+                    {
+                        "business_key": business_key,
+                        "branch_ref": str(branch_ref),
+                        "status": "MISSING_IN_SCOPE",
+                        "created_entry": created_entry,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="none",
+                    row_outcome="missing",
+                )
             merged = self.resolution.merged_variant_payload(current_variant, change, current_variant["source"])
             if self.resolution.variant_matches(current_variant, merged):
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "variant_id": int(current_variant["variant_id"]),
-                    "status": "NOOP",
-                    "created_entry": created_entry,
-                }
+                return semantics_row(
+                    {
+                        "business_key": business_key,
+                        "branch_ref": str(branch_ref),
+                        "variant_id": int(current_variant["variant_id"]),
+                        "status": "NOOP",
+                        "created_entry": created_entry,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="none",
+                    row_outcome="noop",
+                )
             bound_branch_refs = self.resolution.bound_branch_refs_for_variant(
                 self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
@@ -143,27 +160,39 @@ class DirectMutationApplier:
                 content_changed=not self.resolution.variant_matches(current_variant, merged),
             )
             if decision.filtered:
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "variant_id": int(current_variant["variant_id"]),
-                    "status": "NOOP",
-                    "content_filtered_by_authority": True,
-                    "created_entry": created_entry,
-                }
+                return semantics_row(
+                    {
+                        "business_key": business_key,
+                        "branch_ref": str(branch_ref),
+                        "variant_id": int(current_variant["variant_id"]),
+                        "status": "NOOP",
+                        "content_filtered_by_authority": True,
+                        "created_entry": created_entry,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="filtered",
+                    row_outcome="noop",
+                )
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
                 actor_scope=branch_ref.as_tuple(),
                 conn=conn,
             )
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "variant_id": int(current_variant["variant_id"]),
-                "status": "UPDATED_BOUND_VARIANT",
-                "created_entry": created_entry,
-            }
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "variant_id": int(current_variant["variant_id"]),
+                    "status": "UPDATED_BOUND_VARIANT",
+                    "created_entry": created_entry,
+                },
+                mutation_class="content",
+                binding_effect="none",
+                content_effect="update",
+                row_outcome="applied",
+            )
 
         requested_source = normalize_non_content_value(change.get("source"))
         if not requested_source:
@@ -171,13 +200,19 @@ class DirectMutationApplier:
         if current_variant is not None and requested_source == current_variant["source"]:
             merged = self.resolution.merged_variant_payload(current_variant, change, requested_source)
             if self.resolution.variant_matches(current_variant, merged):
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "variant_id": int(current_variant["variant_id"]),
-                    "status": "NOOP",
-                    "created_entry": created_entry,
-                }
+                return semantics_row(
+                    {
+                        "business_key": business_key,
+                        "branch_ref": str(branch_ref),
+                        "variant_id": int(current_variant["variant_id"]),
+                        "status": "NOOP",
+                        "created_entry": created_entry,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="none",
+                    row_outcome="noop",
+                )
             bound_branch_refs = self.resolution.bound_branch_refs_for_variant(
                 self.binding_lookup.list_bindings_for_entry(entry_id, conn=conn),
                 int(current_variant["variant_id"]),
@@ -188,27 +223,39 @@ class DirectMutationApplier:
                 content_changed=True,
             )
             if decision.filtered:
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "variant_id": int(current_variant["variant_id"]),
-                    "status": "NOOP",
-                    "content_filtered_by_authority": True,
-                    "created_entry": created_entry,
-                }
+                return semantics_row(
+                    {
+                        "business_key": business_key,
+                        "branch_ref": str(branch_ref),
+                        "variant_id": int(current_variant["variant_id"]),
+                        "status": "NOOP",
+                        "content_filtered_by_authority": True,
+                        "created_entry": created_entry,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="filtered",
+                    row_outcome="noop",
+                )
             self.catalog.update_variant(
                 int(current_variant["variant_id"]),
                 merged,
                 actor_scope=branch_ref.as_tuple(),
                 conn=conn,
             )
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "variant_id": int(current_variant["variant_id"]),
-                "status": "UPDATED_BOUND_VARIANT",
-                "created_entry": created_entry,
-            }
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "variant_id": int(current_variant["variant_id"]),
+                    "status": "UPDATED_BOUND_VARIANT",
+                    "created_entry": created_entry,
+                },
+                mutation_class="content",
+                binding_effect="none",
+                content_effect="update",
+                row_outcome="applied",
+            )
 
         target_variant = self.catalog.find_variant_by_source(
             entry_id,
@@ -216,29 +263,41 @@ class DirectMutationApplier:
             include_trashed=False,
             conn=conn,
         )
-        content_base = current_variant or target_variant
+        content_base = target_variant or current_variant
         merged = self.resolution.merged_variant_payload(content_base, change, requested_source)
         if target_variant is None:
             if current_variant is None and not policy.allow_missing_entry_creation():
-                return {
-                    "business_key": business_key,
-                    "branch_ref": str(branch_ref),
-                    "status": "MISSING_IN_SCOPE",
-                    "created_entry": created_entry,
-                }
+                return semantics_row(
+                    {
+                        "business_key": business_key,
+                        "branch_ref": str(branch_ref),
+                        "status": "MISSING_IN_SCOPE",
+                        "created_entry": created_entry,
+                    },
+                    mutation_class="content",
+                    binding_effect="none",
+                    content_effect="none",
+                    row_outcome="missing",
+                )
             variant_id = self.catalog.create_variant(
                 entry_id,
                 merged,
                 conn=conn,
             )
             self.bindings.bind_scope(entry_id, branch_ref, variant_id, conn=conn)
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "variant_id": variant_id,
-                "status": "CREATED_AND_BOUND_VARIANT",
-                "created_entry": created_entry,
-            }
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "variant_id": variant_id,
+                    "status": "CREATED_AND_BOUND_VARIANT",
+                    "created_entry": created_entry,
+                },
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="create",
+                row_outcome="applied",
+            )
 
         target_variant_id = int(target_variant["variant_id"])
         current_matches_target = current_binding is not None and int(current_binding["variant_id"]) == target_variant_id
@@ -262,27 +321,51 @@ class DirectMutationApplier:
             }
             if current_matches_target:
                 row["status"] = "NOOP"
-                return row
+                return semantics_row(
+                    row,
+                    mutation_class="range",
+                    binding_effect="none",
+                    content_effect="filtered",
+                    row_outcome="noop",
+                )
             self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
             row["status"] = "BOUND_EXISTING_VARIANT"
-            return row
+            return semantics_row(
+                row,
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="filtered",
+                row_outcome="applied",
+            )
         if current_matches_target and payload_matches_target:
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "variant_id": target_variant_id,
-                "status": "NOOP",
-                "created_entry": created_entry,
-            }
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "variant_id": target_variant_id,
+                    "status": "NOOP",
+                    "created_entry": created_entry,
+                },
+                mutation_class="range",
+                binding_effect="none",
+                content_effect="none",
+                row_outcome="noop",
+            )
         if payload_matches_target:
             self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
-            return {
-                "business_key": business_key,
-                "branch_ref": str(branch_ref),
-                "variant_id": target_variant_id,
-                "status": "BOUND_EXISTING_VARIANT",
-                "created_entry": created_entry,
-            }
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "variant_id": target_variant_id,
+                    "status": "BOUND_EXISTING_VARIANT",
+                    "created_entry": created_entry,
+                },
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="none",
+                row_outcome="applied",
+            )
 
         self.catalog.update_variant(
             target_variant_id,
@@ -293,15 +376,34 @@ class DirectMutationApplier:
         if not current_matches_target:
             self.bindings.bind_scope(entry_id, branch_ref, target_variant_id, conn=conn)
             status = "UPDATED_AND_BOUND_EXISTING_VARIANT"
+            return semantics_row(
+                {
+                    "business_key": business_key,
+                    "branch_ref": str(branch_ref),
+                    "variant_id": target_variant_id,
+                    "status": status,
+                    "created_entry": created_entry,
+                },
+                mutation_class="range",
+                binding_effect="bind" if current_binding is None else "rebind",
+                content_effect="update",
+                row_outcome="applied",
+            )
         else:
             status = "UPDATED_BOUND_VARIANT"
-        return {
-            "business_key": business_key,
-            "branch_ref": str(branch_ref),
-            "variant_id": target_variant_id,
-            "status": status,
-            "created_entry": created_entry,
-        }
+        return semantics_row(
+            {
+                "business_key": business_key,
+                "branch_ref": str(branch_ref),
+                "variant_id": target_variant_id,
+                "status": status,
+                "created_entry": created_entry,
+            },
+            mutation_class="content",
+            binding_effect="none",
+            content_effect="update",
+            row_outcome="applied",
+        )
 
     def _status_summary(self, status_counts: Counter[str], *, filtered_count: int) -> dict[str, int]:
         return {

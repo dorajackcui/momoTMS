@@ -281,6 +281,126 @@ def test_project_creation_and_bootstrap_expose_single_pivot_schema() -> None:
         assert "translation_pivots" not in schema
 
 
+def test_branch_bootstrap_api_runs_async_and_exposes_bootstrap_metadata(tmp_path) -> None:
+    reset_demo()
+    business_key = "bootstrap.api.reuse"
+    source = "Bootstrap source"
+    create_bound_variant(
+        project_id=1,
+        business_key=business_key,
+        source=source,
+        translations={"fr": "Existing bootstrap content"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    import_root = tmp_path / "branch-bootstrap-api"
+    workbook_path = import_root / "bundle" / "branch-bootstrap.xlsx"
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.write_bytes(
+        build_workbook_bytes(
+            ["business_key", "source", "fr", "context"],
+            [[business_key, source, "Uploaded bootstrap content", "bootstrap"]],
+        )
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/projects/1/branches/bootstrap",
+            json={
+                "branch_ref": "dev/2.4.3",
+                "import_batch_id": batch["import_batch_id"],
+            },
+        )
+        assert response.status_code == 200
+        detail = wait_for_job(client, response.json())
+
+        branch_response = client.get("/api/projects/1/branches/dev/2.4.3")
+        state_response = client.get("/api/projects/1/state")
+        assert branch_response.status_code == 200
+        assert state_response.status_code == 200
+
+    assert detail["job"]["job_type"] == "branch_bootstrap"
+    assert detail["job"]["summary"]["input_kind"] == "bootstrap"
+    assert detail["job"]["summary"]["bound_existing_variant_count"] == 1
+    assert detail["report"]["rows"][0]["status"] == "BOUND_EXISTING_VARIANT"
+
+    branch_detail = branch_response.json()
+    assert branch_detail["bootstrap_state"] == "bootstrapped"
+    assert branch_detail["bootstrap_import_batch_id"] == batch["import_batch_id"]
+    assert branch_detail["bootstrap_job_id"] == detail["job"]["job_id"]
+    assert branch_detail["bootstrapped_at"] is not None
+
+    state_payload = state_response.json()
+    dev_branch = next(
+        (item for item in state_payload["dev_branches"] if item["version"] == "2.4.3"),
+        None,
+    )
+    assert dev_branch is not None, "expected dev branch summary for version 2.4.3"
+    assert dev_branch["bootstrap_state"] == "bootstrapped"
+    assert dev_branch["bootstrap_import_batch_id"] == batch["import_batch_id"]
+    assert dev_branch["bootstrap_job_id"] == detail["job"]["job_id"]
+    assert dev_branch["bootstrapped_at"] is not None
+
+
+def test_branch_bootstrap_api_rejects_rel_current() -> None:
+    reset_demo()
+    sample = DemoService().get_sample("core-cycle")
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+
+    with TestClient(app) as client:
+        before_jobs = client.get("/api/projects/1/jobs")
+        assert before_jobs.status_code == 200
+        response = client.post(
+            "/api/projects/1/branches/bootstrap",
+            json={
+                "branch_ref": "rel/current",
+                "import_batch_id": batch["import_batch_id"],
+            },
+        )
+        after_jobs = client.get("/api/projects/1/jobs")
+        assert after_jobs.status_code == 200
+
+    assert response.status_code == 400
+    assert "dev" in response.json()["detail"].lower()
+    assert after_jobs.json() == before_jobs.json()
+
+
+def test_branch_bootstrap_api_rejects_already_bootstrapped_without_creating_job() -> None:
+    reset_demo()
+    sample = DemoService().get_sample("core-cycle")
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+
+    with TestClient(app) as client:
+        first_response = client.post(
+            "/api/projects/1/branches/bootstrap",
+            json={
+                "branch_ref": f"dev/{sample['dev_version']}",
+                "import_batch_id": batch["import_batch_id"],
+            },
+        )
+        assert first_response.status_code == 200
+        wait_for_job(client, first_response.json())
+
+        before_jobs = client.get("/api/projects/1/jobs")
+        assert before_jobs.status_code == 200
+
+        second_response = client.post(
+            "/api/projects/1/branches/bootstrap",
+            json={
+                "branch_ref": f"dev/{sample['dev_version']}",
+                "import_batch_id": batch["import_batch_id"],
+            },
+        )
+
+        after_jobs = client.get("/api/projects/1/jobs")
+        assert after_jobs.status_code == 200
+
+    assert second_response.status_code == 400
+    assert "already bootstrapped" in second_response.json()["detail"].lower()
+    assert after_jobs.json() == before_jobs.json()
+
+
 def test_scope_history_same_source_candidates_prioritize_live_before_trashed() -> None:
     reset_demo()
     trash_restore = TrashRestoreService()
@@ -543,6 +663,100 @@ def test_branch_mutation_api_authority_filtered_import_batch_reports_filtered_me
     assert row["content_filtered_by_authority"] is True
     assert services.catalog.get_variant(target_variant_id)["translations"]["fr"] == "Owner content"
     assert services.catalog.get_variant(target_variant_id)["remarks"]["context"] == "owner"
+
+
+def test_branch_mutation_api_direct_reports_phase4_semantics() -> None:
+    reset_demo()
+    variant_id = create_bound_variant(
+        project_id=1,
+        business_key="api.direct.phase4",
+        source="Direct source",
+        translations={"fr": "Original direct text"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        mutation = client.post(
+            "/api/projects/1/branches/mutations",
+            json={
+                "branch_ref": "rel/current",
+                "input": {
+                    "kind": "direct",
+                    "changes": [
+                        {
+                            "business_key": "api.direct.phase4",
+                            "translations_by_lang": {"fr": "Updated direct text"},
+                        }
+                    ],
+                },
+            },
+        )
+        assert mutation.status_code == 200
+        detail = wait_for_job(client, mutation.json())
+        assert detail["job"]["status"] == "success"
+
+    direct_variant = VariantCatalogService().get_variant(variant_id)
+
+    row = detail["report"]["rows"][0]
+    assert row["status"] == "UPDATED_BOUND_VARIANT"
+    assert row["mutation_class"] == "content"
+    assert row["binding_effect"] == "none"
+    assert row["content_effect"] == "update"
+    assert row["row_outcome"] == "applied"
+    assert direct_variant["translations"]["fr"] == "Updated direct text"
+    assert detail["job"]["summary"]["mutation_class_counts"]["content_count"] == 1
+
+
+def test_branch_mutation_api_import_batch_reports_phase4_semantics(tmp_path) -> None:
+    reset_demo()
+    variant_id = create_bound_variant(
+        project_id=1,
+        business_key="api.import.batch.phase4",
+        source="Import source",
+        translations={"fr": "Original import text"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+
+    import_root = tmp_path / "api-import-batch-phase4"
+    workbook_path = import_root / "bundle" / "phase4.xlsx"
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.write_bytes(
+        build_workbook_bytes(
+            ["business_key", "source", "fr", "context"],
+            [["api.import.batch.phase4", "Import source", "Updated import text", "Updated import context"]],
+        )
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    with TestClient(app) as client:
+        mutation = client.post(
+            "/api/projects/1/branches/mutations",
+            json={
+                "branch_ref": "dev/2.4.3",
+                "input": {
+                    "kind": "import_batch",
+                    "import_batch_id": batch["import_batch_id"],
+                },
+            },
+        )
+        assert mutation.status_code == 200
+        detail = wait_for_job(client, mutation.json())
+        assert detail["job"]["status"] == "success"
+
+    import_variant = VariantCatalogService().get_variant(variant_id)
+
+    row = detail["report"]["rows"][0]
+    assert row["status"] == "UPDATED_BOUND_VARIANT"
+    assert row["mutation_class"] == "content"
+    assert row["binding_effect"] == "none"
+    assert row["content_effect"] == "update"
+    assert row["row_outcome"] == "applied"
+    assert import_variant["translations"]["fr"] == "Updated import text"
+    assert import_variant["remarks"]["context"] == "Updated import context"
+    assert detail["job"]["summary"]["mutation_class_counts"]["content_count"] == 1
+    assert detail["job"]["summary"]["binding_effect_counts"]["none_count"] == 1
+    assert detail["job"]["summary"]["content_effect_counts"]["update_count"] == 1
+    assert detail["job"]["summary"]["row_outcome_counts"]["applied_count"] == 1
 
 
 def test_branch_rows_and_lookup_routes_match_existing_scope_routes() -> None:

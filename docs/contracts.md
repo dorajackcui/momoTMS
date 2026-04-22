@@ -71,6 +71,8 @@ Response includes:
 - `dev_branches`
 - `imports`
 - `jobs`
+- `candidate_dev_branch` and each item in `dev_branches` expose bootstrap metadata for dev rows: `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id`
+- the same bootstrap metadata appears in the `/state` payload because the payload is assembled from the branch summary and detail models
 
 Usage rules:
 
@@ -81,6 +83,14 @@ Usage rules:
 - schema includes `pivot_language` plus `pivoted_languages`
 - when `lang` is in `pivoted_languages`, its pivot parent is the project `pivot_language`; all other languages are treated as `null` pivot
 
+Branch bootstrap:
+
+- `POST /api/projects/{project_id}/branches/bootstrap`
+- request body accepts `branch_ref` and `import_batch_id`
+- the route returns async `JobDetail`
+- report rows use the bootstrap row statuses `BOUND_EXISTING_VARIANT`, `CREATED_AND_BOUND_VARIANT`, `INVALID_ROW`, and `DUPLICATE_KEY_IN_BOOTSTRAP`
+- job summaries include `processed_count`, `bound_existing_variant_count`, `created_and_bound_variant_count`, `invalid_row_count`, `duplicate_key_count`, `created_entry_count`, `created_variant_count`, `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id`
+
 ## Request And Report Shapes
 
 `POST /api/projects`
@@ -89,6 +99,16 @@ Usage rules:
 - `pivot_language` must be one of `translation_columns`
 - `pivoted_languages` must be a subset of `translation_columns`, cannot include `pivot_language`, and require `pivot_language` to be set
 - response remains `ProjectSummary`; schema details still come from bootstrap
+
+Branch bootstrap jobs:
+
+- `POST /api/projects/{project_id}/branches/bootstrap` accepts `branch_ref` plus `import_batch_id`
+- the request is asynchronous and returns `JobDetail`
+- bootstrap rows are sparse branch-establishment input: `business_key` and `source` are required, while optional translations and remarks are only used when a new variant is created
+- reuse-hit rows bind the existing same-source variant and ignore uploaded content, so the report status is `BOUND_EXISTING_VARIANT`
+- missing or invalid rows are reported as `INVALID_ROW`
+- repeated keys within the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`
+- the job summary includes the bootstrap counters plus the branch metadata fields copied from `dev_versions`
 
 Fill jobs:
 
@@ -165,9 +185,21 @@ Import upload and job detail:
 
 Branch mutation reporting:
 
+- `POST /api/projects/{project_id}/branches/mutations` remains the same route for both `direct` and `import_batch` mutation inputs
+- `direct` and `import_batch` remain accepted runtime input kinds, but they are legacy input shapes or transports rather than the top-level Phase 4 semantic model
 - `POST /api/projects/{project_id}/branches/mutations` may return mutation report rows with `content_filtered_by_authority = true` when a requested `translations` or `remarks` edit is dropped after authority evaluation on the resolved target variant
 - branch mutation summaries may include `content_filtered_by_authority_count`
 - row `status` still describes the applied bind or update effect; the authority-filtered flag explains whether requested content edits were omitted
+- mutation report rows now also add `mutation_class`, `binding_effect`, `content_effect`, and `row_outcome`
+- `mutation_class` reports the canonical Phase 4 semantic class as `range` or `content`
+- `binding_effect` reports `none`, `bind`, or `rebind`
+- `content_effect` reports `none`, `create`, `update`, or `filtered`
+- `row_outcome` reports `applied`, `noop`, or `missing`
+- branch mutation summaries now also add grouped semantic counters under `mutation_class_counts`, `binding_effect_counts`, `content_effect_counts`, and `row_outcome_counts`
+- `mutation_class_counts` groups rows as `range_count` and `content_count`
+- `binding_effect_counts` groups rows as `none_count`, `bind_count`, and `rebind_count`
+- `content_effect_counts` groups rows as `none_count`, `create_count`, `update_count`, and `filtered_count`
+- `row_outcome_counts` groups rows as `applied_count`, `noop_count`, and `missing_count`
 
 ## Frontend And Backend Contract
 
@@ -243,6 +275,7 @@ Inspection reads:
 Workflow actions:
 
 - `POST /api/projects/{project_id}/branches/mutations`
+- `POST /api/projects/{project_id}/branches/bootstrap`
 - `GET /api/projects/{project_id}/branches/dev`
 - `GET /api/projects/{project_id}/branches/dev/{version}`
 - `POST /api/projects/{project_id}/branches/replace/preview`
@@ -259,6 +292,7 @@ Long-running action contract:
 
 - `POST /api/projects/{project_id}/imports/directory` starts an async job and returns `JobDetail`
 - `POST /api/projects/{project_id}/imports/upload-folder` starts an async job and returns `JobDetail`
+- `POST /api/projects/{project_id}/branches/bootstrap` starts an async job and returns `JobDetail`
 - `POST /api/projects/{project_id}/branches/mutations` returns an async `JobDetail` when `input.kind == "import_batch"`; direct mutations remain request-scoped
 
 ## Error Semantics

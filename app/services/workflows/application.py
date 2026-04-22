@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from app.services.branch.bootstrap import BranchBootstrapService
 from app.services.branch.models import BranchRef
 from app.services.branch.policy import BranchMutationPolicy
 from app.services.branch.mutations import BranchMutationService
@@ -19,6 +20,7 @@ from app.services.workflows.qa import QaScanService
 
 class WorkflowApplicationService:
     def __init__(self) -> None:
+        self.branch_bootstrap_service = BranchBootstrapService()
         self.branch_mutation_service = BranchMutationService()
         self.branch_replace_service = BranchReplaceService()
         self.fill_service = FillService()
@@ -117,6 +119,50 @@ class WorkflowApplicationService:
             ),
             project_id=project_id,
         )
+
+    def branch_bootstrap(
+        self,
+        branch_ref: str,
+        import_batch_id: int,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        parsed_branch_ref = BranchRef.parse(branch_ref)
+        if not parsed_branch_ref.is_dev:
+            raise ValueError(f"bootstrap only supports dev branches: {parsed_branch_ref}")
+        self.branch_bootstrap_service.projects.require_project(project_id)
+        self.branch_bootstrap_service.imports.require_batch_project(import_batch_id, project_id)
+        self.branch_bootstrap_service.registry.ensure_dev_branch(
+            parsed_branch_ref.branch_value,
+            project_id=project_id,
+        )
+        self.branch_bootstrap_service.registry.require_not_bootstrapped(
+            parsed_branch_ref.branch_value,
+            project_id=project_id,
+        )
+        job_id = self.job_service.create_job(
+            "branch_bootstrap",
+            {
+                "branch_ref": branch_ref,
+                "input_kind": "bootstrap",
+                "import_batch_id": int(import_batch_id),
+                "project_id": project_id,
+            },
+            project_id=project_id,
+        )
+
+        def run() -> None:
+            try:
+                self.branch_bootstrap_service.bootstrap(
+                    parsed_branch_ref,
+                    import_batch_id,
+                    project_id=project_id,
+                    job_id=job_id,
+                )
+            except Exception as exc:
+                self.job_service.fail_job(job_id, str(exc))
+
+        submit_background_job(run)
+        return self.get_job_detail(job_id, project_id=project_id)
 
     def branch_replace_preview(
         self,
