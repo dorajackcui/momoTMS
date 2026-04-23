@@ -146,6 +146,14 @@ class BranchReplacePreview(EffectForecastPreview):
     workflow_kind: Literal["branch_replace"]
 
 
+class PivotReviewPreview(BaseModel):
+    preview_kind: Literal["effect_forecast"]
+    workflow_kind: Literal["pivot_review"]
+    request_echo: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class ProductStateResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -430,7 +438,7 @@ class VariantTrashRestoreRequest(BaseModel):
 
 class PivotReviewRequest(BaseModel):
     branch_ref: str
-    variant_ids: list[int]
+    variant_ids: list[int] = Field(default_factory=list)
 
 
 class FillRequest(BaseModel):

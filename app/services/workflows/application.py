@@ -287,6 +287,19 @@ class WorkflowApplicationService:
             project_id=project_id,
         )
 
+    def pivot_review_preview(
+        self,
+        branch_ref: str,
+        variant_ids: list[int],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        parsed_branch_ref = BranchRef.parse(branch_ref)
+        return self.pivot_review_service.preview(
+            parsed_branch_ref,
+            variant_ids,
+            project_id=project_id,
+        )
+
     def fill(
         self,
         source_dir: str,

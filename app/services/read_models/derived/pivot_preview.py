@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from app.services.branch.models import BranchRef
@@ -25,4 +26,17 @@ class PivotPreviewView:
             branch_refs=(branch_ref,) if branch_ref is not None else (),
             pivot_status=pivot_status,
         )
-        return self.live_variants.list(filters, project_id=project_id)
+        result = self.live_variants.list(filters, project_id=project_id)
+        rows = result.get("rows", [])
+        by_branch: dict[str, int] = dict(
+            Counter(
+                row["pivot_changed_by_branch_ref"]
+                for row in rows
+                if row.get("pivot_changed_by_branch_ref")
+            )
+        )
+        result["summary"] = {
+            "total_count": len(rows),
+            "by_branch": by_branch,
+        }
+        return result

@@ -14,6 +14,7 @@ from app.schemas import (
     DevBranchSummary,
     FillRequest,
     JobDetail,
+    PivotReviewPreview,
     PivotReviewRequest,
     QaRequest,
     BranchTrashDeleteRequest,
@@ -140,6 +141,19 @@ def project_trash_restore(project_id: int, payload: VariantTrashRestoreRequest) 
     return handle_errors(
         lambda: JobDetail(
             **WorkflowApplicationService().trash_restore(
+                payload.variant_ids,
+                project_id=project_id,
+            )
+        )
+    )
+
+
+@router.post("/api/projects/{project_id}/variants/pivot/review/preview", response_model=PivotReviewPreview)
+def project_pivot_review_preview(project_id: int, payload: PivotReviewRequest) -> PivotReviewPreview:
+    return handle_errors(
+        lambda: PivotReviewPreview(
+            **WorkflowApplicationService().pivot_review_preview(
+                payload.branch_ref,
                 payload.variant_ids,
                 project_id=project_id,
             )

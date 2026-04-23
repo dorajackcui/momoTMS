@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.db import get_db_path, init_db
 from app.services.branch.models import BranchRef
+from app.services.read_models.derived.pivot_preview import PivotPreviewView
 from app.services.branch.mutations import BranchMutationService
 from app.services.project.service import ProjectService
 from app.services.variant.catalog import VariantCatalogService
@@ -275,3 +276,361 @@ def test_manual_review_returns_expected_statuses_and_updates_variant() -> None:
         variant_d: "NOT_CHANGED",
         999999: "MISSING",
     }
+
+
+def test_pivot_review_preview_returns_forecast_without_state_change() -> None:
+    reset_db()
+    project_id = create_pivot_project()
+    catalog = VariantCatalogService()
+    review_service = PivotReviewService()
+
+    _entry_a, variant_a = create_bound_variant(
+        project_id=project_id,
+        business_key="preview.reviewable",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour", "de": "Hallo"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_a,
+        catalog.build_content(
+            "preview.reviewable.xlsx",
+            "Hello",
+            {"en": "Hello from dev", "fr": "Bonjour", "de": "Hallo"},
+            {"context": "preview.reviewable"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    _entry_b, variant_b = create_bound_variant(
+        project_id=project_id,
+        business_key="preview.hidden",
+        source="Hidden",
+        translations={"en": "Hidden", "fr": "Cache", "de": "Versteckt"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_b,
+        catalog.build_content(
+            "preview.hidden.xlsx",
+            "Hidden",
+            {"en": "Hidden from rel", "fr": "Cache", "de": "Versteckt"},
+            {"context": "preview.hidden"},
+        ),
+        actor_scope=BranchRef.rel_current().as_tuple(),
+    )
+
+    _entry_c, variant_c = create_bound_variant(
+        project_id=project_id,
+        business_key="preview.forbidden",
+        source="Forbidden",
+        translations={"en": "Forbidden", "fr": "Interdit", "de": "Verboten"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_c,
+        catalog.build_content(
+            "preview.forbidden.xlsx",
+            "Forbidden",
+            {"en": "Forbidden from rel", "fr": "Interdit", "de": "Verboten"},
+            {"context": "preview.forbidden"},
+        ),
+        actor_scope=BranchRef.rel_current().as_tuple(),
+    )
+
+    _entry_d, variant_d = create_bound_variant(
+        project_id=project_id,
+        business_key="preview.init-only",
+        source="Init",
+        translations={"en": "Init", "fr": "Init", "de": "Init"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+
+    # Preview from dev/2.4.3 perspective
+    result = review_service.preview(
+        BranchRef.dev("2.4.3"),
+        [variant_a, variant_b, variant_c, variant_d, 999999],
+        project_id=project_id,
+    )
+
+    assert result["preview_kind"] == "effect_forecast"
+    assert result["workflow_kind"] == "pivot_review"
+    assert result["request_echo"] == {
+        "branch_ref": "dev/2.4.3",
+        "variant_ids": [variant_a, variant_b, variant_c, variant_d, 999999],
+    }
+
+    statuses = {
+        int(row["variant_id"]): row["status"]
+        for row in result["rows"]
+    }
+    assert statuses == {
+        variant_a: "REVIEWABLE",
+        variant_b: "NOT_VISIBLE_IN_SCOPE",
+        variant_c: "FORBIDDEN_BY_AUTHORITY",
+        variant_d: "NOT_CHANGED",
+        999999: "MISSING",
+    }
+
+    assert result["summary"]["reviewable_count"] == 1
+    assert result["summary"]["not_changed_count"] == 1
+    assert result["summary"]["not_visible_in_branch_count"] == 1
+    assert result["summary"]["forbidden_by_authority_count"] == 1
+    assert result["summary"]["missing_count"] == 1
+    assert result["summary"]["processed_count"] == 5
+
+    # Verify no state change happened — variant_a should still be changed
+    after = catalog.get_variant(variant_a)
+    assert after["pivot_status"] == PIVOT_STATUS_CHANGED
+    assert pivot_changed_by_branch_ref(after) == "dev/2.4.3"
+
+
+def test_pivot_preview_view_includes_summary_counts() -> None:
+    reset_db()
+    project_id = create_pivot_project()
+    catalog = VariantCatalogService()
+
+    _entry_a, variant_a = create_bound_variant(
+        project_id=project_id,
+        business_key="summary.dev1",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour", "de": "Hallo"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+    catalog.update_variant(
+        variant_a,
+        catalog.build_content(
+            "summary.dev1.xlsx",
+            "Hello",
+            {"en": "Hello changed", "fr": "Bonjour", "de": "Hallo"},
+            {"context": "summary.dev1"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    _entry_b, variant_b = create_bound_variant(
+        project_id=project_id,
+        business_key="summary.dev2",
+        source="World",
+        translations={"en": "World", "fr": "Monde", "de": "Welt"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+    catalog.update_variant(
+        variant_b,
+        catalog.build_content(
+            "summary.dev2.xlsx",
+            "World",
+            {"en": "World changed", "fr": "Monde", "de": "Welt"},
+            {"context": "summary.dev2"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    _entry_c, variant_c = create_bound_variant(
+        project_id=project_id,
+        business_key="summary.rel",
+        source="Bye",
+        translations={"en": "Bye", "fr": "Au revoir", "de": "Tschuss"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_c,
+        catalog.build_content(
+            "summary.rel.xlsx",
+            "Bye",
+            {"en": "Bye changed", "fr": "Au revoir", "de": "Tschuss"},
+            {"context": "summary.rel"},
+        ),
+        actor_scope=BranchRef.rel_current().as_tuple(),
+    )
+
+    result = PivotPreviewView().build(project_id=project_id)
+
+    assert "summary" in result
+    assert result["summary"]["total_count"] == 3
+    assert result["summary"]["by_branch"] == {
+        "dev/2.4.3": 2,
+        "rel/current": 1,
+    }
+
+    # Branch-filtered query
+    dev_result = PivotPreviewView().build(
+        project_id=project_id,
+        branch_ref=BranchRef.dev("2.4.3"),
+    )
+    assert dev_result["summary"]["total_count"] == 2
+    assert dev_result["summary"]["by_branch"] == {"dev/2.4.3": 2}
+
+
+def test_review_all_in_branch_discovers_and_reviews_eligible_variants() -> None:
+    reset_db()
+    project_id = create_pivot_project()
+    catalog = VariantCatalogService()
+    review_service = PivotReviewService()
+
+    _entry_a, variant_a = create_bound_variant(
+        project_id=project_id,
+        business_key="all.reviewable1",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour", "de": "Hallo"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_a,
+        catalog.build_content(
+            "all.reviewable1.xlsx",
+            "Hello",
+            {"en": "Hello changed", "fr": "Bonjour", "de": "Hallo"},
+            {"context": "all.reviewable1"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    _entry_b, variant_b = create_bound_variant(
+        project_id=project_id,
+        business_key="all.reviewable2",
+        source="World",
+        translations={"en": "World", "fr": "Monde", "de": "Welt"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_b,
+        catalog.build_content(
+            "all.reviewable2.xlsx",
+            "World",
+            {"en": "World changed", "fr": "Monde", "de": "Welt"},
+            {"context": "all.reviewable2"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    # variant_c: changed by rel/current — dev cannot review (authority)
+    _entry_c, variant_c = create_bound_variant(
+        project_id=project_id,
+        business_key="all.forbidden",
+        source="Forbidden",
+        translations={"en": "Forbidden", "fr": "Interdit", "de": "Verboten"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_c,
+        catalog.build_content(
+            "all.forbidden.xlsx",
+            "Forbidden",
+            {"en": "Forbidden changed", "fr": "Interdit", "de": "Verboten"},
+            {"context": "all.forbidden"},
+        ),
+        actor_scope=BranchRef.rel_current().as_tuple(),
+    )
+
+    # variant_d: not changed (init) — should not appear
+    _entry_d, _variant_d = create_bound_variant(
+        project_id=project_id,
+        business_key="all.init",
+        source="Init",
+        translations={"en": "Init", "fr": "Init", "de": "Init"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+
+    # Review all from rel/current — should review a, b, c (all visible, rel has authority)
+    rel_result = review_service.review(
+        BranchRef.rel_current(),
+        [],
+        project_id=project_id,
+    )
+    rel_statuses = {
+        int(row["variant_id"]): row["status"]
+        for row in rel_result["report_rows"]
+    }
+    assert rel_statuses == {
+        variant_a: "REVIEWED",
+        variant_b: "REVIEWED",
+        variant_c: "REVIEWED",
+    }
+    assert rel_result["summary"]["reviewed_count"] == 3
+
+    # Reset: make variant_a changed again for the dev review test
+    catalog.update_variant(
+        variant_a,
+        catalog.build_content(
+            "all.reviewable1.xlsx",
+            "Hello",
+            {"en": "Hello changed again", "fr": "Bonjour", "de": "Hallo"},
+            {"context": "all.reviewable1"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    # Review all from dev/2.4.3 — variant_a is reviewable (changed by dev)
+    dev_result = review_service.review(
+        BranchRef.dev("2.4.3"),
+        [],
+        project_id=project_id,
+    )
+    dev_statuses = {
+        int(row["variant_id"]): row["status"]
+        for row in dev_result["report_rows"]
+    }
+    assert dev_statuses == {variant_a: "REVIEWED"}
+    assert dev_result["summary"]["reviewed_count"] == 1
+
+
+def test_pivot_review_preview_with_empty_variant_ids_discovers_all() -> None:
+    reset_db()
+    project_id = create_pivot_project()
+    catalog = VariantCatalogService()
+    review_service = PivotReviewService()
+
+    _entry_a, variant_a = create_bound_variant(
+        project_id=project_id,
+        business_key="previewall.a",
+        source="Hello",
+        translations={"en": "Hello", "fr": "Bonjour", "de": "Hallo"},
+        branch_refs=[BranchRef.dev("2.4.3"), BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_a,
+        catalog.build_content(
+            "previewall.a.xlsx",
+            "Hello",
+            {"en": "Hello changed", "fr": "Bonjour", "de": "Hallo"},
+            {"context": "previewall.a"},
+        ),
+        actor_scope=BranchRef.dev("2.4.3").as_tuple(),
+    )
+
+    _entry_b, variant_b = create_bound_variant(
+        project_id=project_id,
+        business_key="previewall.b",
+        source="World",
+        translations={"en": "World", "fr": "Monde", "de": "Welt"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    catalog.update_variant(
+        variant_b,
+        catalog.build_content(
+            "previewall.b.xlsx",
+            "World",
+            {"en": "World changed", "fr": "Monde", "de": "Welt"},
+            {"context": "previewall.b"},
+        ),
+        actor_scope=BranchRef.rel_current().as_tuple(),
+    )
+
+    # Preview-all from rel/current — should discover both
+    result = review_service.preview(
+        BranchRef.rel_current(),
+        [],
+        project_id=project_id,
+    )
+
+    statuses = {
+        int(row["variant_id"]): row["status"]
+        for row in result["rows"]
+    }
+    assert statuses == {
+        variant_a: "REVIEWABLE",
+        variant_b: "REVIEWABLE",
+    }
+    assert result["summary"]["reviewable_count"] == 2
+    assert result["summary"]["processed_count"] == 2
