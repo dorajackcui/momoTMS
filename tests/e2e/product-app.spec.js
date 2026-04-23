@@ -47,6 +47,7 @@ async function expectBranchParam(page, expectedBranch) {
 async function createProject(page, name) {
   await page.goto("/app/project");
   await expect(page.getByTestId("project-page")).toBeVisible();
+  await expect(page.getByTestId("project-page")).not.toContainText("candidate");
   await page.getByLabel("Project name").fill(name);
   await page.getByLabel("Translation columns").fill("fr, en");
   await page.getByLabel("Remark columns").fill("context");
@@ -74,7 +75,6 @@ async function applyImportBatch(
       input: {
         kind: "import_batch",
         import_batch_id: importBatchId,
-        mark_as_candidate_release: true,
       },
     },
   });
@@ -211,6 +211,7 @@ test("loads the rebuilt product app and exercises the new six-surface workflow",
   await page.goto("/app");
   await expect(page).toHaveURL(/\/app\/overview\?/);
   await expect(page.getByTestId("overview-page")).toBeVisible();
+  await expect(page.getByTestId("overview-page")).not.toContainText("candidate");
   await expectBranchParam(page, null);
 
   await createProject(page, "Fresh Project");
@@ -251,15 +252,19 @@ test("loads the rebuilt product app and exercises the new six-surface workflow",
   await expect(page.getByRole("heading", { name: "dev.mutable" })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
 
-  await page.goto("/app/branches?project=1&lang=fr&branch=dev%2F2.4.3&tab=compare");
+  await page.goto("/app/branches?project=1&lang=fr&branch=dev%2F2.4.3&tab=scope");
   await expect(page.getByTestId("branches-page")).toBeVisible();
-  await expect(page.getByText("rel.locked.changed")).toBeVisible();
-
-  await page.getByRole("button", { name: "Queue" }).click();
-  await expect(page.getByText("dev.new.entry")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Scope" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Lookup" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Replace" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Trash / Restore" })).toBeVisible();
 
   await page.getByRole("button", { name: "Lookup" }).click();
-  await page.getByLabel("Business key").fill("rel.locked.same");
+  await page.getByRole("combobox", { name: "Scope" }).selectOption("rel/current");
+  await page.getByRole("textbox", { name: "Business key Lookup key" }).fill(
+    "rel.locked.same",
+  );
   await page.getByRole("button", { name: "Lookup key" }).click();
   await expect(page.getByRole("cell", { name: "rel.locked.same" }).first()).toBeVisible();
 
@@ -283,7 +288,7 @@ test("loads the rebuilt product app and exercises the new six-surface workflow",
 
   await page.goto("/app/branches?project=1&lang=fr&branch=dev%2F2.4.3&tab=replace");
   await page.getByRole("button", { name: "Preview replace" }).click();
-  await expect(page.getByText("source_branch_ref")).toBeVisible();
+  await expect(page.getByText("preview_kind")).toBeVisible();
   await page.getByRole("button", { name: "Execute replace" }).click();
   await expect(page).toHaveURL(/\/app\/runs\?.*job=/);
   await expect(page.getByTestId("runs-page")).toContainText("Branch Replace Execute");
@@ -474,105 +479,3 @@ test("keeps the intake preview open when the import job finishes as failed", asy
   await expect(page.getByText("Synthetic import failure")).toBeVisible();
 });
 
-test("resets compare and queue pagination when filters change", async ({
-  page,
-  request,
-}) => {
-  await seedDevBranch(request);
-
-  const compareRequests = [];
-  const queueRequests = [];
-
-  await page.route("**/api/projects/1/branches/compare**", async (route) => {
-    const url = new URL(route.request().url());
-    compareRequests.push({
-      page: url.searchParams.get("page"),
-      search: url.searchParams.get("search"),
-    });
-    const label = url.searchParams.get("search") || `compare-page-${url.searchParams.get("page") || "1"}`;
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        base_branch_ref: "rel/current",
-        target_branch_ref: "dev/2.4.3",
-        status_counts: {},
-        rows: [
-          {
-            business_key: label,
-            state: "target_only",
-            priority_status: "needs_translation",
-            diff_categories: ["source_changed"],
-            base: null,
-            target: {
-              source: "Target source",
-              file_name: "messages.xlsx",
-              translations: { fr: label },
-              remarks: {},
-            },
-          },
-        ],
-        priority_rows: [],
-        total_rows: 60,
-        total_priority_rows: 0,
-        page: Number(url.searchParams.get("page") || "1"),
-        page_size: 25,
-      }),
-    });
-  });
-  await page.route("**/api/projects/1/branches/queue**", async (route) => {
-    const url = new URL(route.request().url());
-    queueRequests.push({
-      page: url.searchParams.get("page"),
-      status: url.searchParams.getAll("priority_status").join(","),
-    });
-    const label =
-      url.searchParams.getAll("priority_status").join(",") ||
-      `queue-page-${url.searchParams.get("page") || "1"}`;
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        target_branch_ref: "dev/2.4.3",
-        lang: "fr",
-        status_counts: {},
-        rows: [
-          {
-            business_key: label,
-            file_name: "messages.xlsx",
-            source: "Queue source",
-            target_text: label,
-            state: "target_only",
-            priority_status: "needs_translation",
-            diff_categories: ["source_changed"],
-          },
-        ],
-        total_rows: 60,
-        page: Number(url.searchParams.get("page") || "1"),
-        page_size: 25,
-      }),
-    });
-  });
-
-  await page.goto("/app/branches?project=1&lang=fr&branch=dev%2F2.4.3&tab=compare");
-  await expect(page.getByRole("cell", { name: "compare-page-1" }).first()).toBeVisible();
-
-  await page.getByRole("button", { name: "Next" }).click();
-  await expect(page.getByRole("cell", { name: "compare-page-2" }).first()).toBeVisible();
-
-  await page.getByLabel("Search").fill("alpha");
-  await expect.poll(() => compareRequests.at(-1)?.page).toBe("1");
-  await expect.poll(() => compareRequests.at(-1)?.search).toBe("alpha");
-  await expect(page.getByRole("cell", { name: "alpha" }).first()).toBeVisible();
-
-  await page.getByRole("button", { name: "Queue" }).click();
-  await expect(page.getByRole("cell", { name: "queue-page-1" }).first()).toBeVisible();
-
-  await page.getByRole("button", { name: "Next" }).click();
-  await expect(page.getByRole("cell", { name: "queue-page-2" }).first()).toBeVisible();
-
-  await page.getByLabel("Priority").selectOption("needs_translation");
-  await expect.poll(() => queueRequests.at(-1)?.page).toBe("1");
-  await expect.poll(() => queueRequests.at(-1)?.status).toBe("needs_translation");
-  await expect(
-    page.getByRole("cell", { name: "needs_translation" }).first(),
-  ).toBeVisible();
-});

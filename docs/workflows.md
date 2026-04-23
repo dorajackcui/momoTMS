@@ -207,13 +207,15 @@ Mutation rules:
 
 - previews and executes binding changes from one branch into another
 - the live policy only supports `dev/<version> -> rel/current`
+- replace is a pure target-binding rewrite: clear the target branch's active bindings, then bind every active source-branch variant into that target branch
+- replace only changes target-branch bindings; the source branch and unrelated branches stay unchanged
 - replace rebinds active variants; it does not copy content or create variants
 - replace preview is an `effect_forecast` and reports binding-change semantics instead of content-diff semantics
 - replace preview is read-only preview and keeps rows minimal while surfacing the shared semantic block when it has a clear meaning
 - preview rows may report `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, or `REMOVE_FROM_TARGET`
 - `REBIND_TARGET` means the target branch already has the same `business_key` but is bound to a different variant than the source branch, so execute will switch the binding to the source branch's variant
 - execute runs in one DB transaction
-- the `dev/<version> -> rel/current` policy still clears same-version-series dev bindings and marks those versions as promoted
+- replace summary fields are `final_target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, and `removed_from_target_count`
 
 ## Trash And Restore Rules
 

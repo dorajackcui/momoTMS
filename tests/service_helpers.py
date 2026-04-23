@@ -20,5 +20,4 @@ def branch_services() -> SimpleNamespace:
         list_dev_branches=catalog.list_dev_branches,
         get_dev_branch=catalog.get_dev_branch,
         release_summary=catalog.release_summary,
-        get_candidate_dev_branch=catalog.get_candidate_dev_branch,
     )

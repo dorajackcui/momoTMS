@@ -22,7 +22,6 @@ class BranchRegistryService:
     def ensure_dev_branch(
         self,
         version: str,
-        mark_as_candidate: bool | None = None,
         project_id: int = DEFAULT_PROJECT_ID,
         conn: sqlite3.Connection | None = None,
     ) -> dict[str, Any]:
@@ -31,7 +30,6 @@ class BranchRegistryService:
             with get_conn() as local_conn:
                 self.ensure_dev_branch(
                     version,
-                    mark_as_candidate=mark_as_candidate,
                     project_id=project_id,
                     conn=local_conn,
                 )
@@ -39,48 +37,30 @@ class BranchRegistryService:
 
         existing = conn.execute(
             """
-            SELECT is_candidate_release
+            SELECT version
             FROM dev_versions
             WHERE project_id = ? AND version = ?
             LIMIT 1
             """,
             (project_id, version),
         ).fetchone()
-        if mark_as_candidate is True:
-            conn.execute(
-                "UPDATE dev_versions SET is_candidate_release = 0 WHERE project_id = ?",
-                (project_id,),
-            )
         if existing is None:
-            is_candidate_release = 1 if mark_as_candidate is True else 0
             conn.execute(
                 """
                 INSERT INTO dev_versions(
                     project_id,
                     version,
                     version_line,
-                    is_candidate_release,
-                    created_at,
-                    promoted_at
+                    created_at
                 )
-                VALUES (?, ?, ?, ?, ?, NULL)
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     project_id,
                     version,
                     version_series,
-                    is_candidate_release,
                     now_iso(),
                 ),
-            )
-        elif mark_as_candidate is not None:
-            conn.execute(
-                """
-                UPDATE dev_versions
-                SET version_line = ?, is_candidate_release = ?
-                WHERE project_id = ? AND version = ?
-                """,
-                (version_series, 1 if mark_as_candidate else 0, project_id, version),
             )
         else:
             conn.execute(
@@ -93,7 +73,7 @@ class BranchRegistryService:
             )
         branch_row = conn.execute(
             """
-            SELECT is_candidate_release
+            SELECT version
             FROM dev_versions
             WHERE project_id = ? AND version = ?
             LIMIT 1
@@ -104,7 +84,6 @@ class BranchRegistryService:
             "project_id": project_id,
             "version": version,
             "version_series": version_series,
-            "is_candidate_release": bool(branch_row["is_candidate_release"]) if branch_row else False,
             "branch_ref": str(self.dev_branch(version)),
         }
 
@@ -191,9 +170,7 @@ class BranchRegistryService:
                 SELECT
                     version,
                     version_line,
-                    is_candidate_release,
                     created_at,
-                    promoted_at,
                     bootstrapped_at,
                     bootstrap_job_id,
                     bootstrap_import_batch_id
@@ -209,9 +186,7 @@ class BranchRegistryService:
             "project_id": project_id,
             "version": row["version"],
             "version_series": row["version_line"],
-            "is_candidate_release": bool(row["is_candidate_release"]),
             "created_at": row["created_at"],
-            "promoted_at": row["promoted_at"],
             "bootstrap_state": "bootstrapped" if row["bootstrapped_at"] else "not_bootstrapped",
             "bootstrapped_at": row["bootstrapped_at"],
             "bootstrap_job_id": (

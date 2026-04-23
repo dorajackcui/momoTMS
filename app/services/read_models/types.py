@@ -131,7 +131,6 @@ class ProjectionRow(TypedDict):
     scope_type: str
     scope_value: str
     version_series: str | None
-    is_candidate_release: bool | None
     entry_id: int | None
     project_id: int
     business_key: str

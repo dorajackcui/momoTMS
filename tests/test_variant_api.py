@@ -98,7 +98,7 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
         assert state_response.status_code == 200
         state_payload = state_response.json()
         assert "release_summary" in state_payload
-        assert "candidate_dev_branch" in state_payload
+        assert "candidate_dev_branch" not in state_payload
         assert "dev_branches" in state_payload
         assert "rel_summary" not in state_payload
         assert "dev_versions" not in state_payload
@@ -110,7 +110,6 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
                 "input": {
                     "kind": "import_batch",
                     "import_batch_id": batch["import_batch_id"],
-                    "mark_as_candidate_release": True,
                 },
             },
         )
@@ -164,6 +163,8 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
         assert replace_preview_payload["preview_kind"] == "effect_forecast"
         assert replace_preview_payload["workflow_kind"] == "branch_replace"
         assert replace_preview_payload["request_echo"]["source_branch_ref"] == f"dev/{sample['dev_version']}"
+        assert replace_preview_payload["summary"]["final_target_entry_count"] >= 4
+        assert "cleanup_binding_count" not in replace_preview_payload["summary"]
 
         assert client.post("/api/projects/1/branches/dev/import", json={}).status_code == 405
         assert client.post(f"/api/projects/1/branches/dev/{sample['dev_version']}/promote/preview").status_code == 404
@@ -175,6 +176,27 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
         assert client.get("/api/projects/1/branches/compare").status_code == 404
         assert client.get("/api/projects/1/branches/queue").status_code == 404
         assert client.get("/api/scopes/compare").status_code == 404
+
+
+def test_import_batch_mutation_rejects_candidate_flag() -> None:
+    reset_demo()
+    sample = DemoService().get_sample("core-cycle")
+    batch = ImportService().import_directory(sample["paths"]["import_dir"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/projects/1/branches/mutations",
+            json={
+                "branch_ref": f"dev/{sample['dev_version']}",
+                "input": {
+                    "kind": "import_batch",
+                    "import_batch_id": batch["import_batch_id"],
+                    "mark_as_candidate_release": True,
+                },
+            },
+        )
+
+    assert response.status_code == 422
 
 
 def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_ids_differ() -> None:
@@ -224,13 +246,15 @@ def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_id
     assert row["binding_effect"] == "rebind"
     assert row["variant_resolution"] == "reuse_existing"
     assert row["row_outcome"] == "applied"
-    assert payload["summary"]["target_entry_count"] == 1
+    assert payload["summary"]["final_target_entry_count"] == 1
     assert payload["summary"]["added_to_target_count"] == 0
     assert payload["summary"]["kept_in_target_count"] == 0
     assert payload["summary"]["rebind_target_count"] == 1
     assert payload["summary"]["removed_from_target_count"] == 5
-    assert payload["summary"]["binding_effect_counts"]["rebind_count"] == 1
-    assert payload["summary"]["variant_resolution_counts"]["reuse_existing_count"] >= 1
+    assert "cleanup_binding_count" not in payload["summary"]
+    assert "binding_effect_counts" not in payload["summary"]
+    assert "variant_resolution_counts" not in payload["summary"]
+    assert "row_outcome_counts" not in payload["summary"]
     assert "already_in_target_count" not in payload["summary"]
 
     assert execute_response.status_code == 200
@@ -241,13 +265,15 @@ def test_branch_replace_preview_and_execute_report_rebind_target_when_variant_id
     assert execute_row["binding_effect"] == "rebind"
     assert execute_row["variant_resolution"] == "reuse_existing"
     assert execute_row["row_outcome"] == "applied"
-    assert summary["target_entry_count"] == 1
+    assert summary["final_target_entry_count"] == 1
     assert summary["added_to_target_count"] == 0
     assert summary["kept_in_target_count"] == 0
     assert summary["rebind_target_count"] == 1
     assert summary["removed_from_target_count"] == 5
-    assert summary["binding_effect_counts"]["rebind_count"] == 1
-    assert summary["variant_resolution_counts"]["reuse_existing_count"] >= 1
+    assert "cleanup_binding_count" not in summary
+    assert "binding_effect_counts" not in summary
+    assert "variant_resolution_counts" not in summary
+    assert "row_outcome_counts" not in summary
     assert "already_in_target_count" not in summary
 
 
@@ -356,6 +382,8 @@ def test_branch_bootstrap_api_runs_async_and_exposes_bootstrap_metadata(tmp_path
         None,
     )
     assert dev_branch is not None, "expected dev branch summary for version 2.4.3"
+    assert "is_candidate_release" not in dev_branch
+    assert "promoted_at" not in dev_branch
     assert dev_branch["bootstrap_state"] == "bootstrapped"
     assert dev_branch["bootstrap_import_batch_id"] == batch["import_batch_id"]
     assert dev_branch["bootstrap_job_id"] == detail["job"]["job_id"]
@@ -713,7 +741,6 @@ def test_project_variants_route_returns_dev_bound_rows_after_import_batch_apply(
                 "input": {
                     "kind": "import_batch",
                     "import_batch_id": batch["import_batch_id"],
-                    "mark_as_candidate_release": True,
                 },
             },
         )
@@ -778,7 +805,6 @@ def test_branch_mutation_api_authority_filtered_import_batch_reports_filtered_me
                 "input": {
                     "kind": "import_batch",
                     "import_batch_id": batch["import_batch_id"],
-                    "mark_as_candidate_release": True,
                 },
             },
         )
@@ -900,7 +926,6 @@ def test_branch_rows_and_lookup_routes_match_existing_scope_routes() -> None:
                 "input": {
                     "kind": "import_batch",
                     "import_batch_id": batch["import_batch_id"],
-                    "mark_as_candidate_release": True,
                 },
             },
         )

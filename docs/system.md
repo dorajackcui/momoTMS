@@ -107,7 +107,7 @@ Authority rule of thumb:
 
 Dev branch bootstrap metadata:
 
-- `dev_versions` stores the per-branch lifecycle fields `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id` alongside the candidate-release flag and branch version fields
+- `dev_versions` stores branch identity plus the lifecycle fields `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id`
 - `bootstrap_state` is derived from `bootstrapped_at`: it is `not_bootstrapped` before the dedicated bootstrap workflow succeeds and `bootstrapped` after it completes
 
 ## Variant Lifecycle
@@ -144,7 +144,7 @@ Domain services:
 
 ## Database Tables
 
-Current schema version: `variant-v8`
+Current schema version: `variant-v10`
 
 Live tables:
 
@@ -162,7 +162,6 @@ Live tables:
 
 The `dev_versions` table stores dev-branch metadata plus bootstrap state:
 
-- `is_candidate_release`
 - `bootstrapped_at`
 - `bootstrap_job_id`
 - `bootstrap_import_batch_id`
@@ -190,4 +189,3 @@ Bootstrap:
 
 1. `/app` calls `ProjectBootstrapService`
 2. the service validates the project once, then assembles project metadata, schema, lightweight release summary, active dev branch metadata, imports, and jobs directly from project-scoped state
-3. candidate dev branch detail reuses the active branch metadata list and only hydrates branch entries for the candidate branch when one exists

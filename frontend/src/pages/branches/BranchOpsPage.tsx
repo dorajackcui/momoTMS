@@ -96,10 +96,7 @@ export function BranchOpsPage() {
   const projectId = shell.projectId;
   const bootstrap = shell.bootstrap;
   const schema = bootstrap?.schema || null;
-  const preferredDevBranch =
-    bootstrap?.candidate_dev_branch?.branch_ref ||
-    bootstrap?.dev_branches[0]?.branch_ref ||
-    null;
+  const preferredDevBranch = bootstrap?.dev_branches[0]?.branch_ref || null;
   const currentDevBranch = ensureDevBranch(shell.branchRef, preferredDevBranch);
   const scopeOptions = [
     "master",
@@ -428,7 +425,6 @@ export function BranchOpsPage() {
                 runBranchMutation(projectId, normalizedApplyBranchRef, {
                   kind: "import_batch",
                   import_batch_id: selectedImportBatchId,
-                  mark_as_candidate_release: true,
                 }),
             });
           }}
@@ -936,15 +932,24 @@ function resolveApplyBranchRef(
   branchSummary: ReturnType<typeof useAppShell>["branchSummary"],
 ) {
   const knownDevBranches = new Set<string>();
-  if (bootstrap.candidate_dev_branch?.branch_ref) {
-    knownDevBranches.add(bootstrap.candidate_dev_branch.branch_ref);
-  }
-  bootstrap.dev_branches.forEach((branch) => knownDevBranches.add(branch.branch_ref));
-  branchSummary?.branches
-    .filter((branch) => branch.branch_ref.startsWith("dev/"))
-    .forEach((branch) => knownDevBranches.add(branch.branch_ref));
+  const knownDevBranchList: string[] = [];
+  const addKnownDevBranch = (branchRef: string) => {
+    if (knownDevBranches.has(branchRef)) {
+      return;
+    }
+    knownDevBranches.add(branchRef);
+    knownDevBranchList.push(branchRef);
+  };
+
+  bootstrap.dev_branches.forEach((branch) => addKnownDevBranch(branch.branch_ref));
+  branchSummary?.branches.forEach((branch) => {
+    if (branch.branch_ref.startsWith("dev/")) {
+      addKnownDevBranch(branch.branch_ref);
+    }
+  });
+
   if (shellBranchRef && knownDevBranches.has(shellBranchRef)) {
     return shellBranchRef;
   }
-  return bootstrap.candidate_dev_branch?.branch_ref || bootstrap.dev_branches[0]?.branch_ref || "";
+  return knownDevBranchList[0] || "";
 }

@@ -69,11 +69,9 @@ class BranchMutationService:
         with get_conn() as conn:
             dev_branch = None
             if branch_ref.is_dev:
-                mark_as_candidate = input_payload.get("mark_as_candidate_release")
                 dev_branch = self.branch_registry.ensure_dev_branch(
                     branch_ref.branch_value,
-                    mark_as_candidate,
-                    project_id,
+                    project_id=project_id,
                     conn=conn,
                 )
             if input_kind == "direct":
@@ -81,7 +79,6 @@ class BranchMutationService:
             return self.import_batch.apply(
                 branch_ref,
                 int(input_payload["import_batch_id"]),
-                bool(input_payload.get("mark_as_candidate_release", True)),
                 project_id,
                 conn=conn,
                 version_series=(dev_branch or {}).get("version_series"),
@@ -102,17 +99,14 @@ class BranchMutationService:
         with get_conn() as conn:
             dev_branch = None
             if branch_ref.is_dev:
-                mark_as_candidate = input_payload.get("mark_as_candidate_release")
                 dev_branch = self.branch_registry.ensure_dev_branch(
                     branch_ref.branch_value,
-                    mark_as_candidate,
-                    project_id,
+                    project_id=project_id,
                     conn=conn,
                 )
             result = yield from self.import_batch.iter_apply(
                 branch_ref,
                 int(input_payload["import_batch_id"]),
-                bool(input_payload.get("mark_as_candidate_release", True)),
                 project_id,
                 conn=conn,
                 version_series=(dev_branch or {}).get("version_series"),

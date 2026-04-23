@@ -67,11 +67,10 @@ Response includes:
 - `project`
 - `schema`
 - `release_summary`
-- `candidate_dev_branch`
 - `dev_branches`
 - `imports`
 - `jobs`
-- `candidate_dev_branch` and each item in `dev_branches` expose bootstrap metadata for dev rows: `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id`
+- each item in `dev_branches` exposes bootstrap metadata for dev rows: `bootstrap_state`, `bootstrapped_at`, `bootstrap_job_id`, and `bootstrap_import_batch_id`
 - the same bootstrap metadata appears in the `/state` payload because the payload is assembled from the branch summary and detail models
 
 Usage rules:
@@ -189,10 +188,19 @@ Branch replace preview:
 
 - `POST /api/projects/{project_id}/branches/replace/preview` accepts `source_branch_ref` and `target_branch_ref`
 - preview returns the shared effect-forecast envelope with `preview_kind = effect_forecast` and `workflow_kind = branch_replace`
-- preview summary includes `target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, `removed_from_target_count`, `cleanup_binding_count`, plus `binding_effect_counts`, `variant_resolution_counts`, and `row_outcome_counts`
+- the live public pair is `dev/<version> -> rel/current`
+- replace is a pure target-binding rewrite: execute clears the target branch bindings, then binds the source branch's active range into that target
+- preview describes only target-branch effects; the source branch and unrelated branches stay unchanged
+- preview summary includes `final_target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, and `removed_from_target_count`
 - preview rows use binding-change statuses: `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, and `REMOVE_FROM_TARGET`
 - replace preview rows may also add `binding_effect`, `variant_resolution`, and `row_outcome` when those generic fields have a clear meaning for the row
 - `REBIND_TARGET` means the target branch already has that `business_key`, but it is currently bound to a different variant than the source branch, so execute will switch the target binding without copying content
+
+Branch replace execute:
+
+- `POST /api/projects/{project_id}/branches/replace/execute` accepts the same `source_branch_ref` and `target_branch_ref` request body as preview
+- the job summary includes `final_target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, and `removed_from_target_count`
+- execute only changes target-branch bindings; it does not modify source-branch bindings or unrelated branches
 
 Import upload and job detail:
 

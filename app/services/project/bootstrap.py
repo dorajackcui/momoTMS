@@ -19,18 +19,12 @@ class ProjectBootstrapService:
         project = self.project_service.require_project(project_id)
         dev_branches = self.branch_catalog.list_dev_branches(
             project_id=project_id,
-            active_only=True,
             skip_project_check=True,
         )
         return {
             "project": project,
             "schema": self.project_service.get_schema(project_id),
             "release_summary": self.branch_catalog.release_summary(project_id, skip_project_check=True),
-            "candidate_dev_branch": self.branch_catalog.get_candidate_dev_branch(
-                project_id,
-                active_branches=dev_branches,
-                skip_project_check=True,
-            ),
             "dev_branches": dev_branches,
             "imports": self.import_service.list_batches(project_id=project_id),
             "jobs": self.job_service.list_jobs(project_id=project_id),

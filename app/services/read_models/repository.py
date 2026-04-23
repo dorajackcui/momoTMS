@@ -299,22 +299,19 @@ class ReadModelRepository:
                     SELECT
                         'rel' AS scope_type,
                         'current' AS scope_value,
-                        NULL AS version_series,
-                        NULL AS is_candidate_release
+                        NULL AS version_series
                     UNION ALL
                     SELECT
                         'dev' AS scope_type,
                         version AS scope_value,
-                        version_line AS version_series,
-                        is_candidate_release
+                        version_line AS version_series
                     FROM dev_versions
-                    WHERE project_id = ? AND promoted_at IS NULL
+                    WHERE project_id = ?
                 )
                 SELECT
                     br.scope_type,
                     br.scope_value,
                     br.version_series,
-                    br.is_candidate_release,
                     e.entry_id,
                     e.project_id,
                     e.business_key,
@@ -368,9 +365,6 @@ class ReadModelRepository:
                 "scope_type": row["scope_type"],
                 "scope_value": row["scope_value"],
                 "version_series": row["version_series"],
-                "is_candidate_release": (
-                    bool(row["is_candidate_release"]) if row["is_candidate_release"] is not None else None
-                ),
                 "entry_id": int(row["entry_id"]) if row["entry_id"] is not None else None,
                 "project_id": int(row["project_id"]) if row["project_id"] is not None else project_id,
                 "business_key": (

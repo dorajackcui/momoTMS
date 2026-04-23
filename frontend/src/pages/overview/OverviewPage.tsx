@@ -115,11 +115,6 @@ export function OverviewPage() {
   );
   const totalRows = variantsQuery.data?.total_rows || 0;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
-  const selectedSummary = effectiveBranchFilter
-    ? shell.branchSummary?.branches.find(
-        (branch) => branch.branch_ref === effectiveBranchFilter,
-      )
-    : null;
 
   return (
     <div className={styles.stack}>
@@ -131,9 +126,6 @@ export function OverviewPage() {
         description="Scan active or orphan variants through one project-scoped grid, then open full variant history in the right drawer."
         actions={
           <div className={ui.toolbar}>
-            {selectedSummary?.is_candidate_release ? (
-              <Badge tone="accent">candidate</Badge>
-            ) : null}
             {lifecycleFilter === "orphan" ? (
               <Badge tone="warning">orphan view</Badge>
             ) : null}

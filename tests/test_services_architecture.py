@@ -86,6 +86,7 @@ def test_branch_catalog_view_owns_branch_reads() -> None:
     assert "list_entry_views" in source
     assert "BranchDetailService" not in source
     assert "BranchRegistryService" not in source
+    assert "get_candidate_dev_branch" not in source
 
 
 def test_bootstrap_and_workflow_routes_use_branch_catalog_read_model() -> None:
@@ -121,8 +122,11 @@ def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     assert "compatibility alias" in contracts_doc
     assert "scope-aware" in contracts_doc
     assert "REBIND_TARGET" in contracts_doc
+    assert "final_target_entry_count" in contracts_doc
     assert "kept_in_target_count" in contracts_doc
     assert "rebind_target_count" in contracts_doc
+    assert "cleanup_binding_count" not in contracts_doc
+    assert "candidate_dev_branch" not in contracts_doc
     assert "preview_kind" in contracts_doc
     assert "input_precheck" in contracts_doc
     assert "effect_forecast" in contracts_doc
@@ -157,11 +161,16 @@ def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     assert "variant_resolution" in workflows_doc
     assert "summary-first" in workflows_doc
     assert "read-only preview" in workflows_doc
+    assert "replace only changes target-branch bindings" in workflows_doc
+    assert "final_target_entry_count" in workflows_doc
 
     assert "dev_versions" in system_doc
     assert "bootstrap_state" in system_doc
     assert "not_bootstrapped" in system_doc
     assert "bootstrapped" in system_doc
+    assert "candidate-release flag" not in system_doc
+    assert "is_candidate_release" not in system_doc
+    assert "promoted_at" not in system_doc
 
     assert "FORBIDDEN_BY_AUTHORITY" in workflows_doc
     assert "REBIND_TARGET" in workflows_doc

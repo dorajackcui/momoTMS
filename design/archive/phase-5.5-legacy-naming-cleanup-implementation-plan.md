@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python (FastAPI, SQLite), TypeScript (React, TanStack Query)
 
-**Design spec:** `design/phase-5.5-legacy-naming-cleanup-design.md`
+**Design spec:** `design/archive/phase-5.5-legacy-naming-cleanup-design.md`
 
 ---
 

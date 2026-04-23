@@ -1,6 +1,6 @@
 import type { ImportBatchSummary } from "@/domains/imports/types";
 import type { JobSummary } from "@/domains/jobs/types";
-import type { DevBranchDetail, DevBranchSummary } from "@/domains/branches/types";
+import type { DevBranchSummary } from "@/domains/branches/types";
 
 export type ProjectSummary = {
   project_id: number;
@@ -24,7 +24,6 @@ export type ProductStateResponse = {
   project: ProjectSummary;
   schema: ProjectSchema;
   release_summary: Record<string, unknown>;
-  candidate_dev_branch: DevBranchDetail | null;
   dev_branches: DevBranchSummary[];
   imports: ImportBatchSummary[];
   jobs: JobSummary[];

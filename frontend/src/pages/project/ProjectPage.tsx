@@ -7,7 +7,6 @@ import { useAppShell } from "@/app/shell/AppShellContext";
 import { createProject } from "@/domains/projects/api";
 import { queryKeys } from "@/shared/api/queryKeys";
 import {
-  Badge,
   EmptyState,
   InlineNotice,
   KeyValueList,
@@ -69,12 +68,13 @@ export function ProjectPage() {
                 value: formatNumber(shell.bootstrap.schema.remark_columns.length),
                 hint: shell.bootstrap.schema.remark_columns.join(", ") || "-",
               },
-              {
-                label: "dev branches",
-                value: formatNumber(shell.bootstrap.dev_branches.length),
-                hint: shell.bootstrap.candidate_dev_branch
-                  ? `candidate: ${shell.bootstrap.candidate_dev_branch.branch_ref}`
-                  : "no candidate release",
+               {
+                 label: "dev branches",
+                 value: formatNumber(shell.bootstrap.dev_branches.length),
+                hint:
+                  shell.bootstrap.dev_branches.length > 0
+                    ? shell.bootstrap.dev_branches.map((branch) => branch.branch_ref).join(", ")
+                    : "no dev branches yet",
               },
             ]}
           />
@@ -105,20 +105,13 @@ export function ProjectPage() {
                     "remark columns",
                     shell.bootstrap.schema.remark_columns.join(", ") || "-",
                   ],
-                  [
-                    "candidate dev branch",
-                    shell.bootstrap.candidate_dev_branch?.branch_ref || "-",
-                  ],
                 ]}
               />
               <div className={styles.branchList}>
                 {shell.bootstrap.dev_branches.map((branch) => (
                   <article key={branch.branch_ref} className={styles.branchCard}>
                     <div>
-                      <strong>{branch.branch_ref}</strong>{" "}
-                      {branch.is_candidate_release ? (
-                        <Badge tone="accent">candidate</Badge>
-                      ) : null}
+                      <strong>{branch.branch_ref}</strong>
                     </div>
                     <span className={styles.meta}>
                       version series: {branch.version_series}

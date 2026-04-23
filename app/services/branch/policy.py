@@ -123,19 +123,7 @@ class BranchReplacePolicy:
 
     @classmethod
     def for_branches(cls, source_branch_ref: BranchRef, target_branch_ref: BranchRef) -> BranchReplacePolicy:
-        if source_branch_ref.is_dev and target_branch_ref.is_rel:
-            return DevToReleaseReplacePolicy(source_branch_ref, target_branch_ref)
+        # Phase 6 replace semantics only support `dev/<version> -> rel/current`.
+        if source_branch_ref.is_dev and target_branch_ref.is_rel and target_branch_ref.branch_value == "current":
+            return cls(source_branch_ref, target_branch_ref)
         raise ValueError(f"unsupported branch replace pair: {source_branch_ref} -> {target_branch_ref}")
-
-    def cleanup_branch_refs(self, branch_registry, project_id: int) -> list[BranchRef]:
-        return []
-
-
-@dataclass(frozen=True)
-class DevToReleaseReplacePolicy(BranchReplacePolicy):
-    def cleanup_branch_refs(self, branch_registry, project_id: int) -> list[BranchRef]:
-        branch = branch_registry.get_dev_branch_metadata(self.source_branch_ref.branch_value, project_id)
-        return [
-            branch_registry.dev_branch(version)
-            for version in branch_registry.versions_in_series(branch["version_series"], project_id)
-        ]

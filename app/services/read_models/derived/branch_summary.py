@@ -33,10 +33,7 @@ class BranchSummaryView:
             branch_ref = row["branch_ref"]
             if branch_ref not in branch_meta:
                 branch_order.append(branch_ref)
-                branch_meta[branch_ref] = {
-                    "version_series": row["version_series"],
-                    "is_candidate_release": row["is_candidate_release"],
-                }
+                branch_meta[branch_ref] = {"version_series": row["version_series"]}
             if row["variant_id"] is None or not row["business_key"]:
                 continue
             projections_by_branch[branch_ref][row["business_key"]] = row
@@ -62,7 +59,6 @@ class BranchSummaryView:
             }
             if branch_meta[branch_ref]["version_series"] is not None:
                 item["version_series"] = branch_meta[branch_ref]["version_series"]
-                item["is_candidate_release"] = branch_meta[branch_ref]["is_candidate_release"]
             branches.append(item)
         return {"branches": branches}
 

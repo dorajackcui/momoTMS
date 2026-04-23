@@ -265,37 +265,64 @@ def test_bootstrap_preview_reports_reuse_create_invalid_and_duplicate_rows_witho
     assert read_service.entries.get_entry("bootstrap.preview.new") is None
 
 
-def test_branch_import_paths_and_promote_cleanup() -> None:
+def test_branch_replace_only_rewrites_target_bindings() -> None:
     sample = reset_demo()
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
     read_service = branch_services()
     mutation_service = BranchMutationService()
     replace_service = BranchReplaceService()
 
-    result = mutation_service.apply(
+    mutation_service.apply(
         BranchRef.dev(sample["dev_version"]),
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
-    statuses = {row["business_key"]: row["status"] for row in result["report_rows"]}
-    assert statuses["rel.locked.same"] == "BOUND_EXISTING_VARIANT"
-    assert statuses["rel.locked.changed"] == "CREATED_AND_BOUND_VARIANT"
-    assert statuses["dev.mutable"] == "CREATED_AND_BOUND_VARIANT"
-    assert statuses["dev.new.entry"] == "CREATED_AND_BOUND_VARIANT"
+    mutation_service.apply(
+        BranchRef.dev("2.4.1"),
+        {
+            "kind": "direct",
+            "changes": [
+                {
+                    "business_key": "series.other.branch",
+                    "source": "Other branch source",
+                    "translations_by_lang": {"fr": "Other branch text"},
+                    "remarks_by_key": {"context": "other branch"},
+                }
+            ],
+        },
+    )
+
+    source_before = read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
+    other_before = read_service.list_branch_entries(BranchRef.dev("2.4.1"))
 
     preview = replace_service.preview(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
-    assert preview["request_echo"]["source_branch_ref"] == f"dev/{sample['dev_version']}"
-    assert preview["request_echo"]["target_branch_ref"] == "rel/current"
-    assert preview["summary"]["target_entry_count"] >= 4
+    result = replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
 
-    replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
-    rel_entries = read_service.list_branch_entries(BranchRef.rel_current())
-    rel_keys = {item["business_key"] for item in rel_entries}
-    assert {"rel.locked.same", "rel.locked.changed", "dev.mutable", "dev.new.entry"}.issubset(rel_keys)
-    assert read_service.list_dev_branches(active_only=True) == []
+    rel_after = read_service.list_branch_entries(BranchRef.rel_current())
+    source_after = read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
+    other_after = read_service.list_branch_entries(BranchRef.dev("2.4.1"))
+
+    assert preview["request_echo"] == {
+        "source_branch_ref": f"dev/{sample['dev_version']}",
+        "target_branch_ref": "rel/current",
+    }
+    assert preview["summary"]["final_target_entry_count"] == len(source_before)
+    assert "cleanup_binding_count" not in preview["summary"]
+    assert "binding_effect_counts" not in preview["summary"]
+    assert {row["business_key"] for row in rel_after} == {
+        row["business_key"] for row in source_before
+    }
+    assert {
+        row["business_key"]: row["variant_id"] for row in source_after
+    } == {
+        row["business_key"]: row["variant_id"] for row in source_before
+    }
+    assert other_after == other_before
+    assert result["summary"]["final_target_entry_count"] == len(source_before)
+    assert "cleanup_binding_count" not in result["summary"]
+    assert "binding_effect_counts" not in result["summary"]
 
 
 def test_effect_preview_summary_builder_counts_binding_variant_and_outcome() -> None:
@@ -396,25 +423,29 @@ def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() 
     assert execute_row["binding_effect"] == "rebind"
     assert execute_row["variant_resolution"] == "reuse_existing"
     assert execute_row["row_outcome"] == "applied"
-    assert preview["summary"]["target_entry_count"] == 1
+    assert preview["summary"]["final_target_entry_count"] == 1
     assert preview["summary"]["added_to_target_count"] == 0
     assert preview["summary"]["kept_in_target_count"] == 0
     assert preview["summary"]["rebind_target_count"] == 1
     assert preview["summary"]["removed_from_target_count"] == 5
-    assert preview["summary"]["binding_effect_counts"]["rebind_count"] == 1
-    assert preview["summary"]["variant_resolution_counts"]["reuse_existing_count"] >= 1
+    assert "cleanup_binding_count" not in preview["summary"]
+    assert "binding_effect_counts" not in preview["summary"]
+    assert "variant_resolution_counts" not in preview["summary"]
+    assert "row_outcome_counts" not in preview["summary"]
     assert "already_in_target_count" not in preview["summary"]
-    assert execute["summary"]["target_entry_count"] == 1
+    assert execute["summary"]["final_target_entry_count"] == 1
     assert execute["summary"]["added_to_target_count"] == 0
     assert execute["summary"]["kept_in_target_count"] == 0
     assert execute["summary"]["rebind_target_count"] == 1
     assert execute["summary"]["removed_from_target_count"] == 5
-    assert execute["summary"]["binding_effect_counts"]["rebind_count"] == 1
-    assert execute["summary"]["variant_resolution_counts"]["reuse_existing_count"] >= 1
+    assert "cleanup_binding_count" not in execute["summary"]
+    assert "binding_effect_counts" not in execute["summary"]
+    assert "variant_resolution_counts" not in execute["summary"]
+    assert "row_outcome_counts" not in execute["summary"]
     assert "already_in_target_count" not in execute["summary"]
 
 
-def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
+def test_replace_rolls_back_when_target_rewrite_fails(monkeypatch) -> None:
     sample = reset_demo()
     batch = ImportService().import_directory(sample["paths"]["import_dir"])
     read_service = branch_services()
@@ -425,31 +456,24 @@ def test_promote_rolls_back_when_cleanup_fails(monkeypatch) -> None:
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
 
-    rel_keys_before = {item["business_key"] for item in read_service.list_branch_entries(BranchRef.rel_current())}
-    dev_keys_before = {
-        item["business_key"] for item in read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
-    }
+    rel_before = read_service.list_branch_entries(BranchRef.rel_current())
+    dev_before = read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
 
-    def fail_cleanup(*args, **kwargs):
-        raise RuntimeError("promote cleanup failed")
+    def fail_upsert(*args, **kwargs):
+        raise RuntimeError("replace rewrite failed")
 
-    monkeypatch.setattr(replace_service.binding_commands, "remove_binding_rows", fail_cleanup)
+    monkeypatch.setattr(replace_service.binding_commands, "upsert_binding", fail_upsert)
 
-    with pytest.raises(RuntimeError, match="promote cleanup failed"):
+    with pytest.raises(RuntimeError, match="replace rewrite failed"):
         replace_service.execute(BranchRef.dev(sample["dev_version"]), BranchRef.rel_current())
 
-    rel_keys_after = {item["business_key"] for item in read_service.list_branch_entries(BranchRef.rel_current())}
-    dev_keys_after = {
-        item["business_key"] for item in read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
-    }
-    assert rel_keys_after == rel_keys_before
-    assert dev_keys_after == dev_keys_before
-    assert any(branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches(active_only=True))
-    assert read_service.get_dev_branch(sample["dev_version"])["promoted_at"] is None
+    rel_after = read_service.list_branch_entries(BranchRef.rel_current())
+    dev_after = read_service.list_branch_entries(BranchRef.dev(sample["dev_version"]))
+    assert rel_after == rel_before
+    assert dev_after == dev_before
 
 
 def test_direct_mutation_rolls_back_on_failure(monkeypatch) -> None:
@@ -493,7 +517,7 @@ def test_direct_mutation_rolls_back_on_failure(monkeypatch) -> None:
 
     assert read_service.entries.get_entry("tx.direct.one") is None
     assert read_service.entries.get_entry("tx.direct.two") is None
-    assert not any(branch["version"] == "2.4.3" for branch in read_service.list_dev_branches(active_only=True))
+    assert not any(branch["version"] == "2.4.3" for branch in read_service.list_dev_branches())
 
 
 def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
@@ -518,13 +542,12 @@ def test_import_batch_mutation_rolls_back_on_failure(monkeypatch) -> None:
             {
                 "kind": "import_batch",
                 "import_batch_id": batch["import_batch_id"],
-                "mark_as_candidate_release": True,
             },
         )
 
     assert read_service.entries.get_entry("dev.new.entry") is None
     assert not any(
-        branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches(active_only=True)
+        branch["version"] == sample["dev_version"] for branch in read_service.list_dev_branches()
     )
 
 
@@ -995,7 +1018,6 @@ def test_import_batch_sparse_patch_preserves_unmapped_languages_and_remarks(tmp_
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
     assert result["report_rows"][0]["status"] == "UPDATED_BOUND_VARIANT"
@@ -1068,7 +1090,6 @@ def test_import_batch_source_switch_preserves_existing_target_variant_fields(tmp
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
     assert result["report_rows"][0]["status"] == "UPDATED_AND_BOUND_EXISTING_VARIANT"
@@ -1123,7 +1144,6 @@ def test_import_batch_source_switch_new_variant_does_not_inherit_current_fields(
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
     assert result["report_rows"][0]["status"] == "CREATED_AND_BOUND_VARIANT"
@@ -1146,7 +1166,6 @@ def test_release_branch_rejects_import_batch_mutation() -> None:
             {
                 "kind": "import_batch",
                 "import_batch_id": batch["import_batch_id"],
-                "mark_as_candidate_release": True,
             },
         )
 
@@ -1557,7 +1576,6 @@ def test_lower_authority_dev_cannot_change_existing_higher_authority_variant_in_
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
 
@@ -1612,7 +1630,6 @@ def test_lower_authority_import_batch_rebinds_existing_target_and_filtered_conte
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
 

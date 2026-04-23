@@ -8,7 +8,7 @@
 
 ## Current Status
 
-`Phase 1` is complete.
+`Phase 1` through `Phase 6` are complete.
 
 What is already clear:
 
@@ -19,13 +19,13 @@ What is already clear:
 - operator-facing reads should converge into `app/services/read_models`
 - branch writes should converge around `app/services/branch`
 - replace preview should describe real binding changes, not only key overlap
+- `replace` is a pure target-binding rewrite and not a publish-state transition
+- branch runtime state should not carry candidate or promote metadata
 
 What is not fully closed yet:
 
-- `create` and `update` flows for branches are not yet expressed as one unified infra contract
-- preview capabilities are still only partially systematized
 - `scope` compatibility still exists in the runtime and frontend contract surface
-- lifecycle, pivot preview, and branch bootstrap flows still need an ordered design pass
+- pivot preview, lifecycle closure, and final contract convergence still need their own passes
 
 ## Working Principles
 
@@ -203,28 +203,31 @@ Session focus:
 
 Status:
 
-- partially implemented, not fully generalized
+- complete
 
 Goal:
 
 - define higher-order operations between branches without inventing new core concepts
 
-Questions to answer:
+Completed decisions:
 
-- what is the exact semantic difference between replace and promote
-- which branch pairs are valid for these operations
-- how authority should constrain branch-to-branch operations
-- how cleanup and candidate-release behavior fit into the same model
+- keep one public branch-to-branch workflow named `replace`
+- define `replace` as a pure binding rewrite on the target branch: clear target bindings, then copy source bindings onto the target branch
+- require the target branch's final active range to be exactly equal to the source branch's active range
+- keep the source branch unchanged
+- keep unrelated branches unchanged, including branches in the same version series
+- treat `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, and `REMOVE_FROM_TARGET` as preview and report observations rather than the core semantic definition
+- keep the current allowed public pair narrow: `dev/<version> -> rel/current`
+- remove `promoted_at`, `is_candidate_release`, `candidate_dev_branch`, and `mark_as_candidate_release` instead of keeping compatibility
 
-Target outputs:
+Artifacts:
 
-- stable replace/promote semantics
-- clear policy restrictions for allowed source and target branch pairs
-- consistent preview and execute behavior
+- [phase-6-branch-to-branch-operations-design.md](phase-6-branch-to-branch-operations-design.md): Phase 6 semantic design note
+- [phase-6-branch-to-branch-operations-implementation-plan.md](phase-6-branch-to-branch-operations-implementation-plan.md): execution plan for the Phase 6 runtime cleanup
 
 Session focus:
 
-- turn branch-to-branch operations into policy-specialized rebinding workflows
+- Phase 6 is implemented; use the design note and implementation plan as the reference point for any follow-up contract or cleanup work
 
 ### Phase 7: Pivot Workflow And Preview
 
@@ -322,27 +325,27 @@ Session focus:
 - authority must be defined before mutation semantics are finalized
 - branch creation must be defined before import- and upload-based workflows can be made canonical
 - mutation should be stable before preview families are generalized
-- replace and promote should be expressed on top of branch and mutation rules, not before them
+- replace and any later branch-to-branch policy should be expressed on top of branch and mutation rules, not before them
 - pivot should plug into a stable variant and branch model
 - lifecycle should be checked against real workflows after the main write semantics are known
 - frontend and compatibility convergence should happen after the backend contracts stop moving
 
 ## Suggested Next Session
 
-Start with `Phase 5: Preview System`.
+Implement `Phase 7: Pivot Workflow And Preview`.
 
 Concrete goal for that session:
 
-- align preview behavior around the now-stable Phase 4 mutation semantics
-- define how mutation preview, replace preview, and later pivot preview should present a consistent operator contract
-- decide which preview rows describe range change versus content change without reopening the underlying mutation contract
+- define the pivot preview contract
+- align pivot review flow with branch visibility and authority
+- keep pivot grounded as variant-local workflow state
 
 Success condition:
 
-- after that session, the project should have a stable preview family that builds on the implemented mutation contract instead of inventing separate preview semantics
+- after that session, pivot preview and review should speak one stable operator contract without reopening branch or lifecycle semantics
 
 ## Simple Memory Hook
 
 If a future session needs a quick restart point, use this sentence:
 
-`Phase 1 through Phase 4 are done; next converge Phase 5 preview semantics on top of the implemented mutation contract.`
+`Phase 1 through Phase 6 are done; next finish the pivot preview and review contract without turning pivot into a parallel model.`

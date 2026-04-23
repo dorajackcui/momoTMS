@@ -3,15 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.branch.models import BranchRef
-from app.services.branch.preview_contract import (
-    EffectPreviewSummaryBuilder,
-    effect_forecast_row,
-)
+from app.services.branch.preview_contract import effect_forecast_row
 from app.services.branch.policy import BranchReplacePolicy
-from app.services.branch.registry import BranchRegistryService
 from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.read_models.datasets.scope_members import ScopeMembershipDataset
-from app.services.read_models.repository import ReadModelRepository
 from app.services.read_models.selectors import ScopeSelector, VariantFilter
 
 
@@ -20,12 +15,8 @@ class ReplacePreviewView:
         self,
         *,
         scope_members: ScopeMembershipDataset | None = None,
-        branch_registry: BranchRegistryService | None = None,
-        repository: ReadModelRepository | None = None,
     ) -> None:
         self.scope_members = scope_members or ScopeMembershipDataset()
-        self.branch_registry = branch_registry or BranchRegistryService()
-        self.repository = repository or ReadModelRepository()
 
     def build(
         self,
@@ -34,7 +25,7 @@ class ReplacePreviewView:
         *,
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
-        policy = BranchReplacePolicy.for_branches(source_branch_ref, target_branch_ref)
+        _ = BranchReplacePolicy.for_branches(source_branch_ref, target_branch_ref)
         source_payload = self.scope_members.list(
             ScopeSelector.from_branch(source_branch_ref),
             filters=VariantFilter(state="all"),
@@ -61,12 +52,6 @@ class ReplacePreviewView:
             if int(source_rows[key]["variant_id"]) != int(target_rows[key]["variant_id"])
         )
         removed = sorted(target_keys - source_keys)
-        cleanup_branch_refs = policy.cleanup_branch_refs(self.branch_registry, project_id)
-        cleanup_binding_count = sum(
-            self.repository.count_scope_members(project_id, ScopeSelector.from_branch(branch_ref))
-            for branch_ref in cleanup_branch_refs
-        )
-        summary_builder = EffectPreviewSummaryBuilder()
         rows = [
             effect_forecast_row(
                 {"business_key": key, "status": "ADD_TO_TARGET"},
@@ -101,16 +86,12 @@ class ReplacePreviewView:
             )
             for key in removed
         )
-        for row in rows:
-            summary_builder.add_row(row)
         summary = {
-            "target_entry_count": len(source_keys),
+            "final_target_entry_count": len(source_keys),
             "added_to_target_count": len(added),
             "kept_in_target_count": len(kept),
             "rebind_target_count": len(rebind),
             "removed_from_target_count": len(removed),
-            "cleanup_binding_count": cleanup_binding_count,
-            **summary_builder.as_dict(),
         }
         return {
             "preview_kind": "effect_forecast",

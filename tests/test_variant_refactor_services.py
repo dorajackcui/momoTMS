@@ -114,15 +114,16 @@ def test_project_state_query_budget_with_active_dev_branch() -> None:
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
 
     query_count, state = count_sql_queries(lambda: ProjectBootstrapService().get_state(DEFAULT_PROJECT_ID))
 
     assert state["release_summary"]["branch_ref"] == "rel/current"
-    assert state["candidate_dev_branch"] is not None
-    assert state["candidate_dev_branch"]["branch_ref"] == f"dev/{sample['dev_version']}"
+    assert "candidate_dev_branch" not in state
+    assert state["dev_branches"][0]["branch_ref"] == f"dev/{sample['dev_version']}"
+    assert "is_candidate_release" not in state["dev_branches"][0]
+    assert "promoted_at" not in state["dev_branches"][0]
     assert state["dev_branches"][0]["branch_ref"] == f"dev/{sample['dev_version']}"
     assert query_count <= 12
 
@@ -136,7 +137,6 @@ def test_branch_summary_query_budget_with_active_dev_branch() -> None:
         {
             "kind": "import_batch",
             "import_batch_id": batch["import_batch_id"],
-            "mark_as_candidate_release": True,
         },
     )
 
@@ -145,5 +145,5 @@ def test_branch_summary_query_budget_with_active_dev_branch() -> None:
 
     assert "rel/current" in branches
     assert f"dev/{sample['dev_version']}" in branches
-    assert branches[f"dev/{sample['dev_version']}"]["is_candidate_release"] is True
+    assert "is_candidate_release" not in branches[f"dev/{sample['dev_version']}"]
     assert query_count <= 3

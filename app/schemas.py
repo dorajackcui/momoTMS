@@ -59,14 +59,12 @@ class DevBranchSummary(BaseModel):
     version: str
     version_series: str
     branch_ref: str
-    is_candidate_release: bool
     entry_count: int
     bootstrap_state: Literal["not_bootstrapped", "bootstrapped"] = "not_bootstrapped"
     bootstrapped_at: str | None = None
     bootstrap_job_id: int | None = None
     bootstrap_import_batch_id: int | None = None
     created_at: str
-    promoted_at: str | None = None
 
 
 class DevBranchDetail(DevBranchSummary):
@@ -154,7 +152,6 @@ class ProductStateResponse(BaseModel):
     project: ProjectSummary
     project_schema: ProjectSchemaSummary = Field(alias="schema")
     release_summary: dict[str, Any] = Field(default_factory=dict)
-    candidate_dev_branch: DevBranchDetail | None = None
     dev_branches: list[DevBranchSummary] = Field(default_factory=list)
     imports: list[ImportBatchSummary] = Field(default_factory=list)
     jobs: list[JobSummary] = Field(default_factory=list)
@@ -165,7 +162,6 @@ class BranchSummaryItem(BaseModel):
     entry_count: int
     status_counts: dict[str, int] = Field(default_factory=dict)
     version_series: str | None = None
-    is_candidate_release: bool | None = None
 
 
 class BranchListResponse(BaseModel):
@@ -396,9 +392,10 @@ class BranchDirectMutationInput(BaseModel):
 
 
 class BranchImportBatchMutationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["import_batch"]
     import_batch_id: int
-    mark_as_candidate_release: bool = True
 
 
 BranchMutationInput = Annotated[

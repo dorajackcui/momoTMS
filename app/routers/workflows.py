@@ -86,7 +86,7 @@ def project_list_dev_branches(project_id: int) -> list[DevBranchSummary]:
     return handle_errors(
         lambda: [
             DevBranchSummary(**item)
-            for item in BranchCatalogView().list_dev_branches(project_id=project_id, active_only=True)
+            for item in BranchCatalogView().list_dev_branches(project_id=project_id)
         ]
     )
 

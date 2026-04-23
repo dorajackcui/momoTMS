@@ -68,7 +68,6 @@ class BranchCatalogView:
         self,
         project_id: int = DEFAULT_PROJECT_ID,
         *,
-        active_only: bool = True,
         skip_project_check: bool = False,
     ) -> list[dict[str, Any]]:
         if not skip_project_check:
@@ -77,9 +76,7 @@ class BranchCatalogView:
             SELECT
                 d.version,
                 d.version_line,
-                d.is_candidate_release,
                 d.created_at,
-                d.promoted_at,
                 d.bootstrapped_at,
                 d.bootstrap_job_id,
                 d.bootstrap_import_batch_id,
@@ -101,16 +98,12 @@ class BranchCatalogView:
             WHERE d.project_id = ?
         """
         params: list[Any] = [project_id]
-        if active_only:
-            query += " AND d.promoted_at IS NULL"
         query += """
             GROUP BY
                 d.project_id,
                 d.version,
                 d.version_line,
-                d.is_candidate_release,
                 d.created_at,
-                d.promoted_at,
                 d.bootstrapped_at,
                 d.bootstrap_job_id,
                 d.bootstrap_import_batch_id
@@ -124,10 +117,8 @@ class BranchCatalogView:
                 "version": row["version"],
                 "version_series": row["version_line"],
                 "branch_ref": str(self.dev_branch(row["version"])),
-                "is_candidate_release": bool(row["is_candidate_release"]),
                 "entry_count": int(row["entry_count"] or 0),
                 "created_at": row["created_at"],
-                "promoted_at": row["promoted_at"],
                 "bootstrap_state": "bootstrapped" if row["bootstrapped_at"] else "not_bootstrapped",
                 "bootstrapped_at": row["bootstrapped_at"],
                 "bootstrap_job_id": (
@@ -142,31 +133,11 @@ class BranchCatalogView:
 
     def get_dev_branch(self, version: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
         self.projects.require_project(project_id)
-        for branch in self.list_dev_branches(project_id=project_id, active_only=False, skip_project_check=True):
+        for branch in self.list_dev_branches(project_id=project_id, skip_project_check=True):
             if branch["version"] == version:
                 branch["entries"] = self.list_branch_entries(self.dev_branch(version), project_id=project_id)
                 return branch
         raise KeyError(f"dev branch not found: {version}")
-
-    def get_candidate_dev_branch(
-        self,
-        project_id: int = DEFAULT_PROJECT_ID,
-        active_branches: list[dict[str, Any]] | None = None,
-        skip_project_check: bool = False,
-    ) -> dict[str, Any] | None:
-        if not skip_project_check:
-            self.projects.require_project(project_id)
-        branches = (
-            active_branches
-            if active_branches is not None
-            else self.list_dev_branches(project_id=project_id, skip_project_check=True)
-        )
-        for branch in branches:
-            if branch["is_candidate_release"]:
-                branch_detail = dict(branch)
-                branch_detail["entries"] = self.list_branch_entries(self.dev_branch(branch["version"]), project_id=project_id)
-                return branch_detail
-        return None
 
     def list_branch_entries(
         self,

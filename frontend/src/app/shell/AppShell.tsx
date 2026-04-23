@@ -460,13 +460,7 @@ function resolveBranchRef(
   bootstrap: ProductStateResponse | undefined,
   branchSummary: BranchListResponse | undefined,
 ) {
-  if (requestedBranchRef === "rel/current") {
-    return requestedBranchRef;
-  }
   const branchRefs = new Set<string>(["rel/current"]);
-  if (bootstrap?.candidate_dev_branch?.branch_ref) {
-    branchRefs.add(bootstrap.candidate_dev_branch.branch_ref);
-  }
   bootstrap?.dev_branches.forEach((branch) => branchRefs.add(branch.branch_ref));
   branchSummary?.branches.forEach((branch) => branchRefs.add(branch.branch_ref));
   if (requestedBranchRef && branchRefs.has(requestedBranchRef)) {
@@ -475,9 +469,5 @@ function resolveBranchRef(
   if (!bootstrap && !branchSummary) {
     return null;
   }
-  return (
-    bootstrap?.candidate_dev_branch?.branch_ref ||
-    bootstrap?.dev_branches[0]?.branch_ref ||
-    "rel/current"
-  );
+  return bootstrap?.dev_branches[0]?.branch_ref || "rel/current";
 }

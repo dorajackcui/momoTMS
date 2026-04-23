@@ -28,10 +28,12 @@ export type DevBranchSummary = {
   version: string;
   version_series: string;
   branch_ref: string;
-  is_candidate_release: boolean;
   entry_count: number;
+  bootstrap_state: "not_bootstrapped" | "bootstrapped";
+  bootstrapped_at: string | null;
+  bootstrap_job_id: number | null;
+  bootstrap_import_batch_id: number | null;
   created_at: string;
-  promoted_at: string | null;
 };
 
 export type DevBranchDetail = DevBranchSummary & {
@@ -43,7 +45,6 @@ export type BranchSummaryItem = {
   entry_count: number;
   status_counts: Record<string, number>;
   version_series: string | null;
-  is_candidate_release: boolean | null;
 };
 
 export type BranchListResponse = {
@@ -196,5 +197,4 @@ export type BranchMutationInput =
   | {
       kind: "import_batch";
       import_batch_id: number;
-      mark_as_candidate_release: boolean;
     };
