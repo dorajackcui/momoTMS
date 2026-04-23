@@ -1436,3 +1436,19 @@ def test_entry_timeline_excludes_trashed_variants() -> None:
         assert response.status_code == 200
         variants = response.json()["variants"]
         assert all(v["is_trashed"] is False for v in variants)
+
+
+def test_orphan_scope_returns_unbound_non_trashed_variants() -> None:
+    reset_demo()
+    variant_service = TrashRestoreService()
+
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+
+    with TestClient(app) as client:
+        response = client.get("/api/projects/1/scopes/orphan/rows")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["scope_ref"] == "orphan"
+        orphan_keys = {row["business_key"] for row in payload["rows"]}
+        assert "common.welcome" in orphan_keys
+        assert all(row["state"] == "orphan" for row in payload["rows"])

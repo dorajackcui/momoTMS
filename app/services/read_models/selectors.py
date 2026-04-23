@@ -22,11 +22,17 @@ class ScopeSelector:
             raise ValueError("scope ref is required")
         if normalized == "master":
             return cls.master()
+        if normalized == "orphan":
+            return cls.orphan()
         return cls.from_branch(BranchRef.parse(normalized))
 
     @classmethod
     def master(cls) -> ScopeSelector:
         return cls(scope_ref="master")
+
+    @classmethod
+    def orphan(cls) -> ScopeSelector:
+        return cls(scope_ref="orphan")
 
     @classmethod
     def from_branch(cls, branch_ref: BranchRef) -> ScopeSelector:
@@ -37,8 +43,12 @@ class ScopeSelector:
         return self.scope_ref == "master"
 
     @property
+    def is_orphan(self) -> bool:
+        return self.scope_ref == "orphan"
+
+    @property
     def branch_ref(self) -> BranchRef | None:
-        if self.is_master:
+        if self.is_master or self.is_orphan:
             return None
         return BranchRef.parse(self.scope_ref)
 

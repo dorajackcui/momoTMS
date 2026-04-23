@@ -393,7 +393,14 @@ class ReadModelRepository:
             "v.trashed_at IS NULL",
         ]
         params: list[Any] = [project_id]
-        if not scope_selector.is_master:
+        if scope_selector.is_orphan:
+            where_clauses.append(
+                "NOT EXISTS ("
+                "SELECT 1 FROM scope_bindings b "
+                "WHERE b.variant_id = v.variant_id"
+                ")"
+            )
+        elif not scope_selector.is_master:
             branch_ref = scope_selector.branch_ref
             if branch_ref is None:
                 raise ValueError("branch scope selector is required")
