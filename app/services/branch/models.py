@@ -14,6 +14,7 @@ DEV_SERIES_AUTHORITY: dict[str, int] = {
 class BranchKind(str, Enum):
     REL = "rel"
     DEV = "dev"
+    ORPHAN = "orphan"
 
 
 def parse_dev_version(version: str) -> tuple[int, int, int]:
@@ -44,6 +45,10 @@ class BranchRef:
         if not normalized_value:
             raise ValueError("branch value is required")
         object.__setattr__(self, "branch_value", normalized_value)
+        if self.branch_kind == BranchKind.ORPHAN:
+            if normalized_value != "orphan":
+                raise ValueError(f"invalid orphan branch: {self}")
+            return
         if self.branch_kind == BranchKind.REL:
             if normalized_value != "current":
                 raise ValueError(f"invalid release branch: {self}")
@@ -52,6 +57,8 @@ class BranchRef:
 
     @classmethod
     def parse(cls, branch_ref: str) -> BranchRef:
+        if branch_ref.strip() == "orphan":
+            return cls.orphan()
         if "/" not in branch_ref:
             raise ValueError(f"invalid branch ref: {branch_ref}")
         branch_kind_raw, branch_value = branch_ref.split("/", 1)
@@ -69,6 +76,10 @@ class BranchRef:
     def dev(cls, version: str) -> BranchRef:
         return cls(branch_kind=BranchKind.DEV, branch_value=version)
 
+    @classmethod
+    def orphan(cls) -> BranchRef:
+        return cls(branch_kind=BranchKind.ORPHAN, branch_value="orphan")
+
     @property
     def is_rel(self) -> bool:
         return self.branch_kind == BranchKind.REL
@@ -76,6 +87,10 @@ class BranchRef:
     @property
     def is_dev(self) -> bool:
         return self.branch_kind == BranchKind.DEV
+
+    @property
+    def is_orphan(self) -> bool:
+        return self.branch_kind == BranchKind.ORPHAN
 
     @property
     def version(self) -> str | None:
@@ -94,7 +109,11 @@ class BranchRef:
         return parse_dev_version(self.branch_value)
 
     def as_tuple(self) -> tuple[str, str]:
+        if self.is_orphan:
+            raise ValueError("orphan branch cannot be used as a scope binding")
         return self.branch_kind.value, self.branch_value
 
     def __str__(self) -> str:
+        if self.is_orphan:
+            return "orphan"
         return f"{self.branch_kind.value}/{self.branch_value}"

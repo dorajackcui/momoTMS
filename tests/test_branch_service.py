@@ -18,6 +18,29 @@ from app.services.workflows.trash_restore import TrashRestoreService
 from tests.service_helpers import branch_services
 
 
+def test_branch_ref_orphan_factory_and_properties() -> None:
+    ref = BranchRef.orphan()
+    assert str(ref) == "orphan"
+    assert ref.is_orphan is True
+    assert ref.is_rel is False
+    assert ref.is_dev is False
+    assert ref.version is None
+    assert ref.version_series is None
+    assert ref.version_parts is None
+
+
+def test_branch_ref_orphan_parse_round_trip() -> None:
+    ref = BranchRef.parse("orphan")
+    assert ref.is_orphan is True
+    assert str(ref) == "orphan"
+
+
+def test_branch_ref_orphan_as_tuple_raises() -> None:
+    ref = BranchRef.orphan()
+    with pytest.raises(ValueError, match="orphan branch cannot be used as a scope binding"):
+        ref.as_tuple()
+
+
 def reset_demo() -> dict:
     db_path = get_db_path()
     if Path(db_path).exists():
