@@ -1193,7 +1193,7 @@ def test_release_branch_rejects_import_batch_mutation() -> None:
         )
 
 
-def test_release_hotfix_and_trash_restore_round_trip() -> None:
+def test_release_hotfix_and_branch_delete_produces_orphan() -> None:
     sample = reset_demo()
     mutation_service = BranchMutationService()
     variant_service = TrashRestoreService()
@@ -1234,14 +1234,35 @@ def test_release_hotfix_and_trash_restore_round_trip() -> None:
     before_delete = EntryTimelineDataset().get("common.welcome")
     target_variant_id = before_delete["variants"][0]["variant_id"]
     delete_result = variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
-    assert delete_result["summary"]["trashed_variant_count"] == 1
+    assert delete_result["summary"]["orphaned_variant_count"] == 1
 
-    restore_result = variant_service.restore([target_variant_id])
-    assert restore_result["summary"]["restored_count"] == 1
+    after_delete = EntryTimelineDataset().get("common.welcome")
+    orphaned = next(v for v in after_delete["variants"] if v["variant_id"] == target_variant_id)
+    assert orphaned["is_orphaned"] is True
+    assert orphaned["is_trashed"] is False
 
-    after_restore = EntryTimelineDataset().get("common.welcome")
-    restored_variant = next(item for item in after_restore["variants"] if item["variant_id"] == target_variant_id)
-    assert restored_variant["restored_at"] is not None
+
+def test_branch_delete_produces_orphan_instead_of_trashed() -> None:
+    sample = reset_demo()
+    variant_service = TrashRestoreService()
+    inspection = EntryTimelineDataset()
+
+    before = inspection.get("common.welcome")
+    target_variant_id = before["variants"][0]["variant_id"]
+    assert before["variants"][0]["is_trashed"] is False
+
+    result = variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+
+    assert result["summary"]["orphaned_variant_count"] == 1
+    assert "trashed_variant_count" not in result["summary"]
+    orphan_row = next(r for r in result["report_rows"] if r["business_key"] == "common.welcome")
+    assert orphan_row["status"] == "ORPHANED_VARIANT"
+
+    after = inspection.get("common.welcome")
+    variant_after = next(v for v in after["variants"] if v["variant_id"] == target_variant_id)
+    assert variant_after["is_orphaned"] is True
+    assert variant_after["is_trashed"] is False
+    assert variant_after["trashed_at"] is None
 
 
 def test_delete_rolls_back_on_failure(monkeypatch) -> None:
@@ -1249,12 +1270,12 @@ def test_delete_rolls_back_on_failure(monkeypatch) -> None:
     variant_service = TrashRestoreService()
     read_service = branch_services()
 
-    def fail_trash_variant(*args, **kwargs):
-        raise RuntimeError("trash delete failed")
+    def fail_refresh(*args, **kwargs):
+        raise RuntimeError("delete refresh failed")
 
-    monkeypatch.setattr(variant_service.lifecycle, "trash_variant", fail_trash_variant)
+    monkeypatch.setattr(variant_service.lifecycle, "refresh_orphan_states", fail_refresh)
 
-    with pytest.raises(RuntimeError, match="trash delete failed"):
+    with pytest.raises(RuntimeError, match="delete refresh failed"):
         variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
 
     rel_keys = {item["business_key"] for item in read_service.list_branch_entries(BranchRef.rel_current())}

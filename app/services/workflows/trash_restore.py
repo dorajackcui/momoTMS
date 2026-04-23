@@ -26,7 +26,7 @@ class TrashRestoreService:
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, list[dict[str, object]] | dict[str, int]]:
         self.projects.require_project(project_id)
-        trashed_variant_count = 0
+        orphaned_variant_count = 0
         removed_binding_count = 0
         not_bound_count = 0
         missing_count = 0
@@ -51,15 +51,15 @@ class TrashRestoreService:
                     continue
                 variant_id = int(binding["variant_id"])
                 self.binding_commands.remove_binding(int(entry["entry_id"]), branch_ref, conn=conn)
+                self.lifecycle.refresh_orphan_states(int(entry["entry_id"]), conn=conn)
                 if self.binding_lookup.count_variant_bindings(variant_id, conn=conn) == 0:
-                    self.lifecycle.trash_variant(variant_id, int(entry["entry_id"]), trash_days=30, conn=conn)
-                    trashed_variant_count += 1
+                    orphaned_variant_count += 1
                     report_rows.append(
                         {
                             "business_key": business_key,
                             "branch_ref": str(branch_ref),
                             "variant_id": variant_id,
-                            "status": "TRASHED_VARIANT",
+                            "status": "ORPHANED_VARIANT",
                         }
                     )
                 else:
@@ -74,7 +74,7 @@ class TrashRestoreService:
                     )
         summary = {
             "branch_ref": str(branch_ref),
-            "trashed_variant_count": trashed_variant_count,
+            "orphaned_variant_count": orphaned_variant_count,
             "removed_binding_count": removed_binding_count,
             "not_bound_count": not_bound_count,
             "missing_count": missing_count,
