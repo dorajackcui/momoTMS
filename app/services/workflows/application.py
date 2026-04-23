@@ -267,23 +267,6 @@ class WorkflowApplicationService:
             project_id=project_id,
         )
 
-    def trash_restore(
-        self,
-        variant_ids: list[int],
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> dict[str, Any]:
-        return self._run_job(
-            "trash_restore",
-            {"variant_ids": variant_ids, "project_id": project_id},
-            lambda _job_id: self._wrap_report(
-                self.trash_restore_service.restore(
-                    variant_ids,
-                    project_id=project_id,
-                )
-            ),
-            project_id=project_id,
-        )
-
     def pivot_review(
         self,
         branch_ref: str,

@@ -368,36 +368,6 @@ class _VariantStore:
         with get_conn() as local_conn:
             self.trash_variant(variant_id, timestamp, trash_until, conn=local_conn)
 
-    def restore_variant(
-        self,
-        variant_id: int,
-        timestamp: str,
-        conn: sqlite3.Connection | None = None,
-    ) -> bool:
-        if conn is not None:
-            cur = conn.execute(
-                """
-                UPDATE variants
-                SET trashed_at = NULL,
-                    trash_until = NULL,
-                    restored_at = ?,
-                    updated_at = ?
-                WHERE variant_id = ?
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM variants active
-                      WHERE active.entry_id = variants.entry_id
-                        AND active.source = variants.source
-                        AND active.trashed_at IS NULL
-                        AND active.variant_id != variants.variant_id
-                  )
-                """,
-                (timestamp, timestamp, variant_id),
-            )
-            return cur.rowcount > 0
-        with get_conn() as local_conn:
-            return self.restore_variant(variant_id, timestamp, conn=local_conn)
-
     def set_pivot_changed(
         self,
         variant_id: int,

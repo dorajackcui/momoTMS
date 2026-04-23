@@ -435,11 +435,6 @@ class BranchTrashDeleteRequest(BaseModel):
 class ProjectTrashRequest(BaseModel):
     business_keys: list[str]
 
-
-class VariantTrashRestoreRequest(BaseModel):
-    variant_ids: list[int]
-
-
 class PivotReviewRequest(BaseModel):
     branch_ref: str
     variant_ids: list[int] = Field(default_factory=list)

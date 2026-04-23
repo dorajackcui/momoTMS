@@ -19,7 +19,6 @@ from app.schemas import (
     QaRequest,
     BranchTrashDeleteRequest,
     ProjectTrashRequest,
-    VariantTrashRestoreRequest,
 )
 from app.services.read_models.derived.branch_catalog import BranchCatalogView
 from app.services.workflows.application import WorkflowApplicationService
@@ -143,18 +142,6 @@ def project_trash(project_id: int, payload: ProjectTrashRequest) -> JobDetail:
         lambda: JobDetail(
             **WorkflowApplicationService().project_trash(
                 payload.business_keys,
-                project_id=project_id,
-            )
-        )
-    )
-
-
-@router.post("/api/projects/{project_id}/variants/trash/restore", response_model=JobDetail)
-def project_trash_restore(project_id: int, payload: VariantTrashRestoreRequest) -> JobDetail:
-    return handle_errors(
-        lambda: JobDetail(
-            **WorkflowApplicationService().trash_restore(
-                payload.variant_ids,
                 project_id=project_id,
             )
         )

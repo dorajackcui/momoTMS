@@ -82,14 +82,6 @@ class VariantCommandRepository:
     ) -> None:
         self._store.trash_variant(variant_id, timestamp, trash_until, conn=conn)
 
-    def restore_variant(
-        self,
-        variant_id: int,
-        timestamp: str,
-        conn: sqlite3.Connection | None = None,
-    ) -> bool:
-        return self._store.restore_variant(variant_id, timestamp, conn=conn)
-
     def set_pivot_changed(
         self,
         variant_id: int,

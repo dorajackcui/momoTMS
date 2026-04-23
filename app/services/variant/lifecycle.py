@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import sqlite3
 
 from app.services.shared.utils import now_iso
@@ -38,18 +37,6 @@ class VariantLifecycleService:
                 orphaned_at = None
             self._variant_commands.set_orphaned_at(variant_id, orphaned_at, conn=conn)
 
-    def trash_variant(
-        self,
-        variant_id: int,
-        entry_id: int,
-        trash_days: int = 30,
-        conn: sqlite3.Connection | None = None,
-        timestamp: str | None = None,
-    ) -> None:
-        marker = timestamp or now_iso()
-        self._variant_commands.trash_variant(variant_id, marker, self._trash_until(trash_days), conn=conn)
-        self.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
-
     def trash_orphan(
         self,
         variant_id: int,
@@ -60,20 +47,3 @@ class VariantLifecycleService:
         marker = timestamp or now_iso()
         self._variant_commands.trash_variant(variant_id, marker, "", conn=conn)
         self.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
-
-    def restore_variant(
-        self,
-        variant_id: int,
-        entry_id: int,
-        conn: sqlite3.Connection | None = None,
-        timestamp: str | None = None,
-    ) -> bool:
-        marker = timestamp or now_iso()
-        restored = self._variant_commands.restore_variant(variant_id, marker, conn=conn)
-        if not restored:
-            return False
-        self.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
-        return True
-
-    def _trash_until(self, days: int) -> str:
-        return (datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=days)).isoformat()

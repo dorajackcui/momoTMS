@@ -6,7 +6,7 @@ from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.variant.bindings import BindingCommandService, BindingLookupService
 from app.services.variant.entries import EntryService
 from app.services.variant.lifecycle import VariantLifecycleService
-from app.services.variant.normalization import normalize_business_keys, normalize_variant_ids
+from app.services.variant.normalization import normalize_business_keys
 from app.services.variant.catalog import VariantCatalogService
 
 
@@ -136,57 +136,3 @@ class TrashRestoreService:
         }
         return {"summary": summary, "report_rows": report_rows}
 
-    def restore(
-        self,
-        variant_ids: list[int],
-        project_id: int = DEFAULT_PROJECT_ID,
-    ) -> dict[str, list[dict[str, object]] | dict[str, int]]:
-        self.projects.require_project(project_id)
-        restored_count = 0
-        source_conflict_count = 0
-        not_trashed_count = 0
-        missing_count = 0
-        report_rows: list[dict[str, object]] = []
-        with get_conn() as conn:
-            for variant_id in normalize_variant_ids(variant_ids):
-                try:
-                    variant = self.catalog.get_variant(variant_id, conn=conn)
-                except KeyError:
-                    missing_count += 1
-                    report_rows.append({"variant_id": variant_id, "status": "MISSING"})
-                    continue
-                entry = self.entries.get_entry_by_id(int(variant["entry_id"]), conn=conn)
-                if entry is None or int(entry["project_id"]) != project_id:
-                    missing_count += 1
-                    report_rows.append({"variant_id": variant_id, "status": "MISSING"})
-                    continue
-                if variant["trashed_at"] is None:
-                    not_trashed_count += 1
-                    report_rows.append({"variant_id": variant_id, "status": "NOT_TRASHED"})
-                    continue
-                restored = self.lifecycle.restore_variant(variant_id, int(entry["entry_id"]), conn=conn)
-                if not restored:
-                    source_conflict_count += 1
-                    report_rows.append(
-                        {
-                            "variant_id": variant_id,
-                            "business_key": entry["business_key"],
-                            "status": "SOURCE_CONFLICT",
-                        }
-                    )
-                    continue
-                restored_count += 1
-                report_rows.append(
-                    {
-                        "variant_id": variant_id,
-                        "business_key": entry["business_key"],
-                        "status": "RESTORED",
-                    }
-                )
-        summary = {
-            "restored_count": restored_count,
-            "source_conflict_count": source_conflict_count,
-            "not_trashed_count": not_trashed_count,
-            "missing_count": missing_count,
-        }
-        return {"summary": summary, "report_rows": report_rows}
