@@ -2,11 +2,11 @@
 
 ## Purpose
 
-- own the stable rules for import, mutation, sync, trash, restore, fill, QA, and Excel or normalization behavior
+- own the stable rules for import, mutation, sync, branch delete, project trash, fill, QA, and Excel or normalization behavior
 
 ## Read This When
 
-- you are changing workbook parsing, branch writes, sync behavior, deletion or restore flows, fill, QA, or IO helpers
+- you are changing workbook parsing, branch writes, sync behavior, branch delete, project trash, fill, QA, or IO helpers
 - you need the workflow semantics behind the public routes
 
 ## Owns
@@ -15,7 +15,7 @@
 - schema-driven workbook rules
 - import rules
 - branch mutation and sync semantics
-- trash and restore semantics
+- branch delete (unbind) and project trash semantics
 - fill and QA behavior
 
 ## Does Not Own
@@ -33,7 +33,7 @@
 - normalization helpers: `app/services/shared/io.py`
 - import parsing and persistence: `app/services/imports/service.py`
 - branch mutation and sync policy: `app/services/branch/`
-- variant trash or restore workflows: `app/services/workflows/trash_restore.py`
+- variant trash or restore workflows: `app/services/workflows/trash_restore.py` (restore removed; trash-only)
 - fill and QA orchestration: `app/services/workflows/`
 
 ## Normalization Rules
@@ -217,29 +217,37 @@ Mutation rules:
 - execute runs in one DB transaction
 - replace summary fields are `final_target_entry_count`, `added_to_target_count`, `kept_in_target_count`, `rebind_target_count`, and `removed_from_target_count`
 
-## Trash And Restore Rules
+## Branch Delete (Unbind) Rules
 
-- delete is project-scoped and takes `branch_ref` plus `business_keys[]`
-- delete executes in one DB transaction per request
-- delete removes the active binding in the selected branch
-- if the affected variant no longer has any active bindings, delete moves that variant into `trashed`
-- if other branches still bind the same variant, delete only removes the selected branch binding
-- restore is project-scoped and takes `variant_ids[]`
-- restore executes in one DB transaction per request
-- restore clears trashed state for the selected variants only; it does not rebind scopes automatically
-- restore may fail with `SOURCE_CONFLICT` when the same entry already has another live same-source variant
-- business-result rows such as `MISSING`, `NOT_BOUND_IN_SCOPE`, `NOT_TRASHED`, and `SOURCE_CONFLICT` stay request-local report statuses; only unhandled errors roll back the whole request
+- branch delete is branch-scoped and takes `branch_ref` plus `business_keys[]`
+- branch delete executes in one DB transaction per request
+- branch delete removes the active binding in the selected branch
+- if the affected variant no longer has any active bindings, it becomes orphan (not trashed)
+- if other branches still bind the same variant, branch delete only removes the selected branch binding
+- no authority check; an operator can always unbind entries from their own branch
+- report statuses: `ORPHANED_VARIANT`, `REMOVED_BINDING`, `NOT_BOUND_IN_SCOPE`, `MISSING`
+- summary fields: `orphaned_variant_count`, `removed_binding_count`, `not_bound_count`, `missing_count`
+
+## Project Trash Rules
+
+- project trash is project-scoped and takes `business_keys[]`
+- project trash executes in one DB transaction per request
+- project trash sets `trashed_at` on orphan variants only (zero bindings)
+- active variants (with bindings) are reported as `NOT_ORPHAN` and skipped
+- trashed is terminal: no restore, no cleanup, no way back
+- no authority check; project trash is a project-level admin action
+- report statuses: `TRASHED`, `NOT_ORPHAN`, `NO_ORPHAN_FOUND`, `MISSING`
+- summary fields: `trashed_count`, `not_orphan_count`, `no_orphan_found_count`, `missing_count`
 
 ## Fill Rules
 
 - fill matches workbook rows by normalized `business_key + source`
 - if either value becomes empty, the row is not a valid fill candidate
-- fill candidate lookup is project-scoped and reads all recorded variants for that project, including `active`, `orphan`, and `trashed`
-- when the same `business_key + source` has both non-trashed and trashed candidates, fill always prefers the non-trashed candidate
-- when only trashed same-source history remains, fill uses the candidate with the newest `updated_at`
+- fill candidate lookup is project-scoped and reads all live (non-trashed) variants for that project, including `active` and `orphan` states
+- trashed variants are completely excluded from fill candidate lookup
 - `SRC_MISMATCH` means the `business_key` exists in the project but no variant in project history matches the workbook `source`
 - `MISSING_KEY_IN_PROJECT` means the `business_key` does not exist anywhere in the project history
-- fill report rows record `match_variant_id` and `match_variant_state` (`active`, `orphan`, or `trashed`) instead of a branch label
+- fill report rows record `match_variant_id` and `match_variant_state` (`active` or `orphan`) instead of a branch label
 - fill still requires the workbook to include the selected target language column; import-only sparse mapping rules do not apply to fill
 - fill writes translations back to workbook artifacts through a job
 

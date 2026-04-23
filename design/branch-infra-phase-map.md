@@ -8,7 +8,7 @@
 
 ## Current Status
 
-`Phase 1` through `Phase 6` are complete.
+`Phase 1` through `Phase 8` are complete.
 
 What is already clear:
 
@@ -260,28 +260,30 @@ Session focus:
 
 Status:
 
-- partially modeled, not fully closed
+- complete
 
 Goal:
 
-- finish the lifecycle story for active, orphan, trashed, and restored variants
+- redesign the variant lifecycle model around three terminal-aware states (active, orphan, trashed)
 
-Questions to answer:
+Completed decisions:
 
-- exactly when a variant becomes orphan
-- when delete should trash versus only unbind
-- what restore brings back and what it does not
-- how replace, bootstrap, and cleanup flows should refresh lifecycle state
+- branch delete is pure unbind: last binding removal produces orphan, not trash
+- project trash is a separate explicit operation targeting orphan variants only
+- trashed is terminal: no restore, no cleanup, no way back
+- `BranchRef.orphan()` is a readable computed scope with full read model integration
+- trashed variants are excluded from fill, same-source candidates, and entry timeline
+- orphan scope appears in branch summary with variant count
+- restore endpoint is removed
 
-Target outputs:
+Artifacts:
 
-- finalized lifecycle rules
-- clear recovery semantics
-- cleanup expectations for batch workflows
+- [phase-8-lifecycle-and-recovery-design.md](phase-8-lifecycle-and-recovery-design.md): Phase 8 lifecycle design spec
+- [phase-8-lifecycle-and-recovery-implementation-plan.md](phase-8-lifecycle-and-recovery-implementation-plan.md): implementation plan
 
 Session focus:
 
-- validate lifecycle semantics against branch bootstrap, mutation, and replace flows
+- Phase 8 is implemented; lifecycle semantics are validated against branch bootstrap, mutation, and replace flows
 
 ### Phase 9: Contract Convergence
 
@@ -332,20 +334,19 @@ Session focus:
 
 ## Suggested Next Session
 
-Implement `Phase 7: Pivot Workflow And Preview`.
+Implement `Phase 9: Contract Convergence`.
 
 Concrete goal for that session:
 
-- define the pivot preview contract
-- align pivot review flow with branch visibility and authority
-- keep pivot grounded as variant-local workflow state
+- converge code, docs, frontend, and compatibility layers onto the intended long-term shape
+- reduce compatibility surface and clean up service boundaries
 
 Success condition:
 
-- after that session, pivot preview and review should speak one stable operator contract without reopening branch or lifecycle semantics
+- after that session, the backend contracts, frontend routes, and compatibility layers should be aligned to the stable model established through Phases 1–8
 
 ## Simple Memory Hook
 
 If a future session needs a quick restart point, use this sentence:
 
-`Phase 1 through Phase 6 are done; next finish the pivot preview and review contract without turning pivot into a parallel model.`
+`Phase 1 through Phase 8 are done; next converge code, docs, frontend, and compatibility layers onto the intended long-term shape.`

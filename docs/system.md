@@ -40,7 +40,7 @@
 - runtime APIs are project-scoped, with branch-oriented workflows plus project-wide variant workspace reads
 - `GET /api/projects/{project_id}/state` is the bootstrap contract for `/app`
 - public branch writes go through `/branches/mutations` and `/branches/replace/*`
-- trash and restore stay under `/variants/trash/*`
+- branch delete (unbind) stays under `/variants/trash/delete`; project trash is at `/variants/trash`
 - project schema is fixed after project creation; there is no schema-edit API
 - `rel/current` direct mutation remains API-only and internal-only
 - `retained` has been removed entirely; inactive variants are only `orphan` or `trashed`
@@ -112,13 +112,26 @@ Dev branch bootstrap metadata:
 
 ## Variant Lifecycle
 
-Live states:
+Three states with strict definitions:
 
-- `active`: referenced by at least one scope binding
-- `orphan`: no active binding but still reusable for future same-source hits
-- `trashed`: explicitly deleted from normal runtime usage
+- `active`: referenced by at least one scope binding; participates in fill and read models
+- `orphan`: no active binding but still live; participates in fill and read models via `BranchRef.orphan()` computed scope
+- `trashed`: explicitly removed from the project via project trash; does not participate in fill, read models, same-source candidates, or entry timeline
 
-Most product reads now split into three shapes: scope catalog reads, project-wide variant workspace reads, and project history reads. Branch scopes only expose currently bound active variants. The `master` scope and the variants workspace query may include both `active` and `orphan` variants while still excluding `trashed` variants in V1. `fill` and same-source candidate lookup remain the history-heavy exceptions: they match against the project's full variant history, preferring non-trashed same-source variants and only falling back to trashed history when no live same-source candidate remains.
+State resolution:
+1. `trashed_at` is not NULL → **trashed**
+2. Has bindings → **active**
+3. Otherwise → **orphan**
+
+Allowed transitions:
+- **Active → Orphan**: last real binding removed (via branch delete, replace, or any unbind operation)
+- **Orphan → Active**: new binding created (via mutation same-source reuse, bootstrap same-source reuse)
+- **Orphan → Trashed**: explicit project trash operation
+- **Trashed is terminal**: no restore, no cleanup, no way back
+
+`BranchRef.orphan()` is a readable computed scope. It is not a writable branch: mutations, bootstrap, and replace cannot target it. The scope-members query returns all variants with zero bindings and `trashed_at IS NULL`.
+
+Branch delete is a pure unbind operation. The last binding removal produces orphan, not trash. Project trash is a separate explicit operation targeting orphan variants only.
 
 ## Package Map
 
