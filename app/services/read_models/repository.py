@@ -194,7 +194,6 @@ class ReadModelRepository:
                 v.source,
                 v.variant_id,
                 v.orphaned_at,
-                v.trashed_at,
                 v.updated_at,
                 vt.target_text
             FROM variants v
@@ -203,10 +202,10 @@ class ReadModelRepository:
                 ON vt.variant_id = v.variant_id
                AND vt.lang = ?
             WHERE e.project_id = ?
+              AND v.trashed_at IS NULL
             ORDER BY
                 e.business_key,
                 v.source,
-                CASE WHEN v.trashed_at IS NULL THEN 0 ELSE 1 END,
                 v.updated_at DESC,
                 v.variant_id DESC
         """
@@ -223,7 +222,7 @@ class ReadModelRepository:
                 "target_text": normalize_content_value(row["target_text"]),
                 "variant_id": int(row["variant_id"]),
                 "orphaned_at": row["orphaned_at"],
-                "trashed_at": row["trashed_at"],
+                "trashed_at": None,
                 "updated_at": row["updated_at"],
             }
             for row in rows

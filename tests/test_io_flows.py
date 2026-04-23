@@ -85,7 +85,7 @@ def test_fill_reads_project_variants_across_active_orphan_and_missing_rows() -> 
     assert read_target_text(filled_workbook, row_index=3) == "Depuis master"
 
 
-def test_fill_uses_trashed_candidate_when_no_live_variant_exists() -> None:
+def test_fill_matches_orphan_variant_when_no_bound_variant_exists() -> None:
     sample = reset_demo()
     read_service = branch_services()
     variant_service = TrashRestoreService()
@@ -95,30 +95,30 @@ def test_fill_uses_trashed_candidate_when_no_live_variant_exists() -> None:
     read_service.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), int(original_variant["variant_id"]))
     variant_service.delete(BranchRef.rel_current(), ["trash.me"])
 
-    source_dir = Path(sample["paths"]["root"]) / "trashed-only-source"
+    source_dir = Path(sample["paths"]["root"]) / "orphan-only-source"
     write_fill_workbook(
         source_dir,
         "single.xlsx",
         [
             ["file_name", "business_key", "source", "fr", "en", "context"],
-            ["trash.xlsx", "trash.me", "Trash me source", "", "", "trashed-only"],
+            ["trash.xlsx", "trash.me", "Trash me source", "", "", "orphan-only"],
         ],
     )
 
     result = FillService().fill_and_export(
         str(source_dir),
-        str(Path(sample["paths"]["root"]) / "trashed-only.zip"),
+        str(Path(sample["paths"]["root"]) / "orphan-only.zip"),
         sample["lang"],
     )
 
     row = report_row_by_key(result["report_rows"], "trash.me")
     assert row["status"] == "FILLED"
     assert row["match_variant_id"] == int(original_variant["variant_id"])
-    assert row["match_variant_state"] == "trashed"
+    assert row["match_variant_state"] == "orphan"
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Supprimer moi"
 
 
-def test_fill_prefers_live_candidate_over_trashed_history() -> None:
+def test_fill_uses_live_candidate_and_ignores_trashed_history() -> None:
     sample = reset_demo()
     read_service = branch_services()
     variant_service = TrashRestoreService()
@@ -128,6 +128,7 @@ def test_fill_prefers_live_candidate_over_trashed_history() -> None:
     original_variant = read_service.catalog.list_variants(entry_id, include_trashed=True)[0]
     read_service.bindings.bind(entry_id, BranchRef.rel_current(), int(original_variant["variant_id"]))
     variant_service.delete(BranchRef.rel_current(), ["trash.me"])
+    variant_service.project_trash(["trash.me"])
 
     live_variant_id = read_service.catalog.create_variant(
         entry_id,
@@ -161,54 +162,6 @@ def test_fill_prefers_live_candidate_over_trashed_history() -> None:
     assert row["match_variant_id"] == live_variant_id
     assert row["match_variant_state"] == "active"
     assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Live translation wins"
-
-
-def test_fill_uses_latest_trashed_candidate_when_only_trashed_history_exists() -> None:
-    sample = reset_demo()
-    read_service = branch_services()
-    variant_service = TrashRestoreService()
-    entry = read_service.entries.get_entry("trash.me")
-    assert entry is not None
-    entry_id = int(entry["entry_id"])
-    first_variant = read_service.catalog.list_variants(entry_id, include_trashed=True)[0]
-    read_service.bindings.bind(entry_id, BranchRef.rel_current(), int(first_variant["variant_id"]))
-    variant_service.delete(BranchRef.rel_current(), ["trash.me"])
-
-    second_variant_id = read_service.catalog.create_variant(
-        entry_id,
-        read_service.catalog.build_content(
-            "trash-newer.xlsx",
-            "Trash me source",
-            {"fr": "Newest trashed translation", "en": "Newest trashed translation"},
-            {"context": "newest trashed"},
-        ),
-    )
-    read_service.bindings.bind(entry_id, BranchRef.rel_current(), second_variant_id)
-    variant_service.delete(BranchRef.rel_current(), ["trash.me"])
-    touch_variant_updated_at(int(first_variant["variant_id"]), "2024-01-01T00:00:00+00:00")
-    touch_variant_updated_at(second_variant_id, "2024-01-02T00:00:00+00:00")
-
-    source_dir = Path(sample["paths"]["root"]) / "latest-trashed-source"
-    write_fill_workbook(
-        source_dir,
-        "single.xlsx",
-        [
-            ["file_name", "business_key", "source", "fr", "en", "context"],
-            ["trash.xlsx", "trash.me", "Trash me source", "", "", "latest-trashed"],
-        ],
-    )
-
-    result = FillService().fill_and_export(
-        str(source_dir),
-        str(Path(sample["paths"]["root"]) / "latest-trashed.zip"),
-        sample["lang"],
-    )
-
-    row = report_row_by_key(result["report_rows"], "trash.me")
-    assert row["status"] == "FILLED"
-    assert row["match_variant_id"] == second_variant_id
-    assert row["match_variant_state"] == "trashed"
-    assert read_target_text(output_workbook_path(source_dir, "single.xlsx")) == "Newest trashed translation"
 
 
 def test_fill_report_rows_and_csv_drop_legacy_pivot_columns() -> None:

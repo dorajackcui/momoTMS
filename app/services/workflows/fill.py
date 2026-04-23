@@ -237,23 +237,14 @@ class FillService:
         combined_key: tuple[str, str],
         candidates: list[FillCandidate],
     ) -> FillCandidate:
-        live_candidates = [candidate for candidate in candidates if candidate["trashed_at"] is None]
-        if len(live_candidates) > 1:
+        if len(candidates) > 1:
             raise RuntimeError(
-                "duplicate non-trashed fill candidates found for "
+                "duplicate fill candidates found for "
                 f"business_key={combined_key[0]!r}, source={combined_key[1]!r}"
             )
-        if live_candidates:
-            return live_candidates[0]
-        return sorted(
-            candidates,
-            key=lambda candidate: (candidate["updated_at"], candidate["variant_id"]),
-            reverse=True,
-        )[0]
+        return candidates[0]
 
     def _candidate_state(self, candidate: FillCandidate) -> str:
-        if candidate["trashed_at"] is not None:
-            return "trashed"
         if candidate["orphaned_at"] is not None:
             return "orphan"
         return "active"
