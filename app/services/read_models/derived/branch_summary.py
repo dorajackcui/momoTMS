@@ -60,7 +60,20 @@ class BranchSummaryView:
             if branch_meta[branch_ref]["version_series"] is not None:
                 item["version_series"] = branch_meta[branch_ref]["version_series"]
             branches.append(item)
+        orphan_count = self._count_orphan_variants(project_id)
+        if orphan_count > 0:
+            branches.append(
+                {
+                    "branch_ref": "orphan",
+                    "entry_count": orphan_count,
+                    "status_counts": {"orphan": orphan_count},
+                }
+            )
         return {"branches": branches}
+
+    def _count_orphan_variants(self, project_id: int) -> int:
+        from app.services.read_models.selectors import ScopeSelector
+        return self.repository.count_scope_members(project_id, ScopeSelector.orphan())
 
     def _status_counts(
         self,

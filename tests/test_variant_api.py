@@ -1438,6 +1438,21 @@ def test_entry_timeline_excludes_trashed_variants() -> None:
         assert all(v["is_trashed"] is False for v in variants)
 
 
+def test_branch_summary_includes_orphan_count() -> None:
+    reset_demo()
+    variant_service = TrashRestoreService()
+
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+
+    with TestClient(app) as client:
+        response = client.get("/api/projects/1/branches", params={"lang": "fr"})
+        assert response.status_code == 200
+        branches = response.json()["branches"]
+        orphan_entry = next((b for b in branches if b["branch_ref"] == "orphan"), None)
+        assert orphan_entry is not None
+        assert orphan_entry["entry_count"] >= 1
+
+
 def test_orphan_scope_returns_unbound_non_trashed_variants() -> None:
     reset_demo()
     variant_service = TrashRestoreService()
