@@ -1467,3 +1467,88 @@ def test_orphan_scope_returns_unbound_non_trashed_variants() -> None:
         orphan_keys = {row["business_key"] for row in payload["rows"]}
         assert "common.welcome" in orphan_keys
         assert all(row["state"] == "orphan" for row in payload["rows"])
+
+
+def test_phase_8_lifecycle_end_to_end() -> None:
+    """Full lifecycle: active -> orphan -> rebind -> orphan -> project_trash."""
+    reset_demo()
+
+    with TestClient(app) as client:
+        # Step 1: Delete from branch → variant becomes orphan
+        delete_resp = client.post(
+            "/api/projects/1/variants/trash/delete",
+            json={"branch_ref": "rel/current", "business_keys": ["common.welcome"]},
+        )
+        delete_detail = wait_for_job(client, delete_resp.json())
+        assert delete_detail["job"]["status"] == "success"
+        assert delete_detail["report"]["summary"]["orphaned_variant_count"] == 1
+
+        # Step 2: Verify orphan scope shows the variant
+        orphan_rows = client.get("/api/projects/1/scopes/orphan/rows")
+        assert orphan_rows.status_code == 200
+        orphan_keys = {r["business_key"] for r in orphan_rows.json()["rows"]}
+        assert "common.welcome" in orphan_keys
+
+        # Step 3: Verify branch summary includes orphan
+        branches_resp = client.get("/api/projects/1/branches", params={"lang": "fr"})
+        orphan_branch = next(
+            (b for b in branches_resp.json()["branches"] if b["branch_ref"] == "orphan"),
+            None,
+        )
+        assert orphan_branch is not None
+        assert orphan_branch["entry_count"] >= 1
+
+        # Step 4: Rebind via mutation (same-source reuse)
+        rebind_resp = client.post(
+            "/api/projects/1/branches/mutations",
+            json={
+                "branch_ref": "rel/current",
+                "input": {
+                    "kind": "direct",
+                    "changes": [
+                        {
+                            "business_key": "common.welcome",
+                            "source": "Welcome {0}",
+                            "translations_by_lang": {"fr": "Bienvenue rebind"},
+                        }
+                    ],
+                },
+            },
+        )
+        assert rebind_resp.status_code == 200
+        rebind_detail = wait_for_job(client, rebind_resp.json())
+        assert rebind_detail["job"]["status"] == "success"
+
+        # Step 5: Verify variant is no longer in orphan scope
+        orphan_rows_after = client.get("/api/projects/1/scopes/orphan/rows")
+        orphan_keys_after = {r["business_key"] for r in orphan_rows_after.json()["rows"]}
+        assert "common.welcome" not in orphan_keys_after
+
+        # Step 6: Delete again → orphan again
+        delete2_resp = client.post(
+            "/api/projects/1/variants/trash/delete",
+            json={"branch_ref": "rel/current", "business_keys": ["common.welcome"]},
+        )
+        delete2_detail = wait_for_job(client, delete2_resp.json())
+        assert delete2_detail["job"]["status"] == "success"
+
+        # Step 7: Project trash → trashed (terminal)
+        trash_resp = client.post(
+            "/api/projects/1/variants/trash",
+            json={"business_keys": ["common.welcome"]},
+        )
+        trash_detail = wait_for_job(client, trash_resp.json())
+        assert trash_detail["job"]["status"] == "success"
+        assert trash_detail["report"]["summary"]["trashed_count"] >= 1
+
+        # Step 8: Verify trashed variant not in orphan scope
+        orphan_rows_final = client.get("/api/projects/1/scopes/orphan/rows")
+        orphan_keys_final = {r["business_key"] for r in orphan_rows_final.json()["rows"]}
+        assert "common.welcome" not in orphan_keys_final
+
+        # Step 9: Verify restore endpoint is gone (404 or 405)
+        restore_resp = client.post(
+            "/api/projects/1/variants/trash/restore",
+            json={"variant_ids": [1]},
+        )
+        assert restore_resp.status_code in {404, 405, 422}
