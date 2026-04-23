@@ -50,6 +50,17 @@ class VariantLifecycleService:
         self._variant_commands.trash_variant(variant_id, marker, self._trash_until(trash_days), conn=conn)
         self.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
 
+    def trash_orphan(
+        self,
+        variant_id: int,
+        entry_id: int,
+        conn: sqlite3.Connection | None = None,
+        timestamp: str | None = None,
+    ) -> None:
+        marker = timestamp or now_iso()
+        self._variant_commands.trash_variant(variant_id, marker, "", conn=conn)
+        self.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
+
     def restore_variant(
         self,
         variant_id: int,

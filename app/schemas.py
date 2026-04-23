@@ -432,6 +432,10 @@ class BranchTrashDeleteRequest(BaseModel):
     business_keys: list[str]
 
 
+class ProjectTrashRequest(BaseModel):
+    business_keys: list[str]
+
+
 class VariantTrashRestoreRequest(BaseModel):
     variant_ids: list[int]
 

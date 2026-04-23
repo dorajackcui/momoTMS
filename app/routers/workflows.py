@@ -18,6 +18,7 @@ from app.schemas import (
     PivotReviewRequest,
     QaRequest,
     BranchTrashDeleteRequest,
+    ProjectTrashRequest,
     VariantTrashRestoreRequest,
 )
 from app.services.read_models.derived.branch_catalog import BranchCatalogView
@@ -129,6 +130,18 @@ def project_trash_delete(project_id: int, payload: BranchTrashDeleteRequest) -> 
         lambda: JobDetail(
             **WorkflowApplicationService().trash_delete(
                 payload.branch_ref,
+                payload.business_keys,
+                project_id=project_id,
+            )
+        )
+    )
+
+
+@router.post("/api/projects/{project_id}/variants/trash", response_model=JobDetail)
+def project_trash(project_id: int, payload: ProjectTrashRequest) -> JobDetail:
+    return handle_errors(
+        lambda: JobDetail(
+            **WorkflowApplicationService().project_trash(
                 payload.business_keys,
                 project_id=project_id,
             )

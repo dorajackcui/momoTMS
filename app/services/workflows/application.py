@@ -250,6 +250,23 @@ class WorkflowApplicationService:
             project_id=project_id,
         )
 
+    def project_trash(
+        self,
+        business_keys: list[str],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        return self._run_job(
+            "project_trash",
+            {"business_keys": business_keys, "project_id": project_id},
+            lambda _job_id: self._wrap_report(
+                self.trash_restore_service.project_trash(
+                    business_keys,
+                    project_id=project_id,
+                )
+            ),
+            project_id=project_id,
+        )
+
     def trash_restore(
         self,
         variant_ids: list[int],

@@ -1814,3 +1814,47 @@ def test_mutation_preview_blank_source_returns_invalid_row() -> None:
         assert row["binding_effect"] == "none"
         assert row["variant_resolution"] == "stay_current"
     assert preview["summary"]["row_outcome_counts"]["invalid_count"] == 2
+
+
+def test_project_trash_trashes_orphan_variants_only() -> None:
+    reset_demo()
+    read_service = branch_services()
+    variant_service = TrashRestoreService()
+
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+
+    result = variant_service.project_trash(["common.welcome"])
+
+    assert result["summary"]["trashed_count"] == 1
+    assert result["summary"]["not_orphan_count"] == 0
+    assert result["summary"]["no_orphan_found_count"] == 0
+    assert result["summary"]["missing_count"] == 0
+
+    trashed_row = next(r for r in result["report_rows"] if r["business_key"] == "common.welcome")
+    assert trashed_row["status"] == "TRASHED"
+
+    after = EntryTimelineDataset().get("common.welcome")
+    variant = next(v for v in after["variants"] if v["variant_id"] == trashed_row["variant_id"])
+    assert variant["is_trashed"] is True
+
+
+def test_project_trash_rejects_active_variants() -> None:
+    reset_demo()
+    variant_service = TrashRestoreService()
+
+    result = variant_service.project_trash(["common.welcome"])
+
+    assert result["summary"]["not_orphan_count"] == 1
+    assert result["summary"]["trashed_count"] == 0
+    active_row = next(r for r in result["report_rows"] if r["business_key"] == "common.welcome")
+    assert active_row["status"] == "NOT_ORPHAN"
+
+
+def test_project_trash_reports_missing_keys() -> None:
+    reset_demo()
+    variant_service = TrashRestoreService()
+
+    result = variant_service.project_trash(["nonexistent.key"])
+
+    assert result["summary"]["missing_count"] == 1
+    assert result["report_rows"][0]["status"] == "MISSING"

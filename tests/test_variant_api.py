@@ -1401,3 +1401,24 @@ def test_qa_upload_folder_requires_selected_target_lang_header() -> None:
 
     assert response.status_code == 400
     assert "workbook missing required header: fr" in response.json()["detail"]
+
+
+def test_project_trash_route_trashes_orphan_variants() -> None:
+    reset_demo()
+    with TestClient(app) as client:
+        delete_response = client.post(
+            "/api/projects/1/variants/trash/delete",
+            json={"branch_ref": "rel/current", "business_keys": ["common.welcome"]},
+        )
+        assert delete_response.status_code == 200
+        delete_detail = wait_for_job(client, delete_response.json())
+        assert delete_detail["job"]["status"] == "success"
+
+        trash_response = client.post(
+            "/api/projects/1/variants/trash",
+            json={"business_keys": ["common.welcome"]},
+        )
+        assert trash_response.status_code == 200
+        trash_detail = wait_for_job(client, trash_response.json())
+        assert trash_detail["job"]["status"] == "success"
+        assert trash_detail["report"]["summary"]["trashed_count"] == 1

@@ -81,6 +81,61 @@ class TrashRestoreService:
         }
         return {"summary": summary, "report_rows": report_rows}
 
+    def project_trash(
+        self,
+        business_keys: list[str],
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, list[dict[str, object]] | dict[str, int]]:
+        self.projects.require_project(project_id)
+        trashed_count = 0
+        not_orphan_count = 0
+        no_orphan_found_count = 0
+        missing_count = 0
+        report_rows: list[dict[str, object]] = []
+        with get_conn() as conn:
+            for business_key in normalize_business_keys(business_keys):
+                entry = self.entries.get_entry(business_key, project_id=project_id, conn=conn)
+                if entry is None:
+                    missing_count += 1
+                    report_rows.append({"business_key": business_key, "status": "MISSING"})
+                    continue
+                entry_id = int(entry["entry_id"])
+                variants = self.catalog.list_variants(entry_id, include_trashed=False, conn=conn)
+                orphans = [
+                    v for v in variants
+                    if self.binding_lookup.count_variant_bindings(int(v["variant_id"]), conn=conn) == 0
+                ]
+                if not orphans:
+                    has_active = any(
+                        self.binding_lookup.count_variant_bindings(int(v["variant_id"]), conn=conn) > 0
+                        for v in variants
+                    )
+                    if has_active:
+                        not_orphan_count += 1
+                        report_rows.append({"business_key": business_key, "status": "NOT_ORPHAN"})
+                    else:
+                        no_orphan_found_count += 1
+                        report_rows.append({"business_key": business_key, "status": "NO_ORPHAN_FOUND"})
+                    continue
+                for orphan_variant in orphans:
+                    variant_id = int(orphan_variant["variant_id"])
+                    self.lifecycle.trash_orphan(variant_id, entry_id, conn=conn)
+                    trashed_count += 1
+                    report_rows.append(
+                        {
+                            "business_key": business_key,
+                            "variant_id": variant_id,
+                            "status": "TRASHED",
+                        }
+                    )
+        summary = {
+            "trashed_count": trashed_count,
+            "not_orphan_count": not_orphan_count,
+            "no_orphan_found_count": no_orphan_found_count,
+            "missing_count": missing_count,
+        }
+        return {"summary": summary, "report_rows": report_rows}
+
     def restore(
         self,
         variant_ids: list[int],
