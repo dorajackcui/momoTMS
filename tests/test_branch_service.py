@@ -1764,9 +1764,9 @@ def test_project_trash_trashes_orphan_variants_only() -> None:
     trashed_row = next(r for r in result["report_rows"] if r["business_key"] == "common.welcome")
     assert trashed_row["status"] == "TRASHED"
 
-    after = EntryTimelineDataset().get("common.welcome")
-    variant = next(v for v in after["variants"] if v["variant_id"] == trashed_row["variant_id"])
-    assert variant["is_trashed"] is True
+    # Trashed variants are excluded from the timeline; verify via catalog instead
+    trashed_variant = read_service.catalog.get_variant(int(trashed_row["variant_id"]))
+    assert trashed_variant["trashed_at"] is not None
 
 
 def test_project_trash_rejects_active_variants() -> None:

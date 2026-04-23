@@ -48,8 +48,6 @@ class EntryVariantView(BaseModel):
     remarks: dict[str, str | None] = Field(default_factory=dict)
     bindings: list[BindingSummary] = Field(default_factory=list)
     trashed_at: str | None = None
-    trash_until: str | None = None
-    restored_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -312,11 +310,8 @@ class SameSourceCandidateRow(BaseModel):
     translations: dict[str, str | None] = Field(default_factory=dict)
     remarks: dict[str, str | None] = Field(default_factory=dict)
     bindings: list[BindingSummary] = Field(default_factory=list)
-    state: Literal["active", "orphan", "trashed"]
+    state: Literal["active", "orphan"]
     orphaned_at: str | None = None
-    trashed_at: str | None = None
-    trash_until: str | None = None
-    restored_at: str | None = None
     pivot_status: Literal["init", "changed", "reviewed"]
     pivot_changed_by_branch_ref: str | None = None
     pivot_changed_at: str | None = None
@@ -342,8 +337,6 @@ class EntryVariantInspection(BaseModel):
     is_trashed: bool = False
     orphaned_at: str | None = None
     trashed_at: str | None = None
-    trash_until: str | None = None
-    restored_at: str | None = None
     pivot_status: Literal["init", "changed", "reviewed"]
     pivot_changed_by_branch_ref: str | None = None
     pivot_changed_at: str | None = None

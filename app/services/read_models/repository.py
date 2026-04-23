@@ -150,8 +150,6 @@ class ReadModelRepository:
                 v.source,
                 v.orphaned_at,
                 v.trashed_at,
-                v.trash_until,
-                v.restored_at,
                 v.pivot_status,
                 v.pivot_changed_by_scope_type,
                 v.pivot_changed_by_scope_value,
@@ -165,8 +163,8 @@ class ReadModelRepository:
             WHERE e.project_id = ?
               AND e.business_key = ?
               AND v.source = ?
+              AND v.trashed_at IS NULL
             ORDER BY
-                CASE WHEN v.trashed_at IS NULL THEN 0 ELSE 1 END,
                 v.updated_at DESC,
                 v.variant_id DESC
         """
@@ -251,8 +249,6 @@ class ReadModelRepository:
                 v.source,
                 v.orphaned_at,
                 v.trashed_at,
-                v.trash_until,
-                v.restored_at,
                 v.pivot_status,
                 v.pivot_changed_by_scope_type,
                 v.pivot_changed_by_scope_value,
@@ -264,6 +260,7 @@ class ReadModelRepository:
             FROM variants v
             JOIN entries e ON e.entry_id = v.entry_id
             WHERE e.project_id = ? AND e.business_key = ?
+              AND v.trashed_at IS NULL
             ORDER BY v.variant_id
         """
         params = (project_id, normalized_key)

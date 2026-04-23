@@ -557,43 +557,25 @@ def test_branch_bootstrap_api_rejects_already_bootstrapped_without_creating_job(
     assert after_jobs.json() == before_jobs.json()
 
 
-def test_scope_history_same_source_candidates_prioritize_live_before_trashed() -> None:
+def test_scope_history_same_source_candidates_exclude_trashed() -> None:
     reset_demo()
     trash_restore = TrashRestoreService()
 
-    business_key = "history.same_source"
-    source = "Shared source"
-    trashed_variant_id = create_bound_variant(
-        project_id=1,
-        business_key=business_key,
-        source=source,
-        translations={"fr": "Historique"},
-        branch_refs=[BranchRef.rel_current()],
-    )
-    trash_restore.delete(BranchRef.rel_current(), [business_key])
+    # Delete and project_trash to actually trash the variant
+    trash_restore.delete(BranchRef.rel_current(), ["common.welcome"])
+    trash_restore.project_trash(["common.welcome"])
 
-    live_variant_id = create_bound_variant(
-        project_id=1,
-        business_key=business_key,
-        source=source,
-        translations={"fr": "Encore vivant"},
-        branch_refs=[BranchRef.dev("2.4.3")],
-    )
-
+    # Verify trashed variant is excluded from same-source
     with TestClient(app) as client:
         response = client.get(
             "/api/projects/1/history/same-source-candidates",
-            params={"business_key": business_key, "source": source},
+            params={"business_key": "common.welcome", "source": "Welcome {0}"},
         )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["business_key"] == business_key
-    assert payload["source"] == source
-    assert [row["state"] for row in payload["rows"]] == ["active", "trashed"]
-    assert payload["rows"][0]["variant_id"] == live_variant_id
-    assert payload["rows"][1]["variant_id"] == trashed_variant_id
-    assert payload["rows"][1]["trashed_at"] is not None
+        assert response.status_code == 200
+        rows = response.json()["rows"]
+        variant_ids = {row["variant_id"] for row in rows}
+        # The trashed variant should not appear
+        assert len(rows) == 0  # Only variant was trashed
 
 
 def test_project_variants_route_supports_state_filters_and_project_scope() -> None:
@@ -698,6 +680,7 @@ def test_project_variants_route_excludes_trashed_variants_and_paginates_stably()
     variant = services.catalog.list_variants(int(entry["entry_id"]), include_trashed=True)[0]
     services.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), int(variant["variant_id"]))
     trash_restore.delete(BranchRef.rel_current(), ["trash.me"])
+    trash_restore.project_trash(["trash.me"])
 
     with TestClient(app) as client:
         full_response = client.get("/api/projects/1/variants", params={"state": "all"})
@@ -1422,3 +1405,34 @@ def test_project_trash_route_trashes_orphan_variants() -> None:
         trash_detail = wait_for_job(client, trash_response.json())
         assert trash_detail["job"]["status"] == "success"
         assert trash_detail["report"]["summary"]["trashed_count"] == 1
+
+
+def test_same_source_candidates_exclude_trashed_variants() -> None:
+    reset_demo()
+    variant_service = TrashRestoreService()
+
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+    variant_service.project_trash(["common.welcome"])
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/projects/1/history/same-source-candidates",
+            params={"business_key": "common.welcome", "source": "Welcome {0}"},
+        )
+        assert response.status_code == 200
+        rows = response.json()["rows"]
+        assert all(row["state"] != "trashed" for row in rows)
+
+
+def test_entry_timeline_excludes_trashed_variants() -> None:
+    reset_demo()
+    variant_service = TrashRestoreService()
+
+    variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
+    variant_service.project_trash(["common.welcome"])
+
+    with TestClient(app) as client:
+        response = client.get("/api/projects/1/entries/common.welcome/variants")
+        assert response.status_code == 200
+        variants = response.json()["variants"]
+        assert all(v["is_trashed"] is False for v in variants)
