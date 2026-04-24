@@ -23,8 +23,6 @@ class VariantSnapshot(TypedDict):
     remarks: dict[str, str | None]
     orphaned_at: str | None
     trashed_at: str | None
-    trash_until: str | None
-    restored_at: str | None
     pivot_status: PivotStatus
     pivot_changed_by_branch_ref: str | None
     pivot_changed_at: str | None
@@ -68,8 +66,6 @@ class HistoryCandidate(TypedDict):
     state: ReadLifecycleState
     orphaned_at: str | None
     trashed_at: str | None
-    trash_until: str | None
-    restored_at: str | None
     pivot_status: PivotStatus
     pivot_changed_by_branch_ref: str | None
     pivot_changed_at: str | None
@@ -89,8 +85,6 @@ class EntryTimelineItem(TypedDict):
     is_trashed: bool
     orphaned_at: str | None
     trashed_at: str | None
-    trash_until: str | None
-    restored_at: str | None
     pivot_status: PivotStatus
     pivot_changed_by_branch_ref: str | None
     pivot_changed_at: str | None
@@ -110,8 +104,6 @@ class BranchEntryView(TypedDict):
     remarks: dict[str, str | None]
     bindings: list[BindingInfo]
     trashed_at: str | None
-    trash_until: str | None
-    restored_at: str | None
     created_at: str
     updated_at: str
 

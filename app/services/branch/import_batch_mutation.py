@@ -485,8 +485,6 @@ class ImportBatchMutationApplier:
                 "remarks": dict(content["remarks"]),
                 "orphaned_at": None,
                 "trashed_at": None,
-                "trash_until": None,
-                "restored_at": None,
                 "created_at": "",
                 "updated_at": "",
             }

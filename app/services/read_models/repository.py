@@ -457,8 +457,6 @@ class ReadModelRepository:
                 v.source,
                 v.orphaned_at,
                 v.trashed_at,
-                v.trash_until,
-                v.restored_at,
                 v.pivot_status,
                 v.pivot_changed_by_scope_type,
                 v.pivot_changed_by_scope_value,
