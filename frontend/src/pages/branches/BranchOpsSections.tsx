@@ -2,7 +2,6 @@ import type { Column } from "react-data-grid";
 
 import type {
   BranchReplacePreview,
-  MasterQueryRow,
   SameSourceCandidateRow,
 } from "@/domains/branches/types";
 import type { ProjectVariantRow } from "@/domains/variants/types";
@@ -123,7 +122,15 @@ export function SameSourceCandidatesTable(props: {
 }
 
 export function LookupTable(props: {
-  rows: MasterQueryRow[];
+  rows: Array<{
+    business_key: string;
+    scope_ref: string;
+    variant_id: number;
+    file_name: string | null;
+    source: string;
+    translations: Record<string, string | null>;
+    remarks: Record<string, string | null>;
+  }>;
   lang: string;
   onInspect: (businessKey: string) => void;
 }) {

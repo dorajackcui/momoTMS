@@ -1,9 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
-import { useAppShell } from "@/app/shell/AppShellContext";
-import { getEntryVariants, restoreVariants } from "@/domains/variants/api";
-import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
+import { getEntryVariants } from "@/domains/variants/api";
+import { queryKeys } from "@/shared/api/queryKeys";
 import { formatTimestamp } from "@/shared/lib/format";
 import {
   Badge,
@@ -21,10 +19,6 @@ export function VariantDrawer(props: {
   businessKey: string | null;
   onClose: () => void;
 }) {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const shell = useAppShell();
-
   const entryQuery = useQuery({
     queryKey:
       props.projectId && props.businessKey
@@ -32,24 +26,6 @@ export function VariantDrawer(props: {
         : ["entry-variants", "idle"],
     queryFn: () => getEntryVariants(props.projectId!, props.businessKey!),
     enabled: props.projectId !== null && Boolean(props.businessKey),
-  });
-
-  const restoreMutation = useMutation({
-    mutationFn: (variantIds: number[]) => restoreVariants(props.projectId!, variantIds),
-    onSuccess: async (detail) => {
-      if (!props.projectId || !props.businessKey) {
-        return;
-      }
-      await invalidateProject(queryClient, props.projectId, {
-        businessKey: props.businessKey,
-      });
-      shell.notify(`Restore job #${detail.job.job_id} completed.`, "success");
-      shell.setJobId(detail.job.job_id);
-      navigate(shell.buildHref("/app/runs", { job: detail.job.job_id }));
-    },
-    onError: (error) => {
-      shell.notify(error instanceof Error ? error.message : "Restore failed.", "error");
-    },
   });
 
   if (!props.projectId || !props.businessKey) {
@@ -106,7 +82,6 @@ export function VariantDrawer(props: {
                     ["updated_at", formatTimestamp(variant.updated_at)],
                     ["orphaned_at", formatTimestamp(variant.orphaned_at)],
                     ["trashed_at", formatTimestamp(variant.trashed_at)],
-                    ["restored_at", formatTimestamp(variant.restored_at)],
                   ]}
                 />
                 <KeyValueList
@@ -131,17 +106,6 @@ export function VariantDrawer(props: {
                       : [["bindings", "No active bindings"]]
                   }
                 />
-                {variant.is_trashed ? (
-                  <div className={styles.toolbar}>
-                    <button
-                      className={buttonClassName("primary")}
-                      disabled={restoreMutation.isPending}
-                      onClick={() => restoreMutation.mutate([variant.variant_id])}
-                    >
-                      Restore this variant
-                    </button>
-                  </div>
-                ) : null}
               </article>
             ))}
           </div>

@@ -17,8 +17,6 @@ export type EntryVariantInspection = {
   is_trashed: boolean;
   orphaned_at: string | null;
   trashed_at: string | null;
-  trash_until: string | null;
-  restored_at: string | null;
   pivot_status: PivotStatus;
   pivot_changed_by_branch_ref: string | null;
   pivot_changed_at: string | null;

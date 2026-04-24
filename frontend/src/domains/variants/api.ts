@@ -39,13 +39,6 @@ export function getProjectVariants(
   );
 }
 
-export function restoreVariants(projectId: number, variantIds: number[]) {
-  return fetchJson<JobDetail>(`/api/projects/${projectId}/variants/trash/restore`, {
-    method: "POST",
-    body: JSON.stringify({ variant_ids: variantIds }),
-  });
-}
-
 export function reviewPivotVariants(
   projectId: number,
   branchRef: string,

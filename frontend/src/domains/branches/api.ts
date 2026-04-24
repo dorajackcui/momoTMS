@@ -2,14 +2,12 @@ import { buildQueryString, fetchJson } from "@/shared/api/http";
 
 import type {
   BranchListResponse,
+  BranchLookupResponse,
   BranchMutationInput,
   BranchReplacePreview,
+  BranchRowsResponse,
   DevBranchDetail,
-  MasterEntryResponse,
-  MasterSearchResponse,
   SameSourceCandidatesResponse,
-  ScopeLookupResponse,
-  ScopeRowsResponse,
 } from "@/domains/branches/types";
 import type { JobDetail } from "@/domains/jobs/types";
 
@@ -37,7 +35,7 @@ export function getScopeRows(
   },
 ) {
   const query = buildQueryString(params);
-  return fetchJson<ScopeRowsResponse>(
+  return fetchJson<BranchRowsResponse>(
     `/api/projects/${projectId}/scopes/${encodeURIComponent(scopeRef)}/rows?${query}`,
   );
 }
@@ -51,7 +49,7 @@ export function lookupScope(
   },
 ) {
   const query = buildQueryString(params);
-  return fetchJson<ScopeLookupResponse>(
+  return fetchJson<BranchLookupResponse>(
     `/api/projects/${projectId}/scopes/${encodeURIComponent(scopeRef)}/lookup?${query}`,
   );
 }
@@ -66,21 +64,6 @@ export function getSameSourceCandidates(
   const query = buildQueryString(params);
   return fetchJson<SameSourceCandidatesResponse>(
     `/api/projects/${projectId}/history/same-source-candidates?${query}`,
-  );
-}
-
-export function lookupMasterByKey(projectId: number, businessKey: string) {
-  return fetchJson<MasterEntryResponse>(
-    `/api/projects/${projectId}/branches/master/entries/${encodeURIComponent(
-      businessKey,
-    )}`,
-  );
-}
-
-export function lookupMasterBySource(projectId: number, source: string) {
-  const query = buildQueryString({ source });
-  return fetchJson<MasterSearchResponse>(
-    `/api/projects/${projectId}/branches/master/search?${query}`,
   );
 }
 

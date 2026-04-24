@@ -160,7 +160,7 @@ export function RunsPage() {
         {jobs.length === 0 ? (
           <EmptyState
             title="No runs yet"
-            body="Run import, apply, replace, fill, QA, trash, or restore actions to populate this page."
+            body="Run import, apply, replace, fill, QA, or trash actions to populate this page."
           />
         ) : (
           <div className={styles.list} data-testid="runs-job-list">

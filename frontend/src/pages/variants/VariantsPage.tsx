@@ -7,7 +7,6 @@ import { useAppShell } from "@/app/shell/AppShellContext";
 import {
   getEntryVariants,
   getProjectVariants,
-  restoreVariants,
   reviewPivotVariants,
 } from "@/domains/variants/api";
 import type { PivotStatus } from "@/domains/variants/types";
@@ -100,23 +99,6 @@ export function VariantsPage() {
         : ["entry-variants", "idle"],
     queryFn: () => getEntryVariants(shell.projectId!, shell.businessKey!),
     enabled: Boolean(shell.projectId && shell.businessKey),
-  });
-
-  const restoreMutation = useMutation({
-    mutationFn: (variantIds: number[]) => restoreVariants(shell.projectId!, variantIds),
-    onSuccess: async (detail) => {
-      if (!shell.projectId) {
-        return;
-      }
-      await invalidateProject(queryClient, shell.projectId, {
-        businessKey: shell.businessKey,
-      });
-      shell.notify(`Restore job #${detail.job.job_id} completed.`, "success");
-      navigate(shell.buildHref("/app/runs", { job: detail.job.job_id }));
-    },
-    onError: (error) => {
-      shell.notify(error instanceof Error ? error.message : "Restore failed.", "error");
-    },
   });
 
   const reviewMutation = useMutation({
@@ -404,15 +386,6 @@ export function VariantsPage() {
                     >
                       Keep this key selected
                     </button>
-                    {variant.is_trashed ? (
-                      <button
-                        className={buttonClassName("primary")}
-                        onClick={() => restoreMutation.mutate([variant.variant_id])}
-                        disabled={restoreMutation.isPending}
-                      >
-                        Restore variant
-                      </button>
-                    ) : null}
                   </div>
                 </article>
               ))}

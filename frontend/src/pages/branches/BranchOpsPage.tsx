@@ -16,11 +16,9 @@ import {
 } from "@/domains/branches/api";
 import type {
   BranchReplacePreview,
-  MasterQueryRow,
   SameSourceCandidateRow,
 } from "@/domains/branches/types";
 import { getImports } from "@/domains/imports/api";
-import { restoreVariants } from "@/domains/variants/api";
 import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { cx } from "@/shared/lib/cx";
 import {
@@ -41,12 +39,21 @@ import {
   createDirectPatchRow,
   ensureDevBranch,
   parseLineSeparatedList,
-  parseVariantIdList,
   rowsToDirectMutationChanges,
   type DirectPatchRow,
 } from "@/pages/branches/model";
 
 import styles from "@/pages/branches/BranchOpsPage.module.css";
+
+type LookupRow = {
+  business_key: string;
+  scope_ref: string;
+  variant_id: number;
+  file_name: string | null;
+  source: string;
+  translations: Record<string, string | null>;
+  remarks: Record<string, string | null>;
+};
 
 const PAGE_SIZE = 25;
 const TABS = [
@@ -54,7 +61,7 @@ const TABS = [
   { key: "lookup", label: "Lookup" },
   { key: "apply", label: "Apply" },
   { key: "replace", label: "Replace" },
-  { key: "trash", label: "Trash / Restore" },
+  { key: "trash", label: "Trash" },
 ] as const;
 
 export function BranchOpsPage() {
@@ -87,7 +94,6 @@ export function BranchOpsPage() {
   const [replaceSource, setReplaceSource] = useState("");
   const [replacePreview, setReplacePreview] = useState<BranchReplacePreview | null>(null);
   const [deleteKeys, setDeleteKeys] = useState("");
-  const [restoreIds, setRestoreIds] = useState("");
   const [applyBranchRef, setApplyBranchRef] = useState("");
   const lastApplyProjectIdRef = useRef<number | null>(null);
   const lastAutoApplyBranchRefRef = useRef("");
@@ -203,7 +209,7 @@ export function BranchOpsPage() {
         : ["branch-lookup", "idle"],
     queryFn: async () => {
       if (!projectId || !lookupRequest) {
-        return { rows: [] as MasterQueryRow[] };
+        return { rows: [] as LookupRow[] };
       }
       const payload = await lookupScope(projectId, lookupRequest.scopeRef, {
         business_key:
@@ -213,7 +219,7 @@ export function BranchOpsPage() {
       return {
         rows: payload.rows.map((row) => ({
           business_key: row.business_key,
-          scope_ref: payload.scope_ref,
+          scope_ref: payload.branch_ref,
           variant_id: row.variant_id,
           file_name: row.file_name,
           source: row.source,
@@ -479,9 +485,7 @@ export function BranchOpsPage() {
       {selectedTab === "trash" ? (
         <TrashTab
           deleteKeys={deleteKeys}
-          restoreIds={restoreIds}
           onDeleteKeysChange={setDeleteKeys}
-          onRestoreIdsChange={setRestoreIds}
           onDelete={() =>
             runJobMutation.mutate({
               devVersion:
@@ -492,13 +496,6 @@ export function BranchOpsPage() {
                   shell.branchRef || "rel/current",
                   parseLineSeparatedList(deleteKeys),
                 ),
-            })
-          }
-          onRestore={() =>
-            runJobMutation.mutate({
-              devVersion:
-                shell.branchRef?.startsWith("dev/") ? shell.branchRef.slice(4) : null,
-              run: () => restoreVariants(projectId, parseVariantIdList(restoreIds)),
             })
           }
         />
@@ -601,7 +598,7 @@ function LookupTab(props: {
   scopeOptions: string[];
   lookupKey: string;
   lookupSource: string;
-  lookupRows: MasterQueryRow[];
+  lookupRows: LookupRow[];
   historyKey: string;
   historySource: string;
   historyRows: SameSourceCandidateRow[];
@@ -866,40 +863,23 @@ function ReplaceTab(props: {
 
 function TrashTab(props: {
   deleteKeys: string;
-  restoreIds: string;
   onDeleteKeysChange: (value: string) => void;
-  onRestoreIdsChange: (value: string) => void;
   onDelete: () => void;
-  onRestore: () => void;
 }) {
   return (
-    <Panel kicker="Trash / Restore" title="Branch delete and explicit variant restore">
-      <div className={styles.twoColumn}>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Delete business keys</span>
-          <textarea
-            className={ui.textarea}
-            value={props.deleteKeys}
-            onChange={(event) => props.onDeleteKeysChange(event.target.value)}
-            placeholder="One key per line"
-          />
-          <button className={buttonClassName("danger")} onClick={props.onDelete}>
-            Delete from branch
-          </button>
-        </label>
-        <label className={ui.field}>
-          <span className={ui.fieldLabel}>Restore variant IDs</span>
-          <textarea
-            className={ui.textarea}
-            value={props.restoreIds}
-            onChange={(event) => props.onRestoreIdsChange(event.target.value)}
-            placeholder={"101\n102"}
-          />
-          <button className={buttonClassName("primary")} onClick={props.onRestore}>
-            Restore variants
-          </button>
-        </label>
-      </div>
+    <Panel kicker="Trash" title="Branch delete">
+      <label className={ui.field}>
+        <span className={ui.fieldLabel}>Delete business keys</span>
+        <textarea
+          className={ui.textarea}
+          value={props.deleteKeys}
+          onChange={(event) => props.onDeleteKeysChange(event.target.value)}
+          placeholder="One key per line"
+        />
+        <button className={buttonClassName("danger")} onClick={props.onDelete}>
+          Delete from branch
+        </button>
+      </label>
     </Panel>
   );
 }

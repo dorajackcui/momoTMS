@@ -55,7 +55,7 @@ const NAV_ITEMS = [
   {
     path: "/app/variants",
     label: "Variants",
-    hint: "Orphan history, timeline inspection, and restore actions.",
+    hint: "Orphan history, timeline inspection, and trash actions.",
   },
   {
     path: "/app/project",

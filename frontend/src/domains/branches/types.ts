@@ -17,8 +17,6 @@ export type EntryVariantView = {
   remarks: Record<string, string | null>;
   bindings: BindingSummary[];
   trashed_at: string | null;
-  trash_until: string | null;
-  restored_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -101,37 +99,16 @@ export type BranchQueueResponse = {
   page_size: number;
 };
 
-export type MasterQueryRow = {
-  business_key: string;
-  scope_ref: string;
-  variant_id: number;
-  file_name: string | null;
-  source: string;
-  translations: Record<string, string | null>;
-  remarks: Record<string, string | null>;
-};
-
-export type MasterEntryResponse = {
-  business_key: string;
-  entry_id: number;
-  results: MasterQueryRow[];
-};
-
-export type MasterSearchResponse = {
-  source: string;
-  results: MasterQueryRow[];
-};
-
-export type ScopeRowsResponse = {
-  scope_ref: string;
+export type BranchRowsResponse = {
+  branch_ref: string;
   rows: ProjectVariantRow[];
   total_rows: number;
   page: number;
   page_size: number;
 };
 
-export type ScopeLookupResponse = {
-  scope_ref: string;
+export type BranchLookupResponse = {
+  branch_ref: string;
   mode: "business_key" | "source";
   value: string;
   rows: ProjectVariantRow[];
@@ -149,8 +126,6 @@ export type SameSourceCandidateRow = {
   state: "active" | "orphan" | "trashed";
   orphaned_at: string | null;
   trashed_at: string | null;
-  trash_until: string | null;
-  restored_at: string | null;
   pivot_status: "init" | "changed" | "reviewed";
   pivot_changed_by_branch_ref: string | null;
   pivot_changed_at: string | null;
