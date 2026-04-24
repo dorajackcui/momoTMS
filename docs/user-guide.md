@@ -171,7 +171,7 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 - 当前没有任何分支在使用
 - 仍然保留在系统里，方便复用、核查或排障
-- 现在也可以直接在 `Overview` 的 project-scoped variants 视图里查看
+- 现在也可以直接在 `Workspace` 的 project-scoped variants 视图里查看
 
 ### `trashed`
 
@@ -182,13 +182,17 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 ## 日常使用应该怎么理解页面
 
-### `Overview`
+### `Workspace`
 
-这是新的默认入口。它现在是一个 project-scoped variants 工作台：默认看 `active` 变体，也可以切到 `orphan` 或一起查看。你仍然可以用 branch filter 把结果收窄到某个分支当前正在采用的内容，但这个页面本身不再只是“某一条 branch 的表格镜像”。
+这是新的默认入口。它现在是一个 project-scoped variants 工作台：默认看 `active` 变体，也可以切到 `orphan` 或一起查看。你仍然可以用 branch filter 把结果收窄到某个分支当前正在采用的内容，但这个页面本身不再只是”某一条 branch 的表格镜像”。
 
-### `Intake`
+### `Dev`
 
-这里专门处理 Excel 进入系统之前的阶段：上传文件夹、预览表头、确认字段映射、生成 import batch，以及查看导入报告。它不再负责后续分支执行，而是把“文件进系统”这件事做得更清楚。
+这里集中处理开发分支的完整生命周期：创建新 dev 分支、上传 Excel 并完成 bootstrap、查看分支详情，以及执行 `dev/<version> -> rel/current` 的替换操作。原 `Intake` 的文件上传与字段映射流程现已整合到 Dev 的 bootstrap 入口。
+
+### `Release`
+
+这里专门用于 `rel/current` 的日常操作：浏览发布基线内容、按行编辑、以及执行 trash 操作清理不再使用的 orphan 变体。
 
 ### `Branch Ops`
 
@@ -205,23 +209,23 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 这里统一承接所有 job-backed 操作的反馈。无论是导入、应用、替换、回填、QA，还是删除与恢复，最后都能在这里看到任务输入、执行阶段、摘要结果、预览报告和可下载产物。
 
-### `Variants`
+### `Variants` (已合并至 `Workspace`)
 
-这是读多写少的 `Variant Explorer`。它更适合排查某个 `business_key` 的完整历史、核对同一个 key 下的多份 variant timeline，以及在明确知道 `variant_id` 的前提下执行 restore。orphan 也还能在这里浏览，但不再只能从这里进入。
+variant 浏览已整合到 `Workspace` 页面。project-scoped variants 视图现在统一在 `Workspace` 中呈现，包括 `active`、`orphan` 状态切换以及 branch filter。如果需要按 `business_key` 查看完整历史或执行 restore，仍可从 `Workspace` 或 `Runs` 中的相关 job 报告入口进入详情视图。
 
-### `Project`
+### `Hub` (`/app`)
 
 这里负责项目级信息：项目切换、列结构摘要、发布基线摘要、当前 dev branch 列表，以及创建新项目。没有任何项目时，它会直接承担首屏入口。
 
 ## 推荐的日常使用路径
 
-1. 在 `Project` 中创建项目并确认列结构。
-2. 打开 `Overview`，先扫描当前项目的 `active` 内容；需要时再加 branch filter 或切到 `orphan` 视图。
-3. 去 `Intake` 上传 Excel，确认字段映射，生成 import batch。
-4. 去 `Branch Ops / Apply` 把 import batch 应用到目标 `dev/<version>`。
+1. 在 `Hub` (`/app`) 中创建项目并确认列结构。
+2. 打开 `Workspace`，先扫描当前项目的 `active` 内容；需要时再加 branch filter 或切到 `orphan` 视图。
+3. 去 `Dev` 创建新的 `dev/<version>` 分支，上传 Excel，完成 bootstrap。
+4. 在 `Dev` 中查看分支状态，或去 `Branch Ops / Apply` 把 import batch 应用到目标分支。
 5. 在 `Branch Ops / Compare` 和 `Branch Ops / Queue` 里确认差异、处理待翻译和待复核内容。
 6. 触发 `Fill`、`QA`、`Replace`、`Trash` 或 `Restore` 以后，统一去 `Runs` 查看任务执行和报告。
-7. 只有在排查某个 `business_key` 的完整历史，或按 `variant_id` 恢复时，再进入 `Variants`。
+7. 需要查看 `rel/current` 发布基线内容或执行 trash 时，进入 `Release`。
 
 ## 一句话总结这套产品思路
 

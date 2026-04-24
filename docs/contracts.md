@@ -40,13 +40,13 @@ Operator-facing product surface:
 
 Current SPA routes:
 
-- `/app`
-- `/app/overview`
-- `/app/intake`
-- `/app/branches`
-- `/app/runs`
-- `/app/variants`
-- `/app/project`
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/app` | HubPage | Project list, create project |
+| `/app/workspace` | WorkspacePage | Project-wide variant grid, Excel-like browser |
+| `/app/release` | ReleasePage | rel/current browse, edit, trash |
+| `/app/dev` | DevPage | Dev branch list, create, detail, replace |
+| `/app/runs` | RunsPage | Job history, fill, QA, export |
 
 ## Route Policy
 
@@ -239,7 +239,7 @@ Branch mutation reporting:
 The product app depends on:
 
 - project list plus project-scoped bootstrap data from `GET /api/projects` and `GET /api/projects/{project_id}/state`
-- the project-scoped variants workspace query for `Overview` and orphan browsing
+- the project-scoped variants workspace query for `Workspace` and orphan browsing
 - canonical branch rows and branch lookup for branch-oriented reads; scope routes for master and orphan reads
 - import preview data with `upload_session_id`, `available_headers`, `suggested_mapping`, and `missing_targets`
 - import-batch list and report APIs
@@ -249,7 +249,7 @@ The product app depends on:
 
 The product app uses URL state as the primary workspace contract for `project`, `lang`, `branch`, `tab`, `job`, and `business_key`. It may store the selected project id locally only as a fallback when the URL does not provide one, clears that fallback when no projects exist, and refreshes page state from project-scoped APIs only.
 
-`/app/overview` may intentionally omit `branch` to represent the project-wide variants workspace. Selecting `All branches` on Overview clears the canonical `branch` URL param instead of forcing a fallback branch value.
+`/app/workspace` may intentionally omit `branch` to represent the project-wide variants workspace. Selecting `All branches` on Workspace clears the canonical `branch` URL param instead of forcing a fallback branch value.
 
 Invalid or stale `project`, `lang`, or `branch` URL params are normalized to the nearest valid project-scoped workspace context before branch-scoped page queries run. The Apply page keeps its write target branch as local form state instead of treating it as the canonical URL branch.
 
