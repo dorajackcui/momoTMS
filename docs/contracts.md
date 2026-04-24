@@ -212,11 +212,11 @@ Import upload and job detail:
 
 Workbook workflow input:
 
-- `POST /api/projects/{project_id}/workbooks/intake/preview` accepts multipart workbook uploads plus workflow context and returns lightweight precheck data.
-- `POST /api/projects/{project_id}/workbooks/intake/execute` accepts `upload_session_id`, `workflow_kind`, optional `branch_ref`, and optional `mutation_type`, then starts one async job that parses the workbook and applies the workflow.
-- Product write flows no longer expose Direct or Import batch as input methods.
-- Branch content mutation and branch range mutation both require configured key and source workbook headers.
-- Branch trash and project trash require only the configured key workbook header.
+- `POST /api/projects/{project_id}/workbooks/intake/preview` accepts multipart workbook uploads plus workflow context and returns lightweight precheck data
+- `POST /api/projects/{project_id}/workbooks/intake/execute` accepts `upload_session_id`, `workflow_kind`, optional `branch_ref`, and optional `mutation_type`, then starts one async job that parses the workbook and applies the workflow
+- product write flows no longer expose Direct or Import batch as input methods
+- branch content mutation and branch range mutation both require configured key and source workbook headers
+- branch trash and project trash require only the configured key workbook header
 
 Branch mutation reporting:
 

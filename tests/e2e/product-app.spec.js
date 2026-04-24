@@ -288,6 +288,11 @@ test("Release trash shows workbook upload panel and calls correct API", async ({
   // Old UI elements should not be present
   await expect(page.locator("textarea")).toHaveCount(0);
   await expect(page.getByText("Preview unbind")).toHaveCount(0);
+
+  // Upload files and verify the preview calls the correct API
+  await page.locator('input[type="file"]').first().setInputFiles(importDir);
+  await page.getByRole("button", { name: "Check Workbook" }).first().click();
+  await expect.poll(() => trashPreviewPayload).not.toBeNull();
 });
 
 test("normalizes stale branch params before branch-scoped pages query data", async ({
