@@ -126,11 +126,11 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
         master_rows_response = client.get("/api/projects/1/scopes/master/rows")
         assert master_rows_response.status_code == 200
         master_rows_payload = master_rows_response.json()
-        assert master_rows_payload["scope_ref"] == "master"
+        assert master_rows_payload["branch_ref"] == "master"
         assert any(row["state"] == "orphan" for row in master_rows_payload["rows"])
         assert any(row["business_key"] == "common.welcome" for row in master_rows_payload["rows"])
 
-        rel_rows_response = client.get("/api/projects/1/scopes/rel/current/rows")
+        rel_rows_response = client.get("/api/projects/1/branches/rel/current/rows")
         assert rel_rows_response.status_code == 200
         assert all(
             any(binding["branch_ref"] == "rel/current" for binding in row["bindings"])
@@ -138,18 +138,20 @@ def test_scope_routes_and_removed_compatibility_surface() -> None:
         )
 
         dev_lookup_response = client.get(
-            f"/api/projects/1/scopes/dev/{sample['dev_version']}/lookup",
+            f"/api/projects/1/branches/dev/{sample['dev_version']}/lookup",
             params={"business_key": "dev.mutable"},
         )
         assert dev_lookup_response.status_code == 200
         dev_lookup_payload = dev_lookup_response.json()
-        assert dev_lookup_payload["scope_ref"] == f"dev/{sample['dev_version']}"
+        assert dev_lookup_payload["branch_ref"] == f"dev/{sample['dev_version']}"
         assert dev_lookup_payload["mode"] == "business_key"
         assert [row["business_key"] for row in dev_lookup_payload["rows"]] == ["dev.mutable"]
 
-        master_response = client.get("/api/projects/1/branches/master/entries/rel.locked.same")
-        assert master_response.status_code == 200
-        assert all(row["scope_ref"] == "master" for row in master_response.json()["results"])
+        scope_rel_response = client.get("/api/projects/1/scopes/rel/current/rows")
+        assert scope_rel_response.status_code == 400
+
+        scope_dev_response = client.get(f"/api/projects/1/scopes/dev/{sample['dev_version']}/rows")
+        assert scope_dev_response.status_code == 400
 
         replace_preview = client.post(
             "/api/projects/1/branches/replace/preview",
@@ -285,14 +287,11 @@ def test_scope_read_routes_return_404_for_missing_project() -> None:
             client.get("/api/projects/999/variants"),
             client.get("/api/projects/999/branches"),
             client.get("/api/projects/999/scopes/master/rows"),
-            client.get("/api/projects/999/scopes/rel/current/rows"),
             client.get("/api/projects/999/scopes/master/lookup", params={"business_key": "common.welcome"}),
             client.get(
                 "/api/projects/999/history/same-source-candidates",
                 params={"business_key": "common.welcome", "source": "Welcome {0}"},
             ),
-            client.get("/api/projects/999/branches/master/entries/common.welcome"),
-            client.get("/api/projects/999/branches/master/search", params={"source": "Welcome {0}"}),
             client.get("/api/projects/999/branches/dev"),
         ]
 
@@ -916,58 +915,61 @@ def test_branch_rows_and_lookup_routes_match_existing_scope_routes() -> None:
         mutation_detail = wait_for_job(client, mutation.json())
         assert mutation_detail["job"]["status"] == "success"
 
-        branch_rows_response = client.get(f"/api/projects/1/branches/dev/{sample['dev_version']}/rows")
-        scope_rows_response = client.get(f"/api/projects/1/scopes/dev/{sample['dev_version']}/rows")
-        assert branch_rows_response.status_code == 200
-        assert scope_rows_response.status_code == 200
+        # Scope routes only accept master/orphan — branch refs return 400
+        scope_dev_rows_response = client.get(f"/api/projects/1/scopes/dev/{sample['dev_version']}/rows")
+        assert scope_dev_rows_response.status_code == 400
 
+        scope_dev_lookup_response = client.get(
+            f"/api/projects/1/scopes/dev/{sample['dev_version']}/lookup",
+            params={"business_key": "dev.mutable"},
+        )
+        assert scope_dev_lookup_response.status_code == 400
+
+        scope_rel_rows_response = client.get("/api/projects/1/scopes/rel/current/rows")
+        assert scope_rel_rows_response.status_code == 400
+
+        scope_rel_lookup_response = client.get(
+            "/api/projects/1/scopes/rel/current/lookup",
+            params={"business_key": "common.welcome"},
+        )
+        assert scope_rel_lookup_response.status_code == 400
+
+        # Branch routes work for dev and rel/current
+        branch_rows_response = client.get(f"/api/projects/1/branches/dev/{sample['dev_version']}/rows")
+        assert branch_rows_response.status_code == 200
         branch_rows_payload = branch_rows_response.json()
-        scope_rows_payload = scope_rows_response.json()
         assert branch_rows_payload["branch_ref"] == f"dev/{sample['dev_version']}"
         assert "scope_ref" not in branch_rows_payload
-        assert scope_rows_payload["scope_ref"] == f"dev/{sample['dev_version']}"
-        assert branch_rows_payload["rows"] == scope_rows_payload["rows"]
 
         branch_lookup_response = client.get(
             f"/api/projects/1/branches/dev/{sample['dev_version']}/lookup",
             params={"business_key": "dev.mutable"},
         )
-        scope_lookup_response = client.get(
-            f"/api/projects/1/scopes/dev/{sample['dev_version']}/lookup",
-            params={"business_key": "dev.mutable"},
-        )
         assert branch_lookup_response.status_code == 200
-        assert scope_lookup_response.status_code == 200
-
         branch_lookup_payload = branch_lookup_response.json()
-        scope_lookup_payload = scope_lookup_response.json()
         assert branch_lookup_payload["branch_ref"] == f"dev/{sample['dev_version']}"
         assert "scope_ref" not in branch_lookup_payload
-        assert scope_lookup_payload["scope_ref"] == f"dev/{sample['dev_version']}"
-        assert branch_lookup_payload["mode"] == scope_lookup_payload["mode"] == "business_key"
-        assert branch_lookup_payload["value"] == scope_lookup_payload["value"] == "dev.mutable"
-        assert branch_lookup_payload["rows"] == scope_lookup_payload["rows"]
+        assert branch_lookup_payload["mode"] == "business_key"
+        assert branch_lookup_payload["value"] == "dev.mutable"
 
         rel_branch_rows_response = client.get("/api/projects/1/branches/rel/current/rows")
-        rel_scope_rows_response = client.get("/api/projects/1/scopes/rel/current/rows")
         assert rel_branch_rows_response.status_code == 200
-        assert rel_scope_rows_response.status_code == 200
         assert rel_branch_rows_response.json()["branch_ref"] == "rel/current"
-        assert rel_branch_rows_response.json()["rows"] == rel_scope_rows_response.json()["rows"]
 
         rel_branch_lookup_response = client.get(
             "/api/projects/1/branches/rel/current/lookup",
             params={"business_key": "common.welcome"},
         )
-        rel_scope_lookup_response = client.get(
-            "/api/projects/1/scopes/rel/current/lookup",
-            params={"business_key": "common.welcome"},
-        )
         assert rel_branch_lookup_response.status_code == 200
-        assert rel_scope_lookup_response.status_code == 200
         assert rel_branch_lookup_response.json()["branch_ref"] == "rel/current"
         assert "scope_ref" not in rel_branch_lookup_response.json()
-        assert rel_branch_lookup_response.json()["rows"] == rel_scope_lookup_response.json()["rows"]
+
+        # Scope routes work for master — response uses branch_ref field
+        master_scope_rows_response = client.get("/api/projects/1/scopes/master/rows")
+        assert master_scope_rows_response.status_code == 200
+        master_scope_rows_payload = master_scope_rows_response.json()
+        assert master_scope_rows_payload["branch_ref"] == "master"
+        assert "scope_ref" not in master_scope_rows_payload
 
 
 def test_branch_first_routes_return_404_for_missing_project() -> None:
@@ -1461,7 +1463,7 @@ def test_orphan_scope_returns_unbound_non_trashed_variants() -> None:
         response = client.get("/api/projects/1/scopes/orphan/rows")
         assert response.status_code == 200
         payload = response.json()
-        assert payload["scope_ref"] == "orphan"
+        assert payload["branch_ref"] == "orphan"
         orphan_keys = {row["business_key"] for row in payload["rows"]}
         assert "common.welcome" in orphan_keys
         assert all(row["state"] == "orphan" for row in payload["rows"])

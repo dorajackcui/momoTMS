@@ -119,8 +119,6 @@ def test_active_docs_cover_branch_first_routes_and_replace_rules() -> None:
     assert "POST /api/projects/{project_id}/branches/bootstrap" in contracts_doc
     assert "GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows" in contracts_doc
     assert "GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup" in contracts_doc
-    assert "compatibility alias" in contracts_doc
-    assert "scope-aware" in contracts_doc
     assert "REBIND_TARGET" in contracts_doc
     assert "final_target_entry_count" in contracts_doc
     assert "kept_in_target_count" in contracts_doc
