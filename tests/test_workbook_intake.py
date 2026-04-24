@@ -94,3 +94,37 @@ def test_content_mutation_parser_requires_source(tmp_path) -> None:
     preview = WorkbookParser().precheck_directory(root, int(project["project_id"]), context)
 
     assert preview.missing_required_headers == ["source_text"]
+
+
+from app.services.workbooks.batches import WorkbookBatchService
+
+
+def test_workbook_batch_service_persists_rows_for_batch_reader(tmp_path) -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Batch Project",
+        ["fr"],
+        ["context"],
+        business_key_header="key",
+        source_header="source_text",
+    )
+    root = tmp_path / "batch"
+    write_workbook(
+        root,
+        "bundle/messages.xlsx",
+        [
+            ["key", "source_text", "fr", "context"],
+            ["hello.key", "Hello", "Bonjour", "Greeting"],
+        ],
+    )
+
+    context = WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="range")
+    batch = WorkbookBatchService().create_batch_from_directory(root, int(project["project_id"]), context)
+    rows = list(WorkbookBatchService().iter_rows(batch["workbook_batch_id"], int(project["project_id"])))
+
+    assert batch["workbook_batch_id"] > 0
+    assert batch["rows_scanned"] == 1
+    assert batch["issues"] == 0
+    assert rows[0]["business_key"] == "hello.key"
+    assert rows[0]["source"] == "Hello"
+    assert rows[0]["payload"]["translations"] == {"fr": "Bonjour"}
