@@ -54,6 +54,36 @@ export function lookupScope(
   );
 }
 
+export function getBranchRows(
+  projectId: number,
+  branchRef: string,
+  params: {
+    search_business_key?: string;
+    search_source?: string;
+    page?: number;
+    page_size?: number;
+  },
+) {
+  const query = buildQueryString(params);
+  return fetchJson<BranchRowsResponse>(
+    `/api/projects/${projectId}/branches/${encodeURIComponent(branchRef)}/rows?${query}`,
+  );
+}
+
+export function lookupBranch(
+  projectId: number,
+  branchRef: string,
+  params: {
+    business_key?: string;
+    source?: string;
+  },
+) {
+  const query = buildQueryString(params);
+  return fetchJson<BranchLookupResponse>(
+    `/api/projects/${projectId}/branches/${encodeURIComponent(branchRef)}/lookup?${query}`,
+  );
+}
+
 export function getSameSourceCandidates(
   projectId: number,
   params: {

@@ -8,8 +8,10 @@ import { useAppShell } from "@/app/shell/AppShellContext";
 import {
   deleteBranchBusinessKeys,
   executeBranchReplace,
+  getBranchRows,
   getSameSourceCandidates,
   getScopeRows,
+  lookupBranch,
   lookupScope,
   previewBranchReplace,
   runBranchMutation,
@@ -72,7 +74,7 @@ export function BranchOpsPage() {
   const [scopeSearchSource, setScopeSearchSource] = useState("");
   const [scopePage, setScopePage] = useState(1);
   const [scopeRef, setScopeRef] = useState(shell.branchRef || "master");
-  const [lookupScopeRef, setLookupScopeRef] = useState("master");
+  const [lookupRef, setLookupRef] = useState("master");
   const [lookupKey, setLookupKey] = useState("");
   const [lookupSource, setLookupSource] = useState("");
   const [lookupRequest, setLookupRequest] = useState<{
@@ -123,10 +125,10 @@ export function BranchOpsPage() {
   }, [scopeRef, shell.branchRef]);
 
   useEffect(() => {
-    if (!scopeOptions.includes(lookupScopeRef)) {
-      setLookupScopeRef("master");
+    if (!scopeOptions.includes(lookupRef)) {
+      setLookupRef("master");
     }
-  }, [lookupScopeRef, scopeOptions]);
+  }, [lookupRef, scopeOptions]);
 
   useEffect(() => {
     if (!projectId || !bootstrap) {
@@ -169,13 +171,18 @@ export function BranchOpsPage() {
             page: scopePage,
           })
         : ["branch-rows", "idle"],
-    queryFn: () =>
-      getScopeRows(projectId!, scopeRef, {
+    queryFn: () => {
+      const params = {
         search_business_key: scopeSearchKey || undefined,
         search_source: scopeSearchSource || undefined,
         page: scopePage,
         page_size: PAGE_SIZE,
-      }),
+      };
+      if (scopeRef === "master" || scopeRef === "orphan") {
+        return getScopeRows(projectId!, scopeRef, params);
+      }
+      return getBranchRows(projectId!, scopeRef, params);
+    },
     enabled: Boolean(projectId && shell.lang),
   });
 
@@ -211,11 +218,16 @@ export function BranchOpsPage() {
       if (!projectId || !lookupRequest) {
         return { rows: [] as LookupRow[] };
       }
-      const payload = await lookupScope(projectId, lookupRequest.scopeRef, {
+      const ref = lookupRequest.scopeRef;
+      const params = {
         business_key:
           lookupRequest.mode === "key" ? lookupRequest.value : undefined,
         source: lookupRequest.mode === "source" ? lookupRequest.value : undefined,
-      });
+      };
+      const payload =
+        ref === "master" || ref === "orphan"
+          ? await lookupScope(projectId, ref, params)
+          : await lookupBranch(projectId, ref, params);
       return {
         rows: payload.rows.map((row) => ({
           business_key: row.business_key,
@@ -362,7 +374,7 @@ export function BranchOpsPage() {
 
       {selectedTab === "lookup" ? (
         <LookupTab
-          lookupScopeRef={lookupScopeRef}
+          lookupRef={lookupRef}
           scopeOptions={scopeOptions}
           lookupKey={lookupKey}
           lookupSource={lookupSource}
@@ -371,19 +383,19 @@ export function BranchOpsPage() {
           historySource={historySource}
           historyRows={historyQuery.data?.rows || []}
           lang={shell.lang}
-          onLookupScopeChange={setLookupScopeRef}
+          onLookupScopeChange={setLookupRef}
           onLookupKeyChange={setLookupKey}
           onLookupSourceChange={setLookupSource}
           onRunKeyLookup={() =>
             setLookupRequest({
-              scopeRef: lookupScopeRef,
+              scopeRef: lookupRef,
               mode: "key",
               value: lookupKey.trim(),
             })
           }
           onRunSourceLookup={() =>
             setLookupRequest({
-              scopeRef: lookupScopeRef,
+              scopeRef: lookupRef,
               mode: "source",
               value: lookupSource.trim(),
             })
@@ -594,7 +606,7 @@ function ScopeTab(props: {
 }
 
 function LookupTab(props: {
-  lookupScopeRef: string;
+  lookupRef: string;
   scopeOptions: string[];
   lookupKey: string;
   lookupSource: string;
@@ -621,7 +633,7 @@ function LookupTab(props: {
             <span className={ui.fieldLabel}>Scope</span>
             <select
               className={ui.select}
-              value={props.lookupScopeRef}
+              value={props.lookupRef}
               onChange={(event) => props.onLookupScopeChange(event.target.value)}
             >
               {props.scopeOptions.map((scope) => (
