@@ -257,9 +257,27 @@ test("Workspace reflects state and branch filters in URL and API params", async 
     .toBeTruthy();
 });
 
-test("Release trash shows workbook upload panel", async ({
+test("Release trash shows workbook upload panel and calls correct API", async ({
   page,
 }) => {
+  let trashPreviewPayload = null;
+
+  await page.route("**/api/projects/1/workbooks/intake/preview", async (route) => {
+    trashPreviewPayload = route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        upload_session_id: "session-for-trash",
+        workflow_kind: "branch_trash",
+        mutation_type: null,
+        file_count: 1,
+        sheet_count: 1,
+        missing_required_headers: [],
+        sampled_issue_count: 0,
+        sheet_previews: [],
+      },
+    });
+  });
+
   await page.goto("/app/release?project=1&lang=fr");
   await page.getByRole("button", { name: "Trash" }).click();
 
