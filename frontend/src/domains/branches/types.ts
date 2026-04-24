@@ -173,3 +173,16 @@ export type BranchMutationInput =
       kind: "import_batch";
       import_batch_id: number;
     };
+
+export type BranchBootstrapRequest = {
+  branch_ref: string;
+  import_batch_id: number;
+};
+
+export type BranchBootstrapPreview = EffectForecastPreview & {
+  workflow_kind: "branch_bootstrap";
+};
+
+export type BranchMutationPreview = EffectForecastPreview & {
+  workflow_kind: "branch_mutation";
+};
