@@ -14,6 +14,7 @@ from app.routers import (
     projects_state_router,
     scopes_read_models_router,
     workflows_router,
+    workbook_workflows_router,
 )
 from app.services.demo.service import DemoService
 from app.services.shared.background_jobs import shutdown_background_jobs
@@ -36,6 +37,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(pages_router)
 app.include_router(projects_state_router)
 app.include_router(imports_jobs_router)
+app.include_router(workbook_workflows_router)
 app.include_router(workflows_router)
 app.include_router(scopes_read_models_router)
 app.include_router(inspection_router)

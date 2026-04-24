@@ -1579,3 +1579,48 @@ def test_phase_8_lifecycle_end_to_end() -> None:
             json={"variant_ids": [1]},
         )
         assert restore_resp.status_code in {404, 405, 422}
+
+
+def test_workbook_workflow_create_branch_executes_single_job() -> None:
+    reset_demo()
+    workbook_bytes = build_workbook_bytes(
+        ["business_key", "source", "fr"],
+        [["workbook.create", "Workbook source", "Workbook target"]],
+    )
+
+    with TestClient(app) as client:
+        preview = client.post(
+            "/api/projects/1/workbooks/intake/preview",
+            data={"workflow_kind": "create_branch", "branch_ref": "dev/2.4.3"},
+            files=[
+                (
+                    "files",
+                    (
+                        "create.xlsx",
+                        workbook_bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
+                ),
+                ("relative_paths", (None, "create.xlsx")),
+            ],
+        )
+        assert preview.status_code == 200
+        preview_payload = preview.json()
+        assert preview_payload["upload_session_id"]
+        assert preview_payload["missing_required_headers"] == []
+
+        execute = client.post(
+            "/api/projects/1/workbooks/intake/execute",
+            json={
+                "upload_session_id": preview_payload["upload_session_id"],
+                "workflow_kind": "create_branch",
+                "branch_ref": "dev/2.4.3",
+            },
+        )
+        assert execute.status_code == 200
+        detail = wait_for_job(client, execute.json())
+
+    assert detail["job"]["status"] == "success"
+    assert detail["job"]["job_type"] == "workbook_create_branch"
+    assert detail["job"]["summary"]["created_and_bound_variant_count"] == 1
+    assert detail["job"]["summary"]["workbook_batch_id"] > 0
