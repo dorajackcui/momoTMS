@@ -26,6 +26,8 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
                 payload.remark_columns,
                 payload.pivot_language,
                 payload.pivoted_languages,
+                business_key_header=payload.business_key_header,
+                source_header=payload.source_header,
             )
         )
     )

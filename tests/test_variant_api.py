@@ -325,6 +325,33 @@ def test_project_creation_and_bootstrap_expose_single_pivot_schema() -> None:
         assert "translation_pivots" not in schema
 
 
+def test_project_creation_exposes_workbook_header_contract() -> None:
+    reset_demo()
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "Workbook Header Project",
+                "business_key_header": "key",
+                "source_header": "source_text",
+                "translation_columns": ["fr"],
+                "remark_columns": ["context"],
+            },
+        )
+        assert create_response.status_code == 200
+        project_id = create_response.json()["project_id"]
+
+        state_response = client.get(f"/api/projects/{project_id}/state")
+        assert state_response.status_code == 200
+        schema = state_response.json()["schema"]
+
+    assert schema["fixed_columns"]["business_key"] == "key"
+    assert schema["fixed_columns"]["source"] == "source_text"
+    assert schema["translation_columns"] == ["fr"]
+    assert schema["remark_columns"] == ["context"]
+
+
 def test_branch_bootstrap_api_runs_async_and_exposes_bootstrap_metadata(tmp_path) -> None:
     reset_demo()
     business_key = "bootstrap.api.reuse"
