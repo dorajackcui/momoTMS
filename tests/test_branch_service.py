@@ -1839,3 +1839,43 @@ def test_workbook_content_mutation_requires_current_bound_source(tmp_path) -> No
     assert statuses == ["UPDATED_BOUND_VARIANT", "SOURCE_MISMATCH"]
     assert updated["translations"]["fr"] == "Updated"
     assert updated["remarks"]["context"] == "Updated context"
+
+
+def test_workbook_branch_trash_uses_key_only_rows(tmp_path) -> None:
+    reset_demo()
+    root = tmp_path / "branch-trash"
+    write_import_workbook(root, "trash.xlsx", [["business_key"], ["common.welcome"]])
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        1,
+        WorkbookWorkflowContext(workflow_kind="branch_trash"),
+    )
+
+    result = TrashService().delete_from_workbook_batch(
+        BranchRef.rel_current(),
+        batch["workbook_batch_id"],
+        project_id=1,
+    )
+
+    assert result["summary"]["orphaned_variant_count"] == 1
+    assert result["report_rows"][0]["business_key"] == "common.welcome"
+
+
+def test_workbook_project_trash_uses_key_only_rows(tmp_path) -> None:
+    reset_demo()
+    TrashService().delete(BranchRef.rel_current(), ["common.welcome"])
+    root = tmp_path / "project-trash"
+    write_import_workbook(root, "trash.xlsx", [["business_key"], ["common.welcome"]])
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        1,
+        WorkbookWorkflowContext(workflow_kind="project_trash"),
+    )
+
+    result = TrashService().project_trash_from_workbook_batch(
+        batch["workbook_batch_id"],
+        project_id=1,
+    )
+
+    assert result["summary"]["trashed_count"] == 1
+    assert result["report_rows"][0]["status"] == "TRASHED"
