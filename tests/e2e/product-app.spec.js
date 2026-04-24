@@ -252,33 +252,19 @@ test("Workspace reflects state and branch filters in URL and API params", async 
     .toBeTruthy();
 });
 
-test("Release trash requires preview before execute", async ({
+test("Release trash shows workbook upload panel", async ({
   page,
 }) => {
-  let unbindCalls = 0;
-
-  await page.route("**/api/projects/1/variants/trash/delete", async (route) => {
-    unbindCalls += 1;
-    await route.fulfill({
-      json: buildJobDetail({
-        job_type: "trash_delete",
-        status: "success",
-        summary: { removed_binding_count: 1 },
-        finished_at: "2026-03-25T00:00:01Z",
-      }),
-    });
-  });
-
   await page.goto("/app/release?project=1&lang=fr");
   await page.getByRole("button", { name: "Trash" }).click();
-  await page.locator("textarea").first().fill("common.welcome");
-  await expect(page.getByRole("button", { name: "Execute unbind" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Preview unbind" }).click();
-  await expect(page.getByRole("button", { name: "Execute unbind" })).toBeVisible();
-  expect(unbindCalls).toBe(0);
 
-  await page.getByRole("button", { name: "Execute unbind" }).click();
-  await expect.poll(() => unbindCalls).toBe(1);
+  await expect(page.getByText("Upload key workbook")).toBeVisible();
+  await expect(page.getByText("Delete From Branch")).toBeVisible();
+  await expect(page.getByText("Trash orphan variants")).toBeVisible();
+
+  // Old UI elements should not be present
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByText("Preview unbind")).toHaveCount(0);
 });
 
 test("normalizes stale branch params before branch-scoped pages query data", async ({
