@@ -7,12 +7,7 @@ from app.schemas import (
     BranchListResponse,
     BranchLookupResponse,
     BranchRowsResponse,
-    MasterEntryResponse,
-    MasterQueryRow,
-    MasterSearchResponse,
     SameSourceCandidatesResponse,
-    ScopeLookupResponse,
-    ScopeRowsResponse,
 )
 from app.services.branch.models import BranchRef
 from app.services.read_models.datasets.history import ProjectHistoryDataset
@@ -69,7 +64,7 @@ def project_branch_summary(project_id: int, lang: str | None = Query(default=Non
     return handle_errors(lambda: BranchListResponse(**BranchSummaryView().build(project_id=project_id, lang=lang)))
 
 
-@router.get("/api/projects/{project_id}/scopes/{scope_ref:path}/rows", response_model=ScopeRowsResponse)
+@router.get("/api/projects/{project_id}/scopes/{scope_ref:path}/rows", response_model=BranchRowsResponse)
 def project_scope_rows(
     project_id: int,
     scope_ref: str,
@@ -77,38 +72,46 @@ def project_scope_rows(
     search_source: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int | None = Query(default=None, ge=1),
-) -> ScopeRowsResponse:
-    return handle_errors(
-        lambda: ScopeRowsResponse(
-            **_scope_rows_payload(
-                project_id,
-                ScopeSelector.parse(scope_ref),
-                search_business_key=search_business_key,
-                search_source=search_source,
-                page=page,
-                page_size=page_size,
-            ),
+) -> BranchRowsResponse:
+    def run() -> BranchRowsResponse:
+        selector = ScopeSelector.parse(scope_ref)
+        if not selector.is_master and not selector.is_orphan:
+            raise ValueError(f"scope route only accepts master or orphan, got: {scope_ref}")
+        payload = _scope_rows_payload(
+            project_id,
+            selector,
+            search_business_key=search_business_key,
+            search_source=search_source,
+            page=page,
+            page_size=page_size,
         )
-    )
+        payload.pop("scope_ref")
+        return BranchRowsResponse(branch_ref=str(selector), **payload)
+
+    return handle_errors(run)
 
 
-@router.get("/api/projects/{project_id}/scopes/{scope_ref:path}/lookup", response_model=ScopeLookupResponse)
+@router.get("/api/projects/{project_id}/scopes/{scope_ref:path}/lookup", response_model=BranchLookupResponse)
 def project_scope_lookup(
     project_id: int,
     scope_ref: str,
     business_key: str | None = Query(default=None),
     source: str | None = Query(default=None),
-) -> ScopeLookupResponse:
-    return handle_errors(
-        lambda: ScopeLookupResponse(
-            **_scope_lookup_payload(
-                project_id,
-                ScopeSelector.parse(scope_ref),
-                business_key=business_key,
-                source=source,
-            ),
+) -> BranchLookupResponse:
+    def run() -> BranchLookupResponse:
+        selector = ScopeSelector.parse(scope_ref)
+        if not selector.is_master and not selector.is_orphan:
+            raise ValueError(f"scope route only accepts master or orphan, got: {scope_ref}")
+        payload = _scope_lookup_payload(
+            project_id,
+            selector,
+            business_key=business_key,
+            source=source,
         )
-    )
+        payload.pop("scope_ref")
+        return BranchLookupResponse(branch_ref=str(selector), **payload)
+
+    return handle_errors(run)
 
 
 @router.get("/api/projects/{project_id}/branches/{branch_ref:path}/rows", response_model=BranchRowsResponse)
@@ -180,57 +183,4 @@ def project_same_source_candidates(
     )
 
 
-@router.get("/api/projects/{project_id}/branches/master/entries/{business_key}", response_model=MasterEntryResponse)
-def project_master_entry(project_id: int, business_key: str) -> MasterEntryResponse:
-    def run() -> MasterEntryResponse:
-        payload = ScopeMembershipDataset().lookup(
-            ScopeSelector.master(),
-            business_key=business_key,
-            project_id=project_id,
-        )
-        if not payload["rows"]:
-            raise KeyError(f"entry not found in master scope: {business_key}")
-        results = [
-            MasterQueryRow(
-                business_key=row["business_key"],
-                scope_ref="master",
-                variant_id=row["variant_id"],
-                file_name=row["file_name"],
-                source=row["source"],
-                translations=row["translations"],
-                remarks=row["remarks"],
-            )
-            for row in payload["rows"]
-        ]
-        return MasterEntryResponse(
-            business_key=business_key,
-            entry_id=payload["rows"][0]["entry_id"],
-            results=results,
-        )
 
-    return handle_errors(run)
-
-
-@router.get("/api/projects/{project_id}/branches/master/search", response_model=MasterSearchResponse)
-def project_master_search(project_id: int, source: str = Query(...)) -> MasterSearchResponse:
-    def run() -> MasterSearchResponse:
-        payload = ScopeMembershipDataset().lookup(
-            ScopeSelector.master(),
-            source=source,
-            project_id=project_id,
-        )
-        results = [
-            MasterQueryRow(
-                business_key=row["business_key"],
-                scope_ref="master",
-                variant_id=row["variant_id"],
-                file_name=row["file_name"],
-                source=row["source"],
-                translations=row["translations"],
-                remarks=row["remarks"],
-            )
-            for row in payload["rows"]
-        ]
-        return MasterSearchResponse(source=source, results=results)
-
-    return handle_errors(run)

@@ -174,27 +174,12 @@ class BranchListResponse(BaseModel):
     branches: list[BranchSummaryItem] = Field(default_factory=list)
 
 
-class ScopeRowsResponse(BaseModel):
-    scope_ref: str
-    rows: list["ProjectVariantRow"] = Field(default_factory=list)
-    total_rows: int = 0
-    page: int = 1
-    page_size: int = 0
-
-
 class BranchRowsResponse(BaseModel):
     branch_ref: str
     rows: list["ProjectVariantRow"] = Field(default_factory=list)
     total_rows: int = 0
     page: int = 1
     page_size: int = 0
-
-
-class ScopeLookupResponse(BaseModel):
-    scope_ref: str
-    mode: Literal["business_key", "source"]
-    value: str
-    rows: list["ProjectVariantRow"] = Field(default_factory=list)
 
 
 class BranchLookupResponse(BaseModel):
@@ -252,27 +237,6 @@ class BranchQueueResponse(BaseModel):
     total_rows: int = 0
     page: int = 1
     page_size: int = 0
-
-
-class MasterQueryRow(BaseModel):
-    business_key: str
-    scope_ref: str
-    variant_id: int
-    file_name: str | None = None
-    source: str
-    translations: dict[str, str | None] = Field(default_factory=dict)
-    remarks: dict[str, str | None] = Field(default_factory=dict)
-
-
-class MasterEntryResponse(BaseModel):
-    business_key: str
-    entry_id: int
-    results: list[MasterQueryRow] = Field(default_factory=list)
-
-
-class MasterSearchResponse(BaseModel):
-    source: str
-    results: list[MasterQueryRow] = Field(default_factory=list)
 
 
 class ProjectVariantRow(BaseModel):
