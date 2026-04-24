@@ -186,32 +186,27 @@ Momo TMS 的设计就是围绕这些问题展开的：
 
 这是新的默认入口。它现在是一个 project-scoped variants 工作台：默认看 `active` 变体，也可以切到 `orphan` 或一起查看。你仍然可以用 branch filter 把结果收窄到某个分支当前正在采用的内容，但这个页面本身不再只是”某一条 branch 的表格镜像”。
 
+Workspace 的浏览状态以 URL 为准。状态、branch filter、分页和列组开关会写入地址栏，方便复制链接、刷新页面或用浏览器前进/后退回到同一个视图。
+
 ### `Dev`
 
 这里集中处理开发分支的完整生命周期：创建新 dev 分支、上传 Excel 并完成 bootstrap、查看分支详情，以及执行 `dev/<version> -> rel/current` 的替换操作。原 `Intake` 的文件上传与字段映射流程现已整合到 Dev 的 bootstrap 入口。
+
+创建 dev 分支时，系统会先把上传文件生成为 import batch，等该异步任务成功后再进入 bootstrap 预览。这样预览看到的是已经落库的 batch，而不是还在运行中的上传任务。
 
 ### `Release`
 
 这里专门用于 `rel/current` 的日常操作：浏览发布基线内容、按行编辑、以及执行 trash 操作清理不再使用的 orphan 变体。
 
-### `Branch Ops`
-
-这里把所有分支相关读写操作集中起来，包括：
-
-- `Compare`：比较 `dev/<version>` 和 `rel/current` 的当前采用结果
-- `Queue`：查看真正需要处理或复核的队列
-- `Lookup`：按 `business_key` 或精确 `source` 查询当前命中结果
-- `Apply`：把 import batch 或 direct patch 应用到目标分支
-- `Replace`：先预览再执行 `dev/<version> -> rel/current`
-- `Trash / Restore`：按分支删除，或按已知 `variant_id` 恢复
+Release 的编辑和删除都采用先预览、再执行的节奏。直接编辑使用 TSV 输入，表头可以包含 `business_key`、`source`、`file_name`、翻译列和备注列。Trash 操作会先显示本次提交的 key 列表；项目级 trash 只作用于 orphan 变体，并且是终态操作。
 
 ### `Runs`
 
-这里统一承接所有 job-backed 操作的反馈。无论是导入、应用、替换、回填、QA，还是删除与恢复，最后都能在这里看到任务输入、执行阶段、摘要结果、预览报告和可下载产物。
+这里统一承接所有 job-backed 操作的反馈。无论是导入、应用、替换、回填、QA，还是删除，最后都能在这里看到任务输入、执行阶段、摘要结果、预览报告和可下载产物。
 
 ### `Variants` (已合并至 `Workspace`)
 
-variant 浏览已整合到 `Workspace` 页面。project-scoped variants 视图现在统一在 `Workspace` 中呈现，包括 `active`、`orphan` 状态切换以及 branch filter。如果需要按 `business_key` 查看完整历史或执行 restore，仍可从 `Workspace` 或 `Runs` 中的相关 job 报告入口进入详情视图。
+variant 浏览已整合到 `Workspace` 页面。project-scoped variants 视图现在统一在 `Workspace` 中呈现，包括 `active`、`orphan` 状态切换以及 branch filter。如果需要按 `business_key` 查看完整历史，仍可从 `Workspace` 或 `Runs` 中的相关 job 报告入口进入详情视图。
 
 ### `Hub` (`/app`)
 
@@ -222,10 +217,9 @@ variant 浏览已整合到 `Workspace` 页面。project-scoped variants 视图�
 1. 在 `Hub` (`/app`) 中创建项目并确认列结构。
 2. 打开 `Workspace`，先扫描当前项目的 `active` 内容；需要时再加 branch filter 或切到 `orphan` 视图。
 3. 去 `Dev` 创建新的 `dev/<version>` 分支，上传 Excel，完成 bootstrap。
-4. 在 `Dev` 中查看分支状态，或去 `Branch Ops / Apply` 把 import batch 应用到目标分支。
-5. 在 `Branch Ops / Compare` 和 `Branch Ops / Queue` 里确认差异、处理待翻译和待复核内容。
-6. 触发 `Fill`、`QA`、`Replace`、`Trash` 或 `Restore` 以后，统一去 `Runs` 查看任务执行和报告。
-7. 需要查看 `rel/current` 发布基线内容或执行 trash 时，进入 `Release`。
+4. 在 `Dev` 中打开分支详情，浏览分支内容，应用 import batch 或 direct patch，并在准备发布时预览和执行 replace。
+5. 触发 `Fill`、`QA`、`Replace` 或 `Trash` 以后，统一去 `Runs` 查看任务执行和报告。
+6. 需要查看 `rel/current` 发布基线内容、执行发布线编辑或清理 orphan 变体时，进入 `Release`。
 
 ## 一句话总结这套产品思路
 

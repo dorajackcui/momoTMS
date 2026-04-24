@@ -2,21 +2,22 @@ const { test, expect } = require("./test");
 
 const { startManagedServer, stopManagedServer } = require("./support/server");
 
-// TODO: redesign — the /app/project route no longer exists; project creation is now
-// done via HubPage at /app (the root app route). The project-page and project-create-button
-// test IDs are gone; HubPage uses a "+ Create Project" button (no testid).
-// The overview-page and shell-project-select test IDs are also removed.
-// This test needs to be redesigned against the new HubPage create-project flow.
-test.skip("redirects empty runtime to /app/project and can create the first project", async ({ page }) => {
+test("creates the first project from the Hub in an empty runtime", async ({ page }) => {
   const server = await startManagedServer({ runtimePrefix: "momo-p2-empty-" });
 
   try {
-    // Previously: redirected to /app/project; now an empty runtime stays at /app (HubPage).
     await page.goto(`${server.baseUrl}/app`);
     await expect(page).toHaveURL(/\/app(\?.*)?$/);
+    await expect(page.getByText("No projects")).toBeVisible();
 
-    // Previously used project-page, project-create-button, overview-page,
-    // and shell-project-select test IDs which no longer exist.
+    await page.getByRole("button", { name: /Create Project/ }).click();
+    await page.getByLabel("Project name").fill("Empty Runtime Project");
+    await page.getByLabel(/Translation columns/).fill("fr, en");
+    await page.getByLabel(/Remark columns/).fill("context");
+    await page.getByRole("button", { name: /^Create$/ }).click();
+
+    await expect(page).toHaveURL(/\/app\/workspace\?.*project=/);
+    await expect(page.getByText("Empty Runtime Project")).toBeVisible();
   } finally {
     await stopManagedServer(server);
   }

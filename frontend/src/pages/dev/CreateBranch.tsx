@@ -7,6 +7,7 @@ import { runFillUpload } from "@/domains/workflows/api";
 import type { ImportUploadPreview } from "@/domains/imports/types";
 import type { EffectForecastPreview } from "@/domains/branches/types";
 import type { JobDetail } from "@/domains/jobs/types";
+import { waitForJobDetail } from "@/domains/jobs/api";
 import { invalidateProject } from "@/shared/api/queryKeys";
 import { buttonClassName, InlineNotice, StatGrid } from "@/shared/ui/primitives";
 import { FolderUpload } from "@/shared/ui/FolderUpload";
@@ -40,16 +41,20 @@ export function CreateBranch(props: {
   });
 
   const confirmUploadMut = useMutation({
-    mutationFn: () => confirmImportUpload(projectId, uploadPreview!.upload_session_id, null),
-    onSuccess: async (jobDetail) => {
-      const batchId = (jobDetail.job.input as { import_batch_id?: number }).import_batch_id ??
-        (jobDetail.job.summary as { import_batch_id?: number }).import_batch_id;
-      if (batchId) {
-        setImportBatchId(batchId);
-        const bsPreview = await previewBootstrap(projectId, { branch_ref: `dev/${version}`, import_batch_id: batchId });
-        setBootstrapPreview(bsPreview);
-        setStep("preview");
+    mutationFn: async () => {
+      const startedDetail = await confirmImportUpload(projectId, uploadPreview!.upload_session_id, null);
+      const completedDetail = await waitForJobDetail(projectId, startedDetail.job.job_id);
+      if (completedDetail.job.status !== "success") {
+        throw new Error(completedDetail.job.error_message || "Import batch creation failed");
       }
+      const batchId = readImportBatchId(completedDetail);
+      const bsPreview = await previewBootstrap(projectId, { branch_ref: `dev/${version}`, import_batch_id: batchId });
+      return { batchId, bsPreview };
+    },
+    onSuccess: ({ batchId, bsPreview }) => {
+      setImportBatchId(batchId);
+      setBootstrapPreview(bsPreview);
+      setStep("preview");
     },
   });
 
@@ -167,4 +172,15 @@ export function CreateBranch(props: {
       )}
     </div>
   );
+}
+
+function readImportBatchId(jobDetail: JobDetail): number {
+  const raw =
+    jobDetail.job.summary.import_batch_id ??
+    jobDetail.job.input.import_batch_id;
+  const batchId = Number(raw);
+  if (!Number.isInteger(batchId) || batchId <= 0) {
+    throw new Error("Import job completed without an import_batch_id");
+  }
+  return batchId;
 }

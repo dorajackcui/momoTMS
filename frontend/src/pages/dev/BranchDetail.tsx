@@ -91,6 +91,7 @@ export function BranchDetail(props: { projectId: number; version: string; onBack
           onColumnFilterChange={(col, val) => { setColumnFilters((p) => ({ ...p, [col]: val })); setPage(1); }}
           stateFilter={stateFilter}
           onStateFilterChange={(s) => { setStateFilter(s); setPage(1); }}
+          showStateFilter={false}
           columnToggles={columnToggles}
           onColumnToggleChange={(g, on) => setColumnToggles((p) => ({ ...p, [g]: on }))}
         />
@@ -100,6 +101,7 @@ export function BranchDetail(props: { projectId: number; version: string; onBack
         <EditPanel
           projectId={projectId}
           branchRef={branchRef}
+          schema={schema}
           allowRange={true}
           importBatches={shell.bootstrap?.imports ?? []}
           onJobCreated={handleJobCreated}

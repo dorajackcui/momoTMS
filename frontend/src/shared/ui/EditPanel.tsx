@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import type { BranchMutationInput, BranchMutationChange, EffectForecastPreview } from "@/domains/branches/types";
 import type { ImportBatchSummary } from "@/domains/imports/types";
 import type { JobDetail } from "@/domains/jobs/types";
+import type { ProjectSchema } from "@/domains/projects/types";
 import { previewBranchMutation, runBranchMutation } from "@/domains/branches/api";
 import { buttonClassName, InlineNotice, StatGrid } from "@/shared/ui/primitives";
 
@@ -15,13 +16,14 @@ type InputMethod = "import_batch" | "direct";
 export type EditPanelProps = {
   projectId: number;
   branchRef: string;
+  schema: ProjectSchema;
   allowRange: boolean;
   importBatches: ImportBatchSummary[];
   onJobCreated: (job: JobDetail) => void;
 };
 
 export function EditPanel(props: EditPanelProps) {
-  const { projectId, branchRef, allowRange, importBatches, onJobCreated } = props;
+  const { projectId, branchRef, schema, allowRange, importBatches, onJobCreated } = props;
 
   const [mutationType, setMutationType] = useState<MutationType>("content");
   const [inputMethod, setInputMethod] = useState<InputMethod>("direct");
@@ -56,7 +58,7 @@ export function EditPanel(props: EditPanelProps) {
       if (!selectedBatchId) return null;
       return { kind: "import_batch", import_batch_id: selectedBatchId };
     }
-    const changes = parseDirectChanges(directText);
+    const changes = parseDirectChanges(directText, schema);
     if (changes.length === 0) return null;
     return { kind: "direct", changes };
   }
@@ -99,10 +101,13 @@ export function EditPanel(props: EditPanelProps) {
             className={styles.directInput}
             value={directText}
             onChange={(e) => setDirectText(e.target.value)}
-            placeholder={"business_key\\tsource\\ttranslation_lang\\n..."}
+            placeholder={`business_key\tsource\t${schema.translation_columns.join("\t")}`}
             rows={8}
           />
-          <p className={styles.hint}>Tab-separated: business_key, source, then translation columns</p>
+          <p className={styles.hint}>
+            Tab-separated rows. Header columns may include business_key, source, file_name,
+            translation columns ({schema.translation_columns.join(", ")}), and remark columns ({schema.remark_columns.join(", ") || "none"}).
+          </p>
         </div>
       )}
 
@@ -155,16 +160,73 @@ export function EditPanel(props: EditPanelProps) {
   );
 }
 
-function parseDirectChanges(text: string): BranchMutationChange[] {
-  const lines = text.trim().split("\n").filter((l) => l.trim());
+function parseDirectChanges(text: string, schema: ProjectSchema): BranchMutationChange[] {
+  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
   if (lines.length === 0) return [];
-  return lines.map((line) => {
-    const parts = line.split("\t");
-    return {
-      business_key: parts[0]?.trim() ?? "",
-      source: parts[1]?.trim() || undefined,
-      translations_by_lang: {},
-      remarks_by_key: {},
-    };
+  const firstParts = splitTsvLine(lines[0]);
+  const hasHeader = firstParts.some((part) => part.trim() === "business_key");
+  const headers = hasHeader
+    ? firstParts.map((part) => part.trim())
+    : ["business_key", "source", ...schema.translation_columns, ...schema.remark_columns];
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  return dataLines.map((line) => parseDirectChangeLine(splitTsvLine(line), headers, schema));
+}
+
+function parseDirectChangeLine(
+  parts: string[],
+  headers: string[],
+  schema: ProjectSchema,
+): BranchMutationChange {
+  const change: BranchMutationChange = {
+    business_key: "",
+    translations_by_lang: {},
+    remarks_by_key: {},
+  };
+
+  headers.forEach((header, index) => {
+    if (index >= parts.length) return;
+    const rawValue = parts[index];
+    const value = rawValue.trim();
+    if (header === "business_key") {
+      change.business_key = value;
+      return;
+    }
+    if (header === "source") {
+      if (value) change.source = value;
+      return;
+    }
+    if (header === "file_name") {
+      if (value) change.file_name = value;
+      return;
+    }
+
+    const translationColumn = parseKnownColumn(header, "translation", schema.translation_columns);
+    if (translationColumn) {
+      change.translations_by_lang[translationColumn] = rawValue;
+      return;
+    }
+
+    const remarkColumn = parseKnownColumn(header, "remark", schema.remark_columns);
+    if (remarkColumn) {
+      change.remarks_by_key[remarkColumn] = rawValue;
+    }
   });
+
+  return change;
+}
+
+function parseKnownColumn(
+  header: string,
+  prefix: "translation" | "remark",
+  knownColumns: string[],
+): string | null {
+  const column = header.startsWith(`${prefix}:`)
+    ? header.slice(prefix.length + 1)
+    : header;
+  return knownColumns.includes(column) ? column : null;
+}
+
+function splitTsvLine(line: string): string[] {
+  return line.replace(/\r$/, "").split("\t");
 }

@@ -18,6 +18,8 @@ export type VariantGridProps = {
   onColumnFilterChange: (column: string, value: string) => void;
   stateFilter: "active" | "orphan" | "all";
   onStateFilterChange: (state: "active" | "orphan" | "all") => void;
+  branchOptions?: string[];
+  showStateFilter?: boolean;
   columnToggles: { translations: boolean; remarks: boolean; pivot: boolean };
   onColumnToggleChange: (group: "translations" | "remarks" | "pivot", on: boolean) => void;
 };
@@ -49,7 +51,7 @@ export function VariantGrid(props: VariantGridProps) {
   const {
     schema, rows, totalRows, page, pageSize,
     onPageChange, columnFilters, onColumnFilterChange,
-    stateFilter, onStateFilterChange,
+    stateFilter, onStateFilterChange, branchOptions, showStateFilter = true,
     columnToggles, onColumnToggleChange,
   } = props;
 
@@ -145,17 +147,33 @@ export function VariantGrid(props: VariantGridProps) {
   return (
     <div className={styles.grid}>
       <div className={styles.toolbar}>
-        <label className={styles.toolbarItem}>
-          State:
-          <select
-            value={stateFilter}
-            onChange={(e) => onStateFilterChange(e.target.value as "active" | "orphan" | "all")}
-          >
-            <option value="active">Active</option>
-            <option value="orphan">Orphan</option>
-            <option value="all">All</option>
-          </select>
-        </label>
+        {showStateFilter && (
+          <label className={styles.toolbarItem}>
+            State:
+            <select
+              value={stateFilter}
+              onChange={(e) => onStateFilterChange(e.target.value as "active" | "orphan" | "all")}
+            >
+              <option value="active">Active</option>
+              <option value="orphan">Orphan</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+        )}
+        {branchOptions && (
+          <label className={styles.toolbarItem}>
+            Branch:
+            <select
+              value={columnFilters["branch"] ?? ""}
+              onChange={(e) => onColumnFilterChange("branch", e.target.value)}
+            >
+              <option value="">All branches</option>
+              {branchOptions.map((branchRef) => (
+                <option key={branchRef} value={branchRef}>{branchRef}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className={styles.toggle}>
           <input type="checkbox" checked={columnToggles.translations} onChange={(e) => onColumnToggleChange("translations", e.target.checked)} />
           Translations

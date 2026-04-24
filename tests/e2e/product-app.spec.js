@@ -152,60 +152,157 @@ function buildJobDetail(overrides = {}) {
   };
 }
 
-// TODO: redesign — the intake page (/app/intake) and project page (/app/project) no longer exist.
-// Create-project is now done via HubPage (/app) and import upload is done via Dev page (/app/dev).
-// The old test IDs (intake-page, intake-folder-input, intake-import-dialog, project-page,
-// project-create-button, shell-project-select) are no longer rendered.
-test.skip("keeps first-project import apply target local until a dev branch is entered", async ({
+test("Dev create branch waits for the import job before bootstrap preview", async ({
   page,
 }) => {
-  // Previously used /app/project and /app/intake which no longer exist.
-  // Replaced by HubPage (/app) create flow and Dev page (/app/dev) import flow.
-  await page.goto("/app");
-  await expect(page).toHaveURL(/\/app\/workspace\?/);
-  await expectBranchParam(page, null);
+  let jobPolls = 0;
+  let bootstrapPayload = null;
+
+  await page.route("**/api/projects/1/imports/upload-folder/preview", async (route) => {
+    await route.fulfill({
+      json: {
+        upload_session_id: "session-for-create-branch",
+        file_count: 1,
+        sheet_count: 1,
+        sheet_previews: [],
+      },
+    });
+  });
+  await page.route("**/api/projects/1/imports/upload-folder", async (route) => {
+    await route.fulfill({
+      json: buildJobDetail({
+        job_id: 900,
+        job_type: "import_upload_folder",
+        status: "running",
+      }),
+    });
+  });
+  await page.route("**/api/projects/1/jobs/900", async (route) => {
+    jobPolls += 1;
+    await route.fulfill({
+      json: buildJobDetail({
+        job_id: 900,
+        job_type: "import_upload_folder",
+        status: "success",
+        summary: { import_batch_id: 321 },
+        finished_at: "2026-03-25T00:00:01Z",
+      }),
+    });
+  });
+  await page.route("**/api/projects/1/branches/bootstrap/preview", async (route) => {
+    bootstrapPayload = route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        preview_kind: "effect_forecast",
+        workflow_kind: "branch_bootstrap",
+        request_echo: bootstrapPayload,
+        summary: { processed_count: 1 },
+        rows: [{ status: "CREATED_AND_BOUND_VARIANT" }],
+      },
+    });
+  });
+
+  await page.goto("/app/dev?project=1&lang=fr");
+  await page.getByRole("button", { name: /Create Branch/ }).click();
+  await page.getByLabel("Version number").fill("2.4.9");
+  await page.locator('input[type="file"]').setInputFiles(importDir);
+  await page.getByRole("button", { name: "Preview Upload" }).click();
+  await page.getByRole("button", { name: "Next: Preview Bootstrap" }).click();
+
+  await expect(page.getByRole("heading", { name: /Bootstrap Preview/ })).toBeVisible();
+  expect(jobPolls).toBeGreaterThan(0);
+  expect(bootstrapPayload.import_batch_id).toBe(321);
 });
 
-// TODO: redesign — this test exercised the old six-surface workflow:
-// overview (/app/overview), intake (/app/intake), branches (/app/branches with tab=scope/replace),
-// variants (/app/variants), and variant drawer (Restore variant button).
-// All of these pages and UI elements are removed. The new workflow uses:
-// Hub (/app), Workspace (/app/workspace), Dev (/app/dev), Runs (/app/runs).
-// shell-project-select no longer exists in AppShell.
-// tab=scope and tab=replace query params are removed (Dev page uses local view state).
-test.skip("loads the rebuilt product app and exercises the new six-surface workflow", async ({
+test("Release direct edit maps TSV columns into mutation preview payload", async ({
   page,
-  request,
 }) => {
-  // Previously covered: project select, intake upload, branch scope/lookup/replace,
-  // variants workspace restore. Needs full redesign for new UI.
-  void page, request;
+  let previewPayload = null;
+
+  await page.route("**/api/projects/1/branches/mutations/preview", async (route) => {
+    previewPayload = route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        preview_kind: "effect_forecast",
+        workflow_kind: "branch_mutation",
+        request_echo: previewPayload,
+        summary: { processed_count: 1 },
+        rows: [{ status: "UPDATED_BOUND_VARIANT" }],
+      },
+    });
+  });
+
+  await page.goto("/app/release?project=1&lang=fr");
+  await page.getByRole("button", { name: "Edit" }).click();
+  await page.locator("textarea").fill(
+    [
+      "business_key\tsource\tfr\tremark:context\tfile_name",
+      "common.welcome\tWelcome {0}\tBienvenue!\tReviewed\twelcome.xlsx",
+    ].join("\n"),
+  );
+  await page.getByRole("button", { name: "Preview" }).click();
+
+  await expect.poll(() => previewPayload).not.toBeNull();
+  const change = previewPayload.input.changes[0];
+  expect(change.translations_by_lang).toEqual({ fr: "Bienvenue!" });
+  expect(change.remarks_by_key).toEqual({ context: "Reviewed" });
+  expect(change.file_name).toBe("welcome.xlsx");
 });
 
-// TODO: redesign — the /app/overview route is gone; workspace is now at /app/workspace.
-// The overview-branch-select test ID no longer exists. WorkspacePage does not render
-// a branch selector in the same pattern. This test needs to be redesigned against
-// the new WorkspacePage branch filtering UX.
-test.skip("overview branch filter clears canonical branch state for project-wide mode", async ({
+test("Workspace reflects state and branch filters in URL and API params", async ({
   page,
   request,
 }) => {
   await seedDevBranch(request);
-  // Previously navigated to /app/overview and checked overview-branch-select.
-  // That selector and page no longer exist.
-  void page;
+
+  const variantRequests = [];
+  await page.route("**/api/projects/1/variants?*", async (route) => {
+    const url = new URL(route.request().url());
+    variantRequests.push({
+      state: url.searchParams.get("state"),
+      branchRefs: url.searchParams.getAll("branch_ref"),
+    });
+    await route.continue();
+  });
+
+  await page.goto("/app/workspace?project=1&lang=fr&state=all");
+  await expect(page.getByTestId("product-app")).toBeVisible();
+  await expect.poll(() => variantRequests.some((item) => item.state === "all")).toBeTruthy();
+
+  await page.getByLabel(/Branch:/).selectOption("rel/current");
+  await expect.poll(() => new URL(page.url()).searchParams.get("branch")).toBe("rel/current");
+  await expect
+    .poll(() => variantRequests.some((item) => item.branchRefs.includes("rel/current")))
+    .toBeTruthy();
 });
 
-// TODO: redesign — the /app/variants route is gone. Variant browsing is now in
-// WorkspacePage (/app/workspace). The variants-page, variants-results-list test IDs,
-// variants-review-button, and per-row article cards no longer exist in the new UI.
-test.skip("reviews changed pivot variants from the variants workspace", async ({
+test("Release trash requires preview before execute", async ({
   page,
-  request,
 }) => {
-  // Previously used /app/variants with variants-page, variants-results-list,
-  // and per-card checkboxes. Needs redesign for WorkspacePage grid.
-  void page, request;
+  let unbindCalls = 0;
+
+  await page.route("**/api/projects/1/variants/trash/delete", async (route) => {
+    unbindCalls += 1;
+    await route.fulfill({
+      json: buildJobDetail({
+        job_type: "trash_delete",
+        status: "success",
+        summary: { removed_binding_count: 1 },
+        finished_at: "2026-03-25T00:00:01Z",
+      }),
+    });
+  });
+
+  await page.goto("/app/release?project=1&lang=fr");
+  await page.getByRole("button", { name: "Trash" }).click();
+  await page.locator("textarea").first().fill("common.welcome");
+  await expect(page.getByRole("button", { name: "Execute unbind" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Preview unbind" }).click();
+  await expect(page.getByRole("button", { name: "Execute unbind" })).toBeVisible();
+  expect(unbindCalls).toBe(0);
+
+  await page.getByRole("button", { name: "Execute unbind" }).click();
+  await expect.poll(() => unbindCalls).toBe(1);
 });
 
 test("normalizes stale branch params before branch-scoped pages query data", async ({
@@ -219,14 +316,47 @@ test("normalizes stale branch params before branch-scoped pages query data", asy
   await expect(page.getByText("Failed to load shell data")).toHaveCount(0);
 });
 
-// TODO: redesign — the /app/intake route no longer exists. Import upload is now
-// part of the Dev page (/app/dev) via the Create Branch flow. The intake-page,
-// intake-folder-input, intake-import-dialog, and intake-confirm-import test IDs
-// are no longer rendered anywhere.
-test.skip("keeps the intake preview open when the import job finishes as failed", async ({
+test("Dev create branch keeps upload preview visible when import job fails", async ({
   page,
 }) => {
-  // Previously mocked /api/projects/1/imports/upload-folder/preview and tested
-  // that the intake dialog stays open on failure. Needs redesign for Dev page upload flow.
-  void page;
+  await page.route("**/api/projects/1/imports/upload-folder/preview", async (route) => {
+    await route.fulfill({
+      json: {
+        upload_session_id: "session-that-will-fail",
+        file_count: 1,
+        sheet_count: 1,
+        sheet_previews: [],
+      },
+    });
+  });
+  await page.route("**/api/projects/1/imports/upload-folder", async (route) => {
+    await route.fulfill({
+      json: buildJobDetail({
+        job_id: 901,
+        job_type: "import_upload_folder",
+        status: "running",
+      }),
+    });
+  });
+  await page.route("**/api/projects/1/jobs/901", async (route) => {
+    await route.fulfill({
+      json: buildJobDetail({
+        job_id: 901,
+        job_type: "import_upload_folder",
+        status: "failed",
+        error_message: "import failed for test",
+        finished_at: "2026-03-25T00:00:01Z",
+      }),
+    });
+  });
+
+  await page.goto("/app/dev?project=1&lang=fr");
+  await page.getByRole("button", { name: /Create Branch/ }).click();
+  await page.getByLabel("Version number").fill("2.4.8");
+  await page.locator('input[type="file"]').setInputFiles(importDir);
+  await page.getByRole("button", { name: "Preview Upload" }).click();
+  await page.getByRole("button", { name: "Next: Preview Bootstrap" }).click();
+
+  await expect(page.getByText(/import failed for test/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next: Preview Bootstrap" })).toBeVisible();
 });
