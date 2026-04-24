@@ -205,6 +205,11 @@ test("Dev create branch uses workbook panel with preview and execute", async ({
 
   await expect.poll(() => previewCalled).toBeTruthy();
   await expect(page.getByRole("button", { name: "Create Branch" }).last()).toBeVisible();
+
+  await page.getByRole("button", { name: "Create Branch" }).last().click();
+  await expect.poll(() => executePayload).not.toBeNull();
+  expect(executePayload.upload_session_id).toBe("session-for-create-branch");
+  expect(executePayload.workflow_kind).toBe("create_branch");
 });
 
 test("Release edit shows workbook mutation type selector", async ({

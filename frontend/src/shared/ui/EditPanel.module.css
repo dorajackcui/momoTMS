@@ -3,12 +3,6 @@
   gap: 16px;
 }
 
-.selectors {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
 .fieldset {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -30,62 +24,4 @@
   gap: 4px;
   font-size: 13px;
   cursor: pointer;
-}
-
-.hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.inputArea {
-  display: grid;
-  gap: 6px;
-}
-
-.inputArea select {
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  font-size: 13px;
-}
-
-.directInput {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  resize: vertical;
-  background: var(--surface);
-}
-
-.actions {
-  display: flex;
-  gap: 10px;
-}
-
-.previewResult {
-  display: grid;
-  gap: 12px;
-}
-
-.previewTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.previewTable th,
-.previewTable td {
-  border: 1px solid var(--border);
-  padding: 4px 8px;
-  text-align: left;
-}
-
-.previewTable th {
-  background: var(--surface-muted);
-  font-weight: 600;
 }

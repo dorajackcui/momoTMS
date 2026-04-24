@@ -78,7 +78,6 @@ export function ReleasePage() {
         <EditPanel
           projectId={projectId}
           branchRef={branchRef}
-          schema={schema}
           allowRange={true}
           onJobCreated={handleJobCreated}
         />

@@ -1,7 +1,6 @@
 import { useState } from "react";
 
 import type { JobDetail } from "@/domains/jobs/types";
-import type { ProjectSchema } from "@/domains/projects/types";
 import type { WorkbookMutationType } from "@/domains/workbooks/types";
 import { WorkbookWorkflowPanel } from "@/shared/ui/WorkbookWorkflowPanel";
 
@@ -10,9 +9,7 @@ import styles from "@/shared/ui/EditPanel.module.css";
 export type EditPanelProps = {
   projectId: number;
   branchRef: string;
-  schema: ProjectSchema;
   allowRange: boolean;
-  importBatches?: unknown[];
   onJobCreated: (job: JobDetail) => void;
 };
 
