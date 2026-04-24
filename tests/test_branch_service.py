@@ -14,7 +14,7 @@ from app.services.branch.registry import BranchRegistryService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
-from app.services.workflows.trash_restore import TrashRestoreService
+from app.services.workflows.trash import TrashService
 from tests.service_helpers import branch_services
 
 
@@ -1196,7 +1196,7 @@ def test_release_branch_rejects_import_batch_mutation() -> None:
 def test_release_hotfix_and_branch_delete_produces_orphan() -> None:
     sample = reset_demo()
     mutation_service = BranchMutationService()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     active = mutation_service.apply(
         BranchRef.rel_current(),
@@ -1244,7 +1244,7 @@ def test_release_hotfix_and_branch_delete_produces_orphan() -> None:
 
 def test_branch_delete_produces_orphan_instead_of_trashed() -> None:
     sample = reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
     inspection = EntryTimelineDataset()
 
     before = inspection.get("common.welcome")
@@ -1267,7 +1267,7 @@ def test_branch_delete_produces_orphan_instead_of_trashed() -> None:
 
 def test_delete_rolls_back_on_failure(monkeypatch) -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
     read_service = branch_services()
 
     def fail_refresh(*args, **kwargs):
@@ -1750,7 +1750,7 @@ def test_mutation_preview_blank_source_returns_invalid_row() -> None:
 def test_project_trash_trashes_orphan_variants_only() -> None:
     reset_demo()
     read_service = branch_services()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
 
@@ -1771,7 +1771,7 @@ def test_project_trash_trashes_orphan_variants_only() -> None:
 
 def test_project_trash_rejects_active_variants() -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     result = variant_service.project_trash(["common.welcome"])
 
@@ -1783,7 +1783,7 @@ def test_project_trash_rejects_active_variants() -> None:
 
 def test_project_trash_reports_missing_keys() -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     result = variant_service.project_trash(["nonexistent.key"])
 

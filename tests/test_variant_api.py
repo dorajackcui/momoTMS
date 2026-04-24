@@ -17,7 +17,7 @@ from app.services.read_models.selectors import VariantFilter
 from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
 from app.services.variant.state_coordinator import VariantStateCoordinator
-from app.services.workflows.trash_restore import TrashRestoreService
+from app.services.workflows.trash import TrashService
 from tests.service_helpers import branch_services
 
 
@@ -559,11 +559,11 @@ def test_branch_bootstrap_api_rejects_already_bootstrapped_without_creating_job(
 
 def test_scope_history_same_source_candidates_exclude_trashed() -> None:
     reset_demo()
-    trash_restore = TrashRestoreService()
+    trash_service = TrashService()
 
     # Delete and project_trash to actually trash the variant
-    trash_restore.delete(BranchRef.rel_current(), ["common.welcome"])
-    trash_restore.project_trash(["common.welcome"])
+    trash_service.delete(BranchRef.rel_current(), ["common.welcome"])
+    trash_service.project_trash(["common.welcome"])
 
     # Verify trashed variant is excluded from same-source
     with TestClient(app) as client:
@@ -674,13 +674,13 @@ def test_project_variants_route_supports_branch_filters_search_and_multi_binding
 def test_project_variants_route_excludes_trashed_variants_and_paginates_stably() -> None:
     reset_demo()
     services = branch_services()
-    trash_restore = TrashRestoreService()
+    trash_service = TrashService()
     entry = services.entries.get_entry("trash.me")
     assert entry is not None
     variant = services.catalog.list_variants(int(entry["entry_id"]), include_trashed=True)[0]
     services.bindings.bind(int(entry["entry_id"]), BranchRef.rel_current(), int(variant["variant_id"]))
-    trash_restore.delete(BranchRef.rel_current(), ["trash.me"])
-    trash_restore.project_trash(["trash.me"])
+    trash_service.delete(BranchRef.rel_current(), ["trash.me"])
+    trash_service.project_trash(["trash.me"])
 
     with TestClient(app) as client:
         full_response = client.get("/api/projects/1/variants", params={"state": "all"})
@@ -1117,8 +1117,6 @@ def test_project_variants_query_rows_match_variant_hydration_contract() -> None:
         "source",
         "orphaned_at",
         "trashed_at",
-        "trash_until",
-        "restored_at",
         "pivot_status",
         "pivot_changed_by_scope_type",
         "pivot_changed_by_scope_value",
@@ -1409,7 +1407,7 @@ def test_project_trash_route_trashes_orphan_variants() -> None:
 
 def test_same_source_candidates_exclude_trashed_variants() -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     variant_service.project_trash(["common.welcome"])
@@ -1426,7 +1424,7 @@ def test_same_source_candidates_exclude_trashed_variants() -> None:
 
 def test_entry_timeline_excludes_trashed_variants() -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
     variant_service.project_trash(["common.welcome"])
@@ -1440,7 +1438,7 @@ def test_entry_timeline_excludes_trashed_variants() -> None:
 
 def test_branch_summary_includes_orphan_count() -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
 
@@ -1455,7 +1453,7 @@ def test_branch_summary_includes_orphan_count() -> None:
 
 def test_orphan_scope_returns_unbound_non_trashed_variants() -> None:
     reset_demo()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
 
     variant_service.delete(BranchRef.rel_current(), ["common.welcome"])
 

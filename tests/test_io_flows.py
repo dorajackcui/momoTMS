@@ -9,7 +9,7 @@ from app.services.project.service import ProjectService
 from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
 from app.services.workflows.fill import FillService
-from app.services.workflows.trash_restore import TrashRestoreService
+from app.services.workflows.trash import TrashService
 from tests.service_helpers import branch_services
 
 
@@ -88,7 +88,7 @@ def test_fill_reads_project_variants_across_active_orphan_and_missing_rows() -> 
 def test_fill_matches_orphan_variant_when_no_bound_variant_exists() -> None:
     sample = reset_demo()
     read_service = branch_services()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
     entry = read_service.entries.get_entry("trash.me")
     assert entry is not None
     original_variant = read_service.catalog.list_variants(int(entry["entry_id"]), include_trashed=True)[0]
@@ -121,7 +121,7 @@ def test_fill_matches_orphan_variant_when_no_bound_variant_exists() -> None:
 def test_fill_uses_live_candidate_and_ignores_trashed_history() -> None:
     sample = reset_demo()
     read_service = branch_services()
-    variant_service = TrashRestoreService()
+    variant_service = TrashService()
     entry = read_service.entries.get_entry("trash.me")
     assert entry is not None
     entry_id = int(entry["entry_id"])
