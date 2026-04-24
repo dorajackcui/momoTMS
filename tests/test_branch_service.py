@@ -16,6 +16,8 @@ from app.services.imports.service import ImportService
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
 from app.services.workflows.trash import TrashService
 from tests.service_helpers import branch_services
+from app.services.workbooks.batches import WorkbookBatchService
+from app.services.workbooks.models import WorkbookWorkflowContext
 
 
 def test_branch_ref_orphan_factory_and_properties() -> None:
@@ -1789,3 +1791,51 @@ def test_project_trash_reports_missing_keys() -> None:
 
     assert result["summary"]["missing_count"] == 1
     assert result["report_rows"][0]["status"] == "MISSING"
+
+
+def test_workbook_content_mutation_requires_current_bound_source(tmp_path) -> None:
+    reset_demo()
+    services = branch_services()
+    entry = services.entries.get_or_create_entry("content.batch", project_id=1)
+    variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "content.xlsx",
+            "Current source",
+            {"fr": "Original"},
+            {"context": "Original context"},
+        ),
+    )
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.3"), variant_id)
+
+    root = tmp_path / "content-batch"
+    write_import_workbook(
+        root,
+        "bundle/content.xlsx",
+        [
+            ["business_key", "source", "fr", "context"],
+            ["content.batch", "Current source", "Updated", "Updated context"],
+            ["content.batch", "Other source", "Wrong", "Wrong context"],
+        ],
+    )
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        1,
+        WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="content"),
+    )
+
+    result = BranchMutationService().apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "workbook_batch",
+            "mutation_type": "content",
+            "workbook_batch_id": batch["workbook_batch_id"],
+        },
+    )
+
+    statuses = [row["status"] for row in result["report_rows"]]
+    updated = services.catalog.get_variant(variant_id)
+
+    assert statuses == ["UPDATED_BOUND_VARIANT", "SOURCE_MISMATCH"]
+    assert updated["translations"]["fr"] == "Updated"
+    assert updated["remarks"]["context"] == "Updated context"
