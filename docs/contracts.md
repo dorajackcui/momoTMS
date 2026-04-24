@@ -51,7 +51,7 @@ Current SPA routes:
 ## Route Policy
 
 - the runtime is project-scoped, with branch-first operator reads plus branch-centric workflow writes
-- scope routes remain documented as compatibility aliases and scope-aware read routes during the transition to branch-first operator wording
+- scope routes accept only `master` and `orphan`; branch-ref scope aliases have been removed
 - `/app` should call project-scoped APIs only
 - `GET /workbench` and `GET /variant-workbench` stay removed and return `410 Gone`
 - `/app` may use inspection APIs for read-only debugging, but it should not depend on removed compatibility routes
@@ -158,18 +158,17 @@ Branch-first lookup:
 Scope catalog reads:
 
 - `GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows` accepts `search_business_key`, `search_source`, `page`, and optional `page_size`
-- `scope_ref` supports `master`, `rel/current`, and `dev/x.y.z`
-- scope routes are compatibility aliases for the same branch-scoped read model when `scope_ref` is a branch ref, and they remain the explicit selector form when callers need `master`
+- `scope_ref` accepts only `master` and `orphan`
 - `master` means the project-wide live variant scope: `active + orphan`, excluding `trashed`
-- branch scopes only expose variants currently bound in that branch, so they return active rows only
-- scope row payloads reuse the variants workspace row shape so callers can inspect content, bindings, lifecycle state, and pivot metadata consistently across scopes
+- `orphan` means all variants with zero bindings and not trashed
+- scope row payloads reuse the variants workspace row shape and return `BranchRowsResponse`
 
 Scope lookup:
 
 - `GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup` accepts exactly one of `business_key` or `source`
-- scope lookup is the compatibility alias and scope-aware read route during the transition; use the branch lookup route for canonical operator-facing branch reads
-- lookup stays scope-aware: the same key or source may resolve differently in `master`, `rel/current`, and `dev/x.y.z`
-- legacy `GET /api/projects/{project_id}/branches/master/entries/{business_key}` and `.../master/search` remain as transition routes, but their rows now describe the `master` scope rather than a writable branch
+- `scope_ref` accepts only `master` and `orphan`
+- lookup returns `BranchLookupResponse`
+- lookup stays scope-aware: the same key or source may resolve differently in `master` and `orphan`
 
 Same-source history candidates:
 
@@ -241,8 +240,7 @@ The product app depends on:
 
 - project list plus project-scoped bootstrap data from `GET /api/projects` and `GET /api/projects/{project_id}/state`
 - the project-scoped variants workspace query for `Overview` and orphan browsing
-- branch summary plus scope rows, scope lookup, and same-source history APIs for branch-oriented operations
-- canonical branch rows and branch lookup remain the documented branch-first routes, but the live frontend still uses the scope-aware compatibility aliases in `frontend/src/domains/branches/api.ts`
+- canonical branch rows and branch lookup for branch-oriented reads; scope routes for master and orphan reads
 - import preview data with `upload_session_id`, `available_headers`, `suggested_mapping`, and `missing_targets`
 - import-batch list and report APIs
 - job list, detail, report, and artifact APIs
@@ -294,10 +292,8 @@ Branch read models:
 - `GET /api/projects/{project_id}/branches`
 - `GET /api/projects/{project_id}/branches/{branch_ref:path}/rows`
 - `GET /api/projects/{project_id}/branches/{branch_ref:path}/lookup`
-- `GET /api/projects/{project_id}/branches/master/entries/{business_key}`
-- `GET /api/projects/{project_id}/branches/master/search`
-- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows` compatibility alias
-- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup` compatibility alias
+- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/rows`
+- `GET /api/projects/{project_id}/scopes/{scope_ref:path}/lookup`
 - `GET /api/projects/{project_id}/history/same-source-candidates`
 
 Inspection reads:
@@ -316,9 +312,10 @@ Workflow actions:
 - `GET /api/projects/{project_id}/branches/dev/{version}`
 - `POST /api/projects/{project_id}/branches/replace/preview`
 - `POST /api/projects/{project_id}/branches/replace/execute`
+- `POST /api/projects/{project_id}/variants/trash`
 - `POST /api/projects/{project_id}/variants/trash/delete`
-- `POST /api/projects/{project_id}/variants/trash/restore`
 - `POST /api/projects/{project_id}/variants/pivot/review`
+- `POST /api/projects/{project_id}/variants/pivot/review/preview`
 - `POST /api/projects/{project_id}/fill`
 - `POST /api/projects/{project_id}/fill/upload-folder`
 - `POST /api/projects/{project_id}/qa`

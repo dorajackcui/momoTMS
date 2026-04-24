@@ -598,7 +598,7 @@ Expected: PASS with no broken links or stale command references in the active do
 
 ## Execution Handoff
 
-Plan complete and saved to `design/phase-6-branch-to-branch-operations-implementation-plan.md`.
+Plan complete and saved to `design/archive/phase-6-branch-to-branch-operations-implementation-plan.md`.
 
 Two execution options:
 

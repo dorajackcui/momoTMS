@@ -136,7 +136,7 @@ Bootstrap and import batch mutation:
 
 Workflow service:
 
-- rename `TrashRestoreService` to `TrashService` in `app/services/workflows/trash_restore.py`
+- rename `TrashRestoreService` to `TrashService` in `app/services/workflows/trash.py`
 - rename the file to `app/services/workflows/trash.py`
 - update imports in `application.py`
 
@@ -169,7 +169,7 @@ Remove `trash_until` and `restored_at` from response models that expose variant 
 
 - remove "restore" from "trash or restore workflows" references
 - update `TrashRestoreService` reference to `TrashService`
-- update file reference from `trash_restore.py` to `trash.py`
+- update file reference to `trash.py`
 
 ### system.md
 

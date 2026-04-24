@@ -68,7 +68,7 @@
   Purpose: stable `entry` identity and lookup.
 - `app/services/variant/catalog.py`
   Purpose: live `variant` creation, update, and same-source lookup.
-- `app/services/workflows/trash_restore.py`
+- `app/services/workflows/trash.py`
   Purpose: variant lifecycle operations remain variant-local.
 - `app/services/workflows/pivot_review.py`
   Purpose: pivot review remains a constrained variant-state transition.

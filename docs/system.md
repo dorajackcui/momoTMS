@@ -141,7 +141,7 @@ HTTP routers:
 - `projects_state.py`: project list or create, bootstrap, and demo reset
 - `imports_jobs.py`: project-scoped import batch APIs, jobs, reports, and artifacts
 - `scopes_read_models.py`: project-scoped branch summary, scope catalog reads, same-source history candidates, and legacy master-scope lookup aliases
-- `workflows.py`: project-scoped branch mutation, sync, trash, restore, fill, and QA
+- `workflows.py`: project-scoped branch mutation, sync, trash, fill, and QA
 - `inspection.py`: read-only project-wide variants workspace plus canonical variant and orphan inspection
 
 Domain services:
@@ -151,13 +151,13 @@ Domain services:
 - `app/services/branch/`: scope refs and policy live with branch write or replace orchestration; `replace.py` owns branch replace execution, and `mutations.py` coordinates branch-scoped writes. Operator-facing branch metadata and detail reads live in `app/services/read_models/derived/branch_catalog.py`
 - `app/services/variant/`: pure variant-domain package only. `entries.py` owns entry access, `store.py` plus `repositories.py` own canonical same-source persistence, `catalog.py` owns variant content rules, `pivot.py` owns variant-level pivot status coordination for pivot-language changes and reviews, `bindings.py` owns raw binding commands and lookups, `state_coordinator.py` composes binding writes with orphan refresh, and `lifecycle.py` owns orphan or trash state transitions. Operator-facing inspection, hydration, and workflow orchestration are not part of this package.
 - `app/services/read_models/`: the only operator-facing read side. `selectors.py`, `types.py`, `repository.py`, and `hydrate.py` define shared selectors, row types, raw queries, and canonical assembly; `datasets/` owns the stable scope-members, live-variants, history, and entry-timeline datasets; `derived/` owns branch catalog, branch summary, plus replace, fill, and pivot preview views built on top of those datasets
-- `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, while `trash_restore.py`, `fill.py`, and `qa.py` execute workflow behavior by consuming the shared read-model datasets when they need project history or live variant reads
+- `app/services/workflows/`: job-backed application orchestration. `application.py` is the workflow façade for routers, while `trash.py`, `fill.py`, and `qa.py` execute workflow behavior by consuming the shared read-model datasets when they need project history or live variant reads
 - `app/services/shared/`: IO helpers, job storage, and utility helpers
 - `app/services/demo/`: demo seeding and sample workbook generation
 
 ## Database Tables
 
-Current schema version: `variant-v10`
+Current schema version: `variant-v11`
 
 Live tables:
 

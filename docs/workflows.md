@@ -33,7 +33,7 @@
 - normalization helpers: `app/services/shared/io.py`
 - import parsing and persistence: `app/services/imports/service.py`
 - branch mutation and sync policy: `app/services/branch/`
-- variant trash or restore workflows: `app/services/workflows/trash_restore.py` (restore removed; trash-only)
+- variant trash workflows: `app/services/workflows/trash.py`
 - fill and QA orchestration: `app/services/workflows/`
 
 ## Normalization Rules

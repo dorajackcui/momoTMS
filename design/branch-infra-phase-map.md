@@ -8,7 +8,7 @@
 
 ## Current Status
 
-`Phase 1` through `Phase 8` are complete.
+`Phase 1` through `Phase 9` are complete.
 
 What is already clear:
 
@@ -21,11 +21,12 @@ What is already clear:
 - replace preview should describe real binding changes, not only key overlap
 - `replace` is a pure target-binding rewrite and not a publish-state transition
 - branch runtime state should not carry candidate or promote metadata
+- scope routes accept only `master` and `orphan`; branch routes are the canonical form for branch reads
+- restore is removed; trashed is terminal
 
 What is not fully closed yet:
 
-- `scope` compatibility still exists in the runtime and frontend contract surface
-- pivot preview, lifecycle closure, and final contract convergence still need their own passes
+- pivot preview, lifecycle closure, and final pivot workflow systematization still need their own passes
 
 ## Working Principles
 
@@ -223,7 +224,7 @@ Completed decisions:
 Artifacts:
 
 - [phase-6-branch-to-branch-operations-design.md](phase-6-branch-to-branch-operations-design.md): Phase 6 semantic design note
-- [phase-6-branch-to-branch-operations-implementation-plan.md](phase-6-branch-to-branch-operations-implementation-plan.md): execution plan for the Phase 6 runtime cleanup
+- [phase-6-branch-to-branch-operations-implementation-plan.md](archive/phase-6-branch-to-branch-operations-implementation-plan.md): execution plan for the Phase 6 runtime cleanup
 
 Session focus:
 
@@ -279,7 +280,7 @@ Completed decisions:
 Artifacts:
 
 - [phase-8-lifecycle-and-recovery-design.md](phase-8-lifecycle-and-recovery-design.md): Phase 8 lifecycle design spec
-- [phase-8-lifecycle-and-recovery-implementation-plan.md](phase-8-lifecycle-and-recovery-implementation-plan.md): implementation plan
+- [phase-8-lifecycle-and-recovery-implementation-plan.md](archive/phase-8-lifecycle-and-recovery-implementation-plan.md): implementation plan
 
 Session focus:
 
@@ -289,28 +290,30 @@ Session focus:
 
 Status:
 
-- final tightening phase
+- complete
 
 Goal:
 
 - converge code, docs, frontend, and compatibility layers onto the intended long-term shape
 
-Questions to answer:
+Completed decisions:
 
-- when the frontend should switch from scope aliases to canonical branch-first routes
-- how long compatibility aliases should stay
-- which workflow responsibilities should remain in `workflows/` versus move into more stable branch or read-model layers
-- which docs should graduate from design notes into stable runtime guidance
+- scope routes narrowed to master and orphan only; branch-ref scope aliases removed
+- legacy master routes removed (`GET .../branches/master/entries/{business_key}` and `.../master/search`)
+- `ScopeRowsResponse` and `ScopeLookupResponse` unified into `BranchRowsResponse` and `BranchLookupResponse`
+- frontend switched from scope-aware API calls to canonical branch routes for branch reads
+- all restore artifacts removed: frontend UI, API function, docs, backend dead code, DB columns
+- `trash_until` and `restored_at` columns dropped; schema bumped to `variant-v11`
+- `TrashRestoreService` renamed to `TrashService`
 
-Target outputs:
+Artifacts:
 
-- reduced compatibility surface
-- cleaner service boundaries
-- final contract alignment across backend, frontend, docs, and tests
+- [phase-9-contract-convergence-design.md](phase-9-contract-convergence-design.md): Phase 9 design spec
+- [phase-9-contract-convergence-implementation-plan.md](phase-9-contract-convergence-implementation-plan.md): implementation plan
 
 Session focus:
 
-- do the final convergence work only after the lower-layer policies and contracts are already stable
+- Phase 9 is implemented; the backend contracts, frontend routes, and compatibility layers are aligned to the stable model established through Phases 1–8
 
 ## Recommended Session Order
 
@@ -334,19 +337,19 @@ Session focus:
 
 ## Suggested Next Session
 
-Implement `Phase 9: Contract Convergence`.
+Continue `Phase 7: Pivot Workflow And Preview`.
 
 Concrete goal for that session:
 
-- converge code, docs, frontend, and compatibility layers onto the intended long-term shape
-- reduce compatibility surface and clean up service boundaries
+- complete pivot preview contract and pivot review state transition rules
+- integrate pivot workflow with branch authority
 
 Success condition:
 
-- after that session, the backend contracts, frontend routes, and compatibility layers should be aligned to the stable model established through Phases 1–8
+- after that session, pivot preview and review should be fully systematized within the stable variant and branch model established through Phases 1–9
 
 ## Simple Memory Hook
 
 If a future session needs a quick restart point, use this sentence:
 
-`Phase 1 through Phase 8 are done; next converge code, docs, frontend, and compatibility layers onto the intended long-term shape.`
+`Phase 1 through Phase 9 are done; pivot workflow and preview (Phase 7) remain partially open.`

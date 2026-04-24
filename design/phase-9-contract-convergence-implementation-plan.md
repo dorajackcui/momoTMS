@@ -286,7 +286,7 @@ git commit -m "refactor: remove trash_until and restored_at from read models, bo
 ### Task 3: Rename TrashRestoreService to TrashService and bump schema to variant-v11
 
 **Files:**
-- Rename: `app/services/workflows/trash_restore.py` → `app/services/workflows/trash.py`
+- Rename: `app/services/workflows/trash.py` (renamed from trash_restore.py)
 - Modify: `app/services/workflows/trash.py` (rename class)
 - Modify: `app/services/workflows/application.py:15,31,244,262` (update import and references)
 - Modify: `app/db.py:12` (bump SCHEMA_VERSION)
@@ -294,9 +294,7 @@ git commit -m "refactor: remove trash_until and restored_at from read models, bo
 
 - [ ] **Step 1: Rename file and class**
 
-Rename `app/services/workflows/trash_restore.py` to `app/services/workflows/trash.py`.
-
-In the renamed file, change the class name from `TrashRestoreService` to `TrashService`.
+Rename `app/services/workflows/trash.py` (already renamed from `trash_restore.py`). In the file, change the class name from `TrashRestoreService` to `TrashService`.
 
 - [ ] **Step 2: Update imports in `application.py`**
 
@@ -347,7 +345,6 @@ Expected: tests that reference `TrashRestoreService` by import or `trash_until`/
 
 ```bash
 git add app/services/workflows/trash.py app/services/workflows/application.py app/db.py
-git rm app/services/workflows/trash_restore.py
 git commit -m "refactor: rename TrashRestoreService to TrashService and bump schema to variant-v11"
 ```
 
@@ -1096,7 +1093,7 @@ Changes to make:
 - [ ] **Step 2: Update `docs/workflows.md`**
 
 1. Change line 3 from "trash or restore workflows" to "trash workflows"
-2. Change line 36 `trash_restore.py` reference to `trash.py`
+2. Change `trash.py` reference in the workflows location line
 3. Change "TrashRestoreService" references to "TrashService" if present
 4. Remove the phrase "(restore removed; trash-only)" — just say "trash workflows"
 
