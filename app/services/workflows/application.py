@@ -12,7 +12,7 @@ from app.services.project.service import DEFAULT_PROJECT_ID
 from app.services.shared.background_jobs import submit_background_job
 from app.services.shared.jobs import JobService
 from app.services.shared.uploads import UploadSessionService
-from app.services.workflows.trash_restore import TrashRestoreService
+from app.services.workflows.trash import TrashService
 from app.services.workflows.fill import FillService
 from app.services.workflows.pivot_review import PivotReviewService
 from app.services.workflows.qa import QaScanService
@@ -28,7 +28,7 @@ class WorkflowApplicationService:
         self.job_service = JobService()
         self.upload_session_service = UploadSessionService()
         self.qa_scan_service = QaScanService()
-        self.trash_restore_service = TrashRestoreService()
+        self.trash_service = TrashService()
         self.pivot_review_service = PivotReviewService()
 
     def import_directory(self, input_dir: str, project_id: int = DEFAULT_PROJECT_ID) -> dict[str, Any]:
@@ -241,7 +241,7 @@ class WorkflowApplicationService:
             "trash_delete",
             {"branch_ref": branch_ref, "business_keys": business_keys, "project_id": project_id},
             lambda _job_id: self._wrap_report(
-                self.trash_restore_service.delete(
+                self.trash_service.delete(
                     BranchRef.parse(branch_ref),
                     business_keys,
                     project_id=project_id,
@@ -259,7 +259,7 @@ class WorkflowApplicationService:
             "project_trash",
             {"business_keys": business_keys, "project_id": project_id},
             lambda _job_id: self._wrap_report(
-                self.trash_restore_service.project_trash(
+                self.trash_service.project_trash(
                     business_keys,
                     project_id=project_id,
                 )

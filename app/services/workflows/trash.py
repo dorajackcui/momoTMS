@@ -10,7 +10,7 @@ from app.services.variant.normalization import normalize_business_keys
 from app.services.variant.catalog import VariantCatalogService
 
 
-class TrashRestoreService:
+class TrashService:
     def __init__(self) -> None:
         self.projects = ProjectService()
         self.entries = EntryService()
