@@ -103,7 +103,6 @@ export function BranchDetail(props: { projectId: number; version: string; onBack
           branchRef={branchRef}
           schema={schema}
           allowRange={true}
-          importBatches={shell.bootstrap?.imports ?? []}
           onJobCreated={handleJobCreated}
         />
       )}

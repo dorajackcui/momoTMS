@@ -79,8 +79,7 @@ export function ReleasePage() {
           projectId={projectId}
           branchRef={branchRef}
           schema={schema}
-          allowRange={false}
-          importBatches={shell.bootstrap?.imports ?? []}
+          allowRange={true}
           onJobCreated={handleJobCreated}
         />
       )}
