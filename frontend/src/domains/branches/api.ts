@@ -1,12 +1,8 @@
 import { buildQueryString, fetchJson } from "@/shared/api/http";
 
 import type {
-  BranchBootstrapPreview,
-  BranchBootstrapRequest,
   BranchListResponse,
   BranchLookupResponse,
-  BranchMutationInput,
-  BranchMutationPreview,
   BranchReplacePreview,
   BranchRowsResponse,
   DevBranchDetail,
@@ -100,20 +96,6 @@ export function getSameSourceCandidates(
   );
 }
 
-export function runBranchMutation(
-  projectId: number,
-  branchRef: string,
-  input: BranchMutationInput,
-) {
-  return fetchJson<JobDetail>(`/api/projects/${projectId}/branches/mutations`, {
-    method: "POST",
-    body: JSON.stringify({
-      branch_ref: branchRef,
-      input,
-    }),
-  });
-}
-
 export function previewBranchReplace(
   projectId: number,
   sourceBranchRef: string,
@@ -144,67 +126,6 @@ export function executeBranchReplace(
         source_branch_ref: sourceBranchRef,
         target_branch_ref: targetBranchRef,
       }),
-    },
-  );
-}
-
-export function deleteBranchBusinessKeys(
-  projectId: number,
-  branchRef: string,
-  businessKeys: string[],
-) {
-  return fetchJson<JobDetail>(`/api/projects/${projectId}/variants/trash/delete`, {
-    method: "POST",
-    body: JSON.stringify({
-      branch_ref: branchRef,
-      business_keys: businessKeys,
-    }),
-  });
-}
-
-export function previewBootstrap(
-  projectId: number,
-  request: BranchBootstrapRequest,
-) {
-  return fetchJson<BranchBootstrapPreview>(
-    `/api/projects/${projectId}/branches/bootstrap/preview`,
-    { method: "POST", body: JSON.stringify(request) },
-  );
-}
-
-export function bootstrapBranch(
-  projectId: number,
-  request: BranchBootstrapRequest,
-) {
-  return fetchJson<JobDetail>(
-    `/api/projects/${projectId}/branches/bootstrap`,
-    { method: "POST", body: JSON.stringify(request) },
-  );
-}
-
-export function previewBranchMutation(
-  projectId: number,
-  branchRef: string,
-  input: BranchMutationInput,
-) {
-  return fetchJson<BranchMutationPreview>(
-    `/api/projects/${projectId}/branches/mutations/preview`,
-    {
-      method: "POST",
-      body: JSON.stringify({ branch_ref: branchRef, input }),
-    },
-  );
-}
-
-export function projectTrash(
-  projectId: number,
-  businessKeys: string[],
-) {
-  return fetchJson<JobDetail>(
-    `/api/projects/${projectId}/variants/trash`,
-    {
-      method: "POST",
-      body: JSON.stringify({ business_keys: businessKeys }),
     },
   );
 }
