@@ -1,0 +1,32 @@
+.page {
+  display: grid;
+  gap: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.table th {
+  background: var(--surface-muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.table tr:hover td {
+  background: var(--surface);
+}
