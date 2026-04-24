@@ -20,6 +20,7 @@ import type {
   BranchReplacePreview,
   SameSourceCandidateRow,
 } from "@/domains/branches/types";
+import type { ProjectVariantRow } from "@/domains/variants/types";
 import { getImports } from "@/domains/imports/api";
 import { invalidateProject, queryKeys } from "@/shared/api/queryKeys";
 import { cx } from "@/shared/lib/cx";
@@ -522,16 +523,7 @@ function ScopeTab(props: {
   scopeSearchKey: string;
   scopeSearchSource: string;
   scopePage: number;
-  rows: Array<{
-    variant_id: number;
-    business_key: string;
-    file_name: string | null;
-    source: string;
-    translations: Record<string, string | null>;
-    state: string;
-    pivot_status: string;
-    bindings: Array<{ branch_ref: string }>;
-  }>;
+  rows: ProjectVariantRow[];
   totalRows: number;
   lang: string;
   error: string | null;
