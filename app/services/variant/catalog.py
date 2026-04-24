@@ -62,7 +62,6 @@ class VariantCatalogService:
         variant_id: int,
         content: VariantContent,
         actor_scope: tuple[str, str] | None = None,
-        restore_if_trashed: bool = False,
         conn: sqlite3.Connection | None = None,
     ) -> None:
         previous_variant = self.get_variant(variant_id, conn=conn)
@@ -72,7 +71,6 @@ class VariantCatalogService:
             content["file_name"],
             content["source"],
             timestamp,
-            restore_if_trashed=restore_if_trashed,
             conn=conn,
         )
         self._commands.overwrite_translations(variant_id, content["translations"], timestamp, conn=conn)

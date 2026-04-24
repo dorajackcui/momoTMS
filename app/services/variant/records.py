@@ -23,8 +23,6 @@ class VariantRecord(TypedDict):
     remarks: dict[str, str]
     orphaned_at: str | None
     trashed_at: str | None
-    trash_until: str | None
-    restored_at: str | None
     pivot_status: PivotStatus
     pivot_changed_by_scope_type: str | None
     pivot_changed_by_scope_value: str | None

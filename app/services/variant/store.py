@@ -66,35 +66,19 @@ class _VariantStore:
         file_name: str,
         source: str,
         timestamp: str,
-        restore_if_trashed: bool = False,
         conn: sqlite3.Connection | None = None,
     ) -> None:
         if conn is not None:
-            if restore_if_trashed:
-                conn.execute(
-                    """
-                    UPDATE variants
-                    SET file_name = ?,
-                        source = ?,
-                        trashed_at = NULL,
-                        trash_until = NULL,
-                        restored_at = ?,
-                        updated_at = ?
-                    WHERE variant_id = ?
-                    """,
-                    (file_name, source, timestamp, timestamp, variant_id),
-                )
-            else:
-                conn.execute(
-                    """
-                    UPDATE variants
-                    SET file_name = ?,
-                        source = ?,
-                        updated_at = ?
-                    WHERE variant_id = ?
-                    """,
-                    (file_name, source, timestamp, variant_id),
-                )
+            conn.execute(
+                """
+                UPDATE variants
+                SET file_name = ?,
+                    source = ?,
+                    updated_at = ?
+                WHERE variant_id = ?
+                """,
+                (file_name, source, timestamp, variant_id),
+            )
             return
         with get_conn() as local_conn:
             self.update(
@@ -102,7 +86,6 @@ class _VariantStore:
                 file_name,
                 source,
                 timestamp,
-                restore_if_trashed=restore_if_trashed,
                 conn=local_conn,
             )
 
@@ -350,7 +333,6 @@ class _VariantStore:
         self,
         variant_id: int,
         timestamp: str,
-        trash_until: str,
         conn: sqlite3.Connection | None = None,
     ) -> None:
         if conn is not None:
@@ -358,15 +340,14 @@ class _VariantStore:
                 """
                 UPDATE variants
                 SET trashed_at = ?,
-                    trash_until = ?,
                     updated_at = ?
                 WHERE variant_id = ?
                 """,
-                (timestamp, trash_until, timestamp, variant_id),
+                (timestamp, timestamp, variant_id),
             )
             return
         with get_conn() as local_conn:
-            self.trash_variant(variant_id, timestamp, trash_until, conn=local_conn)
+            self.trash_variant(variant_id, timestamp, conn=local_conn)
 
     def set_pivot_changed(
         self,
@@ -482,8 +463,6 @@ class _VariantStore:
                 "remarks": remarks_by_id.get(int(row["variant_id"]), {}),
                 "orphaned_at": row["orphaned_at"],
                 "trashed_at": row["trashed_at"],
-                "trash_until": row["trash_until"],
-                "restored_at": row["restored_at"],
                 "pivot_status": str(row["pivot_status"]),
                 "pivot_changed_by_scope_type": (
                     str(row["pivot_changed_by_scope_type"])
@@ -516,8 +495,6 @@ class _VariantStore:
             "source",
             "orphaned_at",
             "trashed_at",
-            "trash_until",
-            "restored_at",
             "pivot_status",
             "pivot_changed_by_scope_type",
             "pivot_changed_by_scope_value",

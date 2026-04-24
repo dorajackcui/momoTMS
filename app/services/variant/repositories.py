@@ -27,7 +27,6 @@ class VariantCommandRepository:
         file_name: str,
         source: str,
         timestamp: str,
-        restore_if_trashed: bool = False,
         conn: sqlite3.Connection | None = None,
     ) -> None:
         self._store.update(
@@ -35,7 +34,6 @@ class VariantCommandRepository:
             file_name,
             source,
             timestamp,
-            restore_if_trashed=restore_if_trashed,
             conn=conn,
         )
 
@@ -77,10 +75,9 @@ class VariantCommandRepository:
         self,
         variant_id: int,
         timestamp: str,
-        trash_until: str,
         conn: sqlite3.Connection | None = None,
     ) -> None:
-        self._store.trash_variant(variant_id, timestamp, trash_until, conn=conn)
+        self._store.trash_variant(variant_id, timestamp, conn=conn)
 
     def set_pivot_changed(
         self,

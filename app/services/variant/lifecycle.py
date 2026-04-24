@@ -45,5 +45,5 @@ class VariantLifecycleService:
         timestamp: str | None = None,
     ) -> None:
         marker = timestamp or now_iso()
-        self._variant_commands.trash_variant(variant_id, marker, "", conn=conn)
+        self._variant_commands.trash_variant(variant_id, marker, conn=conn)
         self.refresh_orphan_states(entry_id, conn=conn, timestamp=marker)
