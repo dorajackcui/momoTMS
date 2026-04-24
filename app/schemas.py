@@ -18,6 +18,8 @@ class CreateProjectRequest(BaseModel):
     remark_columns: list[str] = Field(default_factory=list)
     pivot_language: str | None = None
     pivoted_languages: list[str] = Field(default_factory=list)
+    business_key_header: str = "business_key"
+    source_header: str = "source"
 
 
 class ProjectSchemaSummary(BaseModel):
@@ -395,6 +397,24 @@ class ProjectTrashRequest(BaseModel):
 class PivotReviewRequest(BaseModel):
     branch_ref: str
     variant_ids: list[int] = Field(default_factory=list)
+
+
+class WorkbookIntakePreview(BaseModel):
+    upload_session_id: str
+    workflow_kind: Literal["create_branch", "branch_mutation", "branch_trash", "project_trash"]
+    mutation_type: Literal["content", "range"] | None = None
+    file_count: int
+    sheet_count: int
+    missing_required_headers: list[str] = Field(default_factory=list)
+    sampled_issue_count: int = 0
+    sheet_previews: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class WorkbookIntakeExecuteRequest(BaseModel):
+    upload_session_id: str
+    workflow_kind: Literal["create_branch", "branch_mutation", "branch_trash", "project_trash"]
+    branch_ref: str | None = None
+    mutation_type: Literal["content", "range"] | None = None
 
 
 class FillRequest(BaseModel):

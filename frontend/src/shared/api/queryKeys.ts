@@ -34,10 +34,6 @@ export const queryKeys = {
   entryVariants: (projectId: number, businessKey: string) =>
     ["entry-variants", projectId, businessKey] as const,
   orphanVariants: (projectId: number) => ["orphan-variants", projectId] as const,
-  bootstrapPreview: (projectId: number, branchRef: string, importBatchId: number) =>
-    ["bootstrap-preview", projectId, branchRef, importBatchId] as const,
-  mutationPreview: (projectId: number, branchRef: string, input: Record<string, unknown>) =>
-    ["mutation-preview", projectId, branchRef, input] as const,
 };
 
 export async function invalidateProject(

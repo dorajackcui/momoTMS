@@ -325,6 +325,33 @@ def test_project_creation_and_bootstrap_expose_single_pivot_schema() -> None:
         assert "translation_pivots" not in schema
 
 
+def test_project_creation_exposes_workbook_header_contract() -> None:
+    reset_demo()
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "Workbook Header Project",
+                "business_key_header": "key",
+                "source_header": "source_text",
+                "translation_columns": ["fr"],
+                "remark_columns": ["context"],
+            },
+        )
+        assert create_response.status_code == 200
+        project_id = create_response.json()["project_id"]
+
+        state_response = client.get(f"/api/projects/{project_id}/state")
+        assert state_response.status_code == 200
+        schema = state_response.json()["schema"]
+
+    assert schema["fixed_columns"]["business_key"] == "key"
+    assert schema["fixed_columns"]["source"] == "source_text"
+    assert schema["translation_columns"] == ["fr"]
+    assert schema["remark_columns"] == ["context"]
+
+
 def test_branch_bootstrap_api_runs_async_and_exposes_bootstrap_metadata(tmp_path) -> None:
     reset_demo()
     business_key = "bootstrap.api.reuse"
@@ -1552,3 +1579,135 @@ def test_phase_8_lifecycle_end_to_end() -> None:
             json={"variant_ids": [1]},
         )
         assert restore_resp.status_code in {404, 405, 422}
+
+
+def test_workbook_workflow_create_branch_executes_single_job() -> None:
+    reset_demo()
+    workbook_bytes = build_workbook_bytes(
+        ["business_key", "source", "fr"],
+        [["workbook.create", "Workbook source", "Workbook target"]],
+    )
+
+    with TestClient(app) as client:
+        preview = client.post(
+            "/api/projects/1/workbooks/intake/preview",
+            data={"workflow_kind": "create_branch", "branch_ref": "dev/2.4.3"},
+            files=[
+                (
+                    "files",
+                    (
+                        "create.xlsx",
+                        workbook_bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
+                ),
+                ("relative_paths", (None, "create.xlsx")),
+            ],
+        )
+        assert preview.status_code == 200
+        preview_payload = preview.json()
+        assert preview_payload["upload_session_id"]
+        assert preview_payload["missing_required_headers"] == []
+
+        execute = client.post(
+            "/api/projects/1/workbooks/intake/execute",
+            json={
+                "upload_session_id": preview_payload["upload_session_id"],
+                "workflow_kind": "create_branch",
+                "branch_ref": "dev/2.4.3",
+            },
+        )
+        assert execute.status_code == 200
+        detail = wait_for_job(client, execute.json())
+
+    assert detail["job"]["status"] == "success"
+    assert detail["job"]["job_type"] == "workbook_create_branch"
+    assert detail["job"]["summary"]["created_and_bound_variant_count"] == 1
+    assert detail["job"]["summary"]["workbook_batch_id"] > 0
+
+
+def test_workbook_workflow_content_mutation_and_branch_trash_routes() -> None:
+    reset_demo()
+    create_bound_variant(
+        project_id=1,
+        business_key="workbook.content",
+        source="Current source",
+        translations={"fr": "Original"},
+        branch_refs=[BranchRef.dev("2.4.3")],
+    )
+    mutation_bytes = build_workbook_bytes(
+        ["business_key", "source", "fr"],
+        [["workbook.content", "Current source", "Updated"]],
+    )
+    trash_bytes = build_workbook_bytes(["business_key"], [["workbook.content"]])
+
+    with TestClient(app) as client:
+        mutation_preview = client.post(
+            "/api/projects/1/workbooks/intake/preview",
+            data={
+                "workflow_kind": "branch_mutation",
+                "branch_ref": "dev/2.4.3",
+                "mutation_type": "content",
+            },
+            files=[
+                ("files", ("mutation.xlsx", mutation_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+                ("relative_paths", (None, "mutation.xlsx")),
+            ],
+        )
+        assert mutation_preview.status_code == 200
+        mutation_execute = client.post(
+            "/api/projects/1/workbooks/intake/execute",
+            json={
+                "upload_session_id": mutation_preview.json()["upload_session_id"],
+                "workflow_kind": "branch_mutation",
+                "branch_ref": "dev/2.4.3",
+                "mutation_type": "content",
+            },
+        )
+        mutation_detail = wait_for_job(client, mutation_execute.json())
+
+        trash_preview = client.post(
+            "/api/projects/1/workbooks/intake/preview",
+            data={"workflow_kind": "branch_trash", "branch_ref": "dev/2.4.3"},
+            files=[
+                ("files", ("trash.xlsx", trash_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+                ("relative_paths", (None, "trash.xlsx")),
+            ],
+        )
+        assert trash_preview.status_code == 200
+        trash_execute = client.post(
+            "/api/projects/1/workbooks/intake/execute",
+            json={
+                "upload_session_id": trash_preview.json()["upload_session_id"],
+                "workflow_kind": "branch_trash",
+                "branch_ref": "dev/2.4.3",
+            },
+        )
+        trash_detail = wait_for_job(client, trash_execute.json())
+
+    assert mutation_detail["job"]["status"] == "success"
+    assert mutation_detail["report"]["rows"][0]["status"] == "UPDATED_BOUND_VARIANT"
+    assert trash_detail["job"]["status"] == "success"
+    assert trash_detail["report"]["summary"]["orphaned_variant_count"] == 1
+
+
+def test_workbook_content_mutation_preview_requires_source_header() -> None:
+    reset_demo()
+    workbook_bytes = build_workbook_bytes(["business_key", "fr"], [["hello", "Bonjour"]])
+
+    with TestClient(app) as client:
+        preview = client.post(
+            "/api/projects/1/workbooks/intake/preview",
+            data={
+                "workflow_kind": "branch_mutation",
+                "branch_ref": "dev/2.4.3",
+                "mutation_type": "content",
+            },
+            files=[
+                ("files", ("bad.xlsx", workbook_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+                ("relative_paths", (None, "bad.xlsx")),
+            ],
+        )
+
+    assert preview.status_code == 200
+    assert preview.json()["missing_required_headers"] == ["source"]

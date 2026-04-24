@@ -74,6 +74,8 @@ Content fields:
 - translation columns and remark columns are project-defined
 - project creation may also define a single `pivot_language` plus `pivoted_languages`; when omitted, every translation column defaults to `null` pivot
 - `pivot_language` must be one of the project translation columns, `pivoted_languages` must be a subset of the translation columns, and the pivot configuration stays fixed after project creation
+- project creation accepts optional `business_key_header` and `source_header` to configure the workbook column names that map to internal `business_key` and `source` fields
+- when not provided, `business_key_header` defaults to `"business_key"` and `source_header` defaults to `"source"`
 - header matching is schema-driven
 - import mapping always requires `business_key` and `source`
 - translation and remark mappings may be omitted for import; omitted fields are treated as "keep existing value"
@@ -110,6 +112,16 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - shared effect-forecast vocabulary includes `binding_effect`, `variant_resolution`, and `row_outcome`
 - `variant_resolution` answers whether a row would `stay_current`, `reuse_existing`, or `create_new`
 
+## Workbook Write Workflow Rules
+
+- create branch, branch mutation, branch trash, and project trash use workflow-specific workbook uploads
+- upload precheck is lightweight and validates files, sheets, headers, and sampled row issues
+- execute starts one async job that persists workbook rows and applies the target workflow
+- content mutation requires configured key + source and only updates the currently bound branch variant
+- content mutation never binds, rebinds, creates variants, or changes branch range
+- range mutation requires configured key + source and may bind, rebind, or create variants according to branch policy
+- trash workflows require configured key only
+
 ## Branch Bootstrap Rules
 
 - branch bootstrap is a dedicated async workflow for establishing the initial working range of `dev/<version>`
@@ -139,10 +151,13 @@ Phase 4 defines one canonical semantic model for branch mutation work. The top-l
 
 Current runtime inputs such as `direct` and `import_batch` remain accepted legacy input shapes and transports into the Phase 4 mutation contract. They are not the top-level semantic model.
 
+- `workbook_batch`: one workbook-parsed batch applied to a target scope; the product UI uses this path exclusively
+
 Accepted runtime inputs:
 
 - `direct`: one or more business-key patches applied to a target scope
 - `import_batch`: one persisted import batch applied to a target scope
+- `workbook_batch`: workbook-parsed batch with workflow context; routed to content or range mutation based on `mutation_type`
 
 Current policy:
 

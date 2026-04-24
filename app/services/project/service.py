@@ -35,6 +35,8 @@ class ProjectService:
         remark_columns: list[str],
         pivot_language: str | None = None,
         pivoted_languages: list[str] | None = None,
+        business_key_header: str = "business_key",
+        source_header: str = "source",
     ) -> dict[str, Any]:
         normalized_name = normalize_non_content_value(name)
         if not normalized_name:
@@ -50,7 +52,14 @@ class ProjectService:
         overlap = set(normalized_translation_columns) & set(normalized_remark_columns)
         if overlap:
             raise ValueError(f"schema columns must be distinct across translations and remarks: {sorted(overlap)}")
-        fixed_names = set(self.FIXED_COLUMNS.values())
+        fixed_columns = {
+            "file_name": "file_name",
+            "business_key": normalize_non_content_value(business_key_header) or "business_key",
+            "source": normalize_non_content_value(source_header) or "source",
+        }
+        if fixed_columns["business_key"] == fixed_columns["source"]:
+            raise ValueError("business_key_header and source_header must be distinct")
+        fixed_names = set(fixed_columns.values())
         if fixed_names & set(normalized_translation_columns + normalized_remark_columns):
             raise ValueError("schema columns cannot reuse fixed business headers")
         normalized_pivot_language, normalized_pivoted_languages = self._normalize_pivot_configuration(
@@ -93,7 +102,7 @@ class ProjectService:
                 """,
                 (
                     project_id,
-                    _json_dumps(self.FIXED_COLUMNS),
+                    _json_dumps(fixed_columns),
                     _json_dumps(normalized_translation_columns),
                     _json_dumps(normalized_remark_columns),
                     normalized_pivot_language,

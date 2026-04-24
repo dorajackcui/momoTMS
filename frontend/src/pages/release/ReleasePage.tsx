@@ -78,9 +78,7 @@ export function ReleasePage() {
         <EditPanel
           projectId={projectId}
           branchRef={branchRef}
-          schema={schema}
-          allowRange={false}
-          importBatches={shell.bootstrap?.imports ?? []}
+          allowRange={true}
           onJobCreated={handleJobCreated}
         />
       )}

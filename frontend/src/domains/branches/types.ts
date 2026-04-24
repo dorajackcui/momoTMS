@@ -155,34 +155,3 @@ export type BranchReplacePreview = EffectForecastPreview & {
     target_branch_ref: string;
   };
 };
-
-export type BranchMutationChange = {
-  business_key: string;
-  source?: string | null;
-  translations_by_lang: Record<string, string>;
-  remarks_by_key: Record<string, string>;
-  file_name?: string | null;
-};
-
-export type BranchMutationInput =
-  | {
-      kind: "direct";
-      changes: BranchMutationChange[];
-    }
-  | {
-      kind: "import_batch";
-      import_batch_id: number;
-    };
-
-export type BranchBootstrapRequest = {
-  branch_ref: string;
-  import_batch_id: number;
-};
-
-export type BranchBootstrapPreview = EffectForecastPreview & {
-  workflow_kind: "branch_bootstrap";
-};
-
-export type BranchMutationPreview = EffectForecastPreview & {
-  workflow_kind: "branch_mutation";
-};

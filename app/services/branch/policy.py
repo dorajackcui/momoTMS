@@ -88,7 +88,7 @@ class BranchMutationPolicy:
         return DevBranchPolicy(branch_ref)
 
     def validate_input_kind(self, input_kind: str) -> None:
-        if input_kind != "direct":
+        if input_kind not in {"direct", "workbook_batch"}:
             raise ValueError(f"{self.branch_ref} only supports direct mutations")
 
     def allow_missing_entry_creation(self) -> bool:
@@ -106,7 +106,7 @@ class ReleaseBranchPolicy(BranchMutationPolicy):
 @dataclass(frozen=True)
 class DevBranchPolicy(BranchMutationPolicy):
     def validate_input_kind(self, input_kind: str) -> None:
-        if input_kind not in {"direct", "import_batch"}:
+        if input_kind not in {"direct", "import_batch", "workbook_batch"}:
             raise ValueError(f"unsupported mutation input kind: {input_kind}")
 
     def allow_missing_entry_creation(self) -> bool:

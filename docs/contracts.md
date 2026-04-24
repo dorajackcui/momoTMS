@@ -210,6 +210,14 @@ Import upload and job detail:
 - `GET /api/projects/{project_id}/jobs/{job_id}` returns a report preview only; callers should use the workflow-specific full report route when they need all rows
 - import jobs publish the full persisted row report through `GET /api/projects/{project_id}/imports/{import_batch_id}/report`
 
+Workbook workflow input:
+
+- `POST /api/projects/{project_id}/workbooks/intake/preview` accepts multipart workbook uploads plus workflow context and returns lightweight precheck data
+- `POST /api/projects/{project_id}/workbooks/intake/execute` accepts `upload_session_id`, `workflow_kind`, optional `branch_ref`, and optional `mutation_type`, then starts one async job that parses the workbook and applies the workflow
+- product write flows no longer expose Direct or Import batch as input methods
+- branch content mutation and branch range mutation both require configured key and source workbook headers
+- branch trash and project trash require only the configured key workbook header
+
 Branch mutation reporting:
 
 - `POST /api/projects/{project_id}/branches/mutations/preview` is the read-only mutation preview route
@@ -320,6 +328,8 @@ Workflow actions:
 - `POST /api/projects/{project_id}/fill/upload-folder`
 - `POST /api/projects/{project_id}/qa`
 - `POST /api/projects/{project_id}/qa/upload-folder`
+- `POST /api/projects/{project_id}/workbooks/intake/preview`
+- `POST /api/projects/{project_id}/workbooks/intake/execute`
 
 Long-running action contract:
 
@@ -327,6 +337,7 @@ Long-running action contract:
 - `POST /api/projects/{project_id}/imports/upload-folder` starts an async job and returns `JobDetail`
 - `POST /api/projects/{project_id}/branches/bootstrap` starts an async job and returns `JobDetail`
 - `POST /api/projects/{project_id}/branches/mutations` returns an async `JobDetail` when `input.kind == "import_batch"`; direct mutations remain request-scoped
+- `POST /api/projects/{project_id}/workbooks/intake/execute` starts an async job and returns `JobDetail`
 
 ## Error Semantics
 

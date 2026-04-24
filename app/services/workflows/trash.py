@@ -8,6 +8,7 @@ from app.services.variant.entries import EntryService
 from app.services.variant.lifecycle import VariantLifecycleService
 from app.services.variant.normalization import normalize_business_keys
 from app.services.variant.catalog import VariantCatalogService
+from app.services.workbooks.batches import WorkbookBatchService
 
 
 class TrashService:
@@ -18,6 +19,7 @@ class TrashService:
         self.binding_lookup = BindingLookupService()
         self.catalog = VariantCatalogService()
         self.lifecycle = VariantLifecycleService(binding_lookup=self.binding_lookup)
+        self.workbook_batches = WorkbookBatchService()
 
     def delete(
         self,
@@ -135,4 +137,31 @@ class TrashService:
             "missing_count": missing_count,
         }
         return {"summary": summary, "report_rows": report_rows}
+
+    def delete_from_workbook_batch(
+        self,
+        branch_ref: BranchRef,
+        workbook_batch_id: int,
+        *,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, list[dict[str, object]] | dict[str, int]]:
+        keys = [
+            row["business_key"]
+            for row in self.workbook_batches.iter_rows(workbook_batch_id, project_id, ok_only=True)
+            if row["business_key"]
+        ]
+        return self.delete(branch_ref, keys, project_id=project_id)
+
+    def project_trash_from_workbook_batch(
+        self,
+        workbook_batch_id: int,
+        *,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, list[dict[str, object]] | dict[str, int]]:
+        keys = [
+            row["business_key"]
+            for row in self.workbook_batches.iter_rows(workbook_batch_id, project_id, ok_only=True)
+            if row["business_key"]
+        ]
+        return self.project_trash(keys, project_id=project_id)
 

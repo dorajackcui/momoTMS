@@ -152,53 +152,48 @@ function buildJobDetail(overrides = {}) {
   };
 }
 
-test("Dev create branch waits for the import job before bootstrap preview", async ({
+test("Dev create branch uses workbook panel with preview and execute", async ({
   page,
 }) => {
-  let jobPolls = 0;
-  let bootstrapPayload = null;
+  let previewCalled = false;
+  let executePayload = null;
 
-  await page.route("**/api/projects/1/imports/upload-folder/preview", async (route) => {
+  await page.route("**/api/projects/1/workbooks/intake/preview", async (route) => {
+    previewCalled = true;
     await route.fulfill({
       json: {
         upload_session_id: "session-for-create-branch",
+        workflow_kind: "create_branch",
+        mutation_type: null,
         file_count: 1,
         sheet_count: 1,
+        missing_required_headers: [],
+        sampled_issue_count: 0,
         sheet_previews: [],
       },
     });
   });
-  await page.route("**/api/projects/1/imports/upload-folder", async (route) => {
+
+  await page.route("**/api/projects/1/workbooks/intake/execute", async (route) => {
+    executePayload = route.request().postDataJSON();
     await route.fulfill({
       json: buildJobDetail({
         job_id: 900,
-        job_type: "import_upload_folder",
+        job_type: "workbook_create_branch",
         status: "running",
       }),
     });
   });
+
   await page.route("**/api/projects/1/jobs/900", async (route) => {
-    jobPolls += 1;
     await route.fulfill({
       json: buildJobDetail({
         job_id: 900,
-        job_type: "import_upload_folder",
+        job_type: "workbook_create_branch",
         status: "success",
-        summary: { import_batch_id: 321 },
+        summary: { workbook_batch_id: 321 },
         finished_at: "2026-03-25T00:00:01Z",
       }),
-    });
-  });
-  await page.route("**/api/projects/1/branches/bootstrap/preview", async (route) => {
-    bootstrapPayload = route.request().postDataJSON();
-    await route.fulfill({
-      json: {
-        preview_kind: "effect_forecast",
-        workflow_kind: "branch_bootstrap",
-        request_echo: bootstrapPayload,
-        summary: { processed_count: 1 },
-        rows: [{ status: "CREATED_AND_BOUND_VARIANT" }],
-      },
     });
   });
 
@@ -206,47 +201,33 @@ test("Dev create branch waits for the import job before bootstrap preview", asyn
   await page.getByRole("button", { name: /Create Branch/ }).click();
   await page.getByLabel("Version number").fill("2.4.9");
   await page.locator('input[type="file"]').setInputFiles(importDir);
-  await page.getByRole("button", { name: "Preview Upload" }).click();
-  await page.getByRole("button", { name: "Next: Preview Bootstrap" }).click();
+  await page.getByRole("button", { name: "Check Workbook" }).click();
 
-  await expect(page.getByRole("heading", { name: /Bootstrap Preview/ })).toBeVisible();
-  expect(jobPolls).toBeGreaterThan(0);
-  expect(bootstrapPayload.import_batch_id).toBe(321);
+  await expect.poll(() => previewCalled).toBeTruthy();
+  await expect(page.getByRole("button", { name: "Create Branch" }).last()).toBeVisible();
+
+  await page.getByRole("button", { name: "Create Branch" }).last().click();
+  await expect.poll(() => executePayload).not.toBeNull();
+  expect(executePayload.upload_session_id).toBe("session-for-create-branch");
+  expect(executePayload.workflow_kind).toBe("create_branch");
 });
 
-test("Release direct edit maps TSV columns into mutation preview payload", async ({
+test("Release edit shows workbook mutation type selector", async ({
   page,
 }) => {
-  let previewPayload = null;
-
-  await page.route("**/api/projects/1/branches/mutations/preview", async (route) => {
-    previewPayload = route.request().postDataJSON();
-    await route.fulfill({
-      json: {
-        preview_kind: "effect_forecast",
-        workflow_kind: "branch_mutation",
-        request_echo: previewPayload,
-        summary: { processed_count: 1 },
-        rows: [{ status: "UPDATED_BOUND_VARIANT" }],
-      },
-    });
-  });
-
   await page.goto("/app/release?project=1&lang=fr");
   await page.getByRole("button", { name: "Edit" }).click();
-  await page.locator("textarea").fill(
-    [
-      "business_key\tsource\tfr\tremark:context\tfile_name",
-      "common.welcome\tWelcome {0}\tBienvenue!\tReviewed\twelcome.xlsx",
-    ].join("\n"),
-  );
-  await page.getByRole("button", { name: "Preview" }).click();
 
-  await expect.poll(() => previewPayload).not.toBeNull();
-  const change = previewPayload.input.changes[0];
-  expect(change.translations_by_lang).toEqual({ fr: "Bienvenue!" });
-  expect(change.remarks_by_key).toEqual({ context: "Reviewed" });
-  expect(change.file_name).toBe("welcome.xlsx");
+  await expect(page.getByText("Mutation type")).toBeVisible();
+  await expect(page.getByText("Content")).toBeVisible();
+  await expect(page.getByText("Range")).toBeVisible();
+  await expect(page.getByText("Upload workbook")).toBeVisible();
+
+  // Old UI elements should not be present
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByText("Input method")).toHaveCount(0);
+  await expect(page.getByText("Direct")).toHaveCount(0);
+  await expect(page.getByText("Import batch")).toHaveCount(0);
 });
 
 test("Workspace reflects state and branch filters in URL and API params", async ({
@@ -276,33 +257,42 @@ test("Workspace reflects state and branch filters in URL and API params", async 
     .toBeTruthy();
 });
 
-test("Release trash requires preview before execute", async ({
+test("Release trash shows workbook upload panel and calls correct API", async ({
   page,
 }) => {
-  let unbindCalls = 0;
+  let trashPreviewPayload = null;
 
-  await page.route("**/api/projects/1/variants/trash/delete", async (route) => {
-    unbindCalls += 1;
+  await page.route("**/api/projects/1/workbooks/intake/preview", async (route) => {
+    trashPreviewPayload = route.request().postDataJSON();
     await route.fulfill({
-      json: buildJobDetail({
-        job_type: "trash_delete",
-        status: "success",
-        summary: { removed_binding_count: 1 },
-        finished_at: "2026-03-25T00:00:01Z",
-      }),
+      json: {
+        upload_session_id: "session-for-trash",
+        workflow_kind: "branch_trash",
+        mutation_type: null,
+        file_count: 1,
+        sheet_count: 1,
+        missing_required_headers: [],
+        sampled_issue_count: 0,
+        sheet_previews: [],
+      },
     });
   });
 
   await page.goto("/app/release?project=1&lang=fr");
   await page.getByRole("button", { name: "Trash" }).click();
-  await page.locator("textarea").first().fill("common.welcome");
-  await expect(page.getByRole("button", { name: "Execute unbind" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Preview unbind" }).click();
-  await expect(page.getByRole("button", { name: "Execute unbind" })).toBeVisible();
-  expect(unbindCalls).toBe(0);
 
-  await page.getByRole("button", { name: "Execute unbind" }).click();
-  await expect.poll(() => unbindCalls).toBe(1);
+  await expect(page.getByText("Upload key workbook")).toBeVisible();
+  await expect(page.getByText("Delete From Branch")).toBeVisible();
+  await expect(page.getByText("Trash orphan variants")).toBeVisible();
+
+  // Old UI elements should not be present
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByText("Preview unbind")).toHaveCount(0);
+
+  // Upload files and verify the preview calls the correct API
+  await page.locator('input[type="file"]').first().setInputFiles(importDir);
+  await page.getByRole("button", { name: "Check Workbook" }).first().click();
+  await expect.poll(() => trashPreviewPayload).not.toBeNull();
 });
 
 test("normalizes stale branch params before branch-scoped pages query data", async ({
@@ -316,24 +306,28 @@ test("normalizes stale branch params before branch-scoped pages query data", asy
   await expect(page.getByText("Failed to load shell data")).toHaveCount(0);
 });
 
-test("Dev create branch keeps upload preview visible when import job fails", async ({
+test("Dev create branch workbook panel shows error on execute failure", async ({
   page,
 }) => {
-  await page.route("**/api/projects/1/imports/upload-folder/preview", async (route) => {
+  await page.route("**/api/projects/1/workbooks/intake/preview", async (route) => {
     await route.fulfill({
       json: {
         upload_session_id: "session-that-will-fail",
+        workflow_kind: "create_branch",
+        mutation_type: null,
         file_count: 1,
         sheet_count: 1,
+        missing_required_headers: [],
+        sampled_issue_count: 0,
         sheet_previews: [],
       },
     });
   });
-  await page.route("**/api/projects/1/imports/upload-folder", async (route) => {
+  await page.route("**/api/projects/1/workbooks/intake/execute", async (route) => {
     await route.fulfill({
       json: buildJobDetail({
         job_id: 901,
-        job_type: "import_upload_folder",
+        job_type: "workbook_create_branch",
         status: "running",
       }),
     });
@@ -342,9 +336,9 @@ test("Dev create branch keeps upload preview visible when import job fails", asy
     await route.fulfill({
       json: buildJobDetail({
         job_id: 901,
-        job_type: "import_upload_folder",
+        job_type: "workbook_create_branch",
         status: "failed",
-        error_message: "import failed for test",
+        error_message: "workbook import failed for test",
         finished_at: "2026-03-25T00:00:01Z",
       }),
     });
@@ -354,9 +348,9 @@ test("Dev create branch keeps upload preview visible when import job fails", asy
   await page.getByRole("button", { name: /Create Branch/ }).click();
   await page.getByLabel("Version number").fill("2.4.8");
   await page.locator('input[type="file"]').setInputFiles(importDir);
-  await page.getByRole("button", { name: "Preview Upload" }).click();
-  await page.getByRole("button", { name: "Next: Preview Bootstrap" }).click();
+  await page.getByRole("button", { name: "Check Workbook" }).click();
 
-  await expect(page.getByText(/import failed for test/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Next: Preview Bootstrap" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create Branch" }).last()).toBeVisible();
+  await page.getByRole("button", { name: "Create Branch" }).last().click();
+  await expect(page.getByText(/workbook import failed for test/)).toBeVisible();
 });

@@ -107,6 +107,21 @@ class JobService:
             )
         return summary
 
+    def patch_job_summary(self, job_id: int, extra: dict[str, Any]) -> None:
+        """Merge extra fields into an existing job's summary_json."""
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT summary_json FROM jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            if not row:
+                raise KeyError(f"job not found: {job_id}")
+            summary = json_loads(row["summary_json"])
+            summary.update(extra)
+            conn.execute(
+                "UPDATE jobs SET summary_json = ? WHERE job_id = ?",
+                (json_dumps(summary), job_id),
+            )
+
     def fail_job(self, job_id: int, message: str) -> None:
         with get_conn() as conn:
             conn.execute(

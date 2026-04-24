@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Generator
 
 from app.db import get_conn
+from app.services.branch.content_batch_mutation import ContentBatchMutationApplier
 from app.services.branch.direct_mutation import DirectMutationApplier
 from app.services.branch.import_batch_mutation import ImportBatchMutationApplier
 from app.services.branch.models import BranchRef
@@ -48,6 +49,12 @@ class BranchMutationService:
             binding_lookup=self.binding_lookup,
             resolution=self.resolution,
         )
+        self.content_batch = ContentBatchMutationApplier(
+            entries=self.entries,
+            catalog=self.catalog,
+            binding_lookup=self.binding_lookup,
+            resolution=self.resolution,
+        )
         self.preview_service = MutationPreviewService(
             entries=self.entries,
             catalog=self.catalog,
@@ -76,6 +83,22 @@ class BranchMutationService:
                 )
             if input_kind == "direct":
                 return self.direct.apply(branch_ref, input_payload["changes"], policy, project_id, conn=conn)
+            if input_kind == "workbook_batch":
+                mutation_type = str(input_payload["mutation_type"])
+                if mutation_type == "content":
+                    return self.content_batch.apply(
+                        branch_ref,
+                        int(input_payload["workbook_batch_id"]),
+                        project_id,
+                        conn=conn,
+                    )
+                return self.import_batch.apply(
+                    branch_ref,
+                    int(input_payload["workbook_batch_id"]),
+                    project_id,
+                    conn=conn,
+                    version_series=(dev_branch or {}).get("version_series"),
+                )
             return self.import_batch.apply(
                 branch_ref,
                 int(input_payload["import_batch_id"]),

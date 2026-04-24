@@ -4,6 +4,7 @@ from app.routers.pages import router as pages_router
 from app.routers.projects_state import router as projects_state_router
 from app.routers.scopes_read_models import router as scopes_read_models_router
 from app.routers.workflows import router as workflows_router
+from app.routers.workbook_workflows import router as workbook_workflows_router
 
 __all__ = [
     "inspection_router",
@@ -12,4 +13,5 @@ __all__ = [
     "projects_state_router",
     "scopes_read_models_router",
     "workflows_router",
+    "workbook_workflows_router",
 ]

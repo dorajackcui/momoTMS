@@ -101,9 +101,7 @@ export function BranchDetail(props: { projectId: number; version: string; onBack
         <EditPanel
           projectId={projectId}
           branchRef={branchRef}
-          schema={schema}
           allowRange={true}
-          importBatches={shell.bootstrap?.imports ?? []}
           onJobCreated={handleJobCreated}
         />
       )}
