@@ -374,6 +374,64 @@ class _VariantStore:
         with get_conn() as local_conn:
             self.set_pivot_changed(variant_id, scope_type, scope_value, timestamp, conn=local_conn)
 
+    def bulk_create_variants(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> list[int]:
+        if not rows:
+            return []
+        cursor = conn.execute("SELECT MAX(variant_id) AS max_id FROM variants")
+        max_before = cursor.fetchone()["max_id"] or 0
+        conn.executemany(
+            """
+            INSERT INTO variants(
+                entry_id, file_name, source, orphaned_at,
+                pivot_status, pivot_status_updated_at, created_at, updated_at
+            )
+            VALUES (?, ?, ?, NULL, 'init', ?, ?, ?)
+            """,
+            [(entry_id, file_name, source, ts, ts, ts) for entry_id, file_name, source, ts in rows],
+        )
+        new_rows = conn.execute(
+            "SELECT variant_id FROM variants WHERE variant_id > ? ORDER BY variant_id",
+            (max_before,),
+        ).fetchall()
+        return [int(r["variant_id"]) for r in new_rows]
+
+    def bulk_write_translations(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            INSERT INTO variant_translations(variant_id, lang, target_text, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+    def bulk_write_remarks(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            INSERT INTO variant_remarks(variant_id, remark_key, remark_value, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+
     def set_pivot_reviewed(
         self,
         variant_id: int,
