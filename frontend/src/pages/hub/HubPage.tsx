@@ -19,6 +19,8 @@ export function HubPage() {
   const [name, setName] = useState("");
   const [translationCols, setTranslationCols] = useState("");
   const [remarkCols, setRemarkCols] = useState("");
+  const [keyHeader, setKeyHeader] = useState("key");
+  const [sourceHeader, setSourceHeader] = useState("MsgStr");
   const [pivotLang, setPivotLang] = useState("");
   const [pivotedLangs, setPivotedLangs] = useState("");
 
@@ -26,6 +28,8 @@ export function HubPage() {
     mutationFn: () => {
       const payload: CreateProjectInput = {
         name,
+        business_key_header: keyHeader.trim() || undefined,
+        source_header: sourceHeader.trim() || undefined,
         translation_columns: translationCols.split(",").map((s) => s.trim()).filter(Boolean),
         remark_columns: remarkCols.split(",").map((s) => s.trim()).filter(Boolean),
         pivot_language: pivotLang.trim() || null,
@@ -57,6 +61,8 @@ export function HubPage() {
         <div className={styles.createForm}>
           <h2>Create Project</h2>
           <label>Project name <input value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>Key column header <input value={keyHeader} onChange={(e) => setKeyHeader(e.target.value)} placeholder="key" /></label>
+          <label>Source column header <input value={sourceHeader} onChange={(e) => setSourceHeader(e.target.value)} placeholder="MsgStr" /></label>
           <label>Translation columns (comma-separated) <input value={translationCols} onChange={(e) => setTranslationCols(e.target.value)} placeholder="zh-Hans, en, ja" /></label>
           <label>Remark columns (comma-separated) <input value={remarkCols} onChange={(e) => setRemarkCols(e.target.value)} placeholder="context, max_length" /></label>
           <label>Pivot language (optional) <input value={pivotLang} onChange={(e) => setPivotLang(e.target.value)} placeholder="zh-Hans" /></label>

@@ -31,6 +31,8 @@ export type ProductStateResponse = {
 
 export type CreateProjectInput = {
   name: string;
+  business_key_header?: string;
+  source_header?: string;
   translation_columns: string[];
   remark_columns: string[];
   pivot_language?: string | null;

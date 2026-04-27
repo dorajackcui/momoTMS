@@ -18,8 +18,8 @@ class CreateProjectRequest(BaseModel):
     remark_columns: list[str] = Field(default_factory=list)
     pivot_language: str | None = None
     pivoted_languages: list[str] = Field(default_factory=list)
-    business_key_header: str = "business_key"
-    source_header: str = "source"
+    business_key_header: str = "key"
+    source_header: str = "MsgStr"
 
 
 class ProjectSchemaSummary(BaseModel):
