@@ -108,6 +108,16 @@ Preview family:
 - `pivoted_languages` must be a subset of `translation_columns`, cannot include `pivot_language`, and require `pivot_language` to be set
 - response remains `ProjectSummary`; schema details still come from bootstrap
 
+`DELETE /api/projects/{project_id}`
+
+- request body accepts `name`
+- server validates the supplied name matches the project's actual name before proceeding
+- name mismatch returns `400`
+- project not found returns `404`
+- success returns `{ "deleted": true, "project_id": <id>, "name": "<name>" }`
+- deletion is permanent: removes the project and all child data (schema, entries, variants, bindings, imports, jobs, dev versions) in a single transaction
+- no cross-project data is affected
+
 Branch bootstrap jobs:
 
 - `POST /api/projects/{project_id}/branches/bootstrap` accepts `branch_ref` plus `import_batch_id`
@@ -280,6 +290,7 @@ Projects and bootstrap:
 
 - `GET /api/projects`
 - `POST /api/projects`
+- `DELETE /api/projects/{project_id}`
 - `GET /api/projects/{project_id}/state`
 - `POST /api/demo/reset`
 
