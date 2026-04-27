@@ -1,6 +1,7 @@
 import pytest
 from app.db import init_db, get_conn
 from app.services.variant.store import _VariantStore
+from app.services.variant.bindings import _ScopeBindingStore
 from app.services.shared.utils import now_iso
 
 
@@ -85,3 +86,33 @@ def test_bulk_write_remarks():
         assert len(db_rows) == 1
         assert db_rows[0]["remark_key"] == "context"
         assert db_rows[0]["remark_value"] == "greeting"
+
+
+def test_bulk_bind():
+    init_db()
+    store = _VariantStore()
+    binding_store = _ScopeBindingStore()
+    ts = now_iso()
+    with get_conn() as conn:
+        _create_project_and_entries(conn, n=3)
+        variant_ids = store.bulk_create_variants(
+            [
+                (1, "f.xlsx", "Hello", ts),
+                (2, "f.xlsx", "World", ts),
+                (3, "f.xlsx", "Foo", ts),
+            ],
+            conn=conn,
+        )
+        binding_rows = [
+            ("rel", "current", 1, variant_ids[0], ts),
+            ("rel", "current", 2, variant_ids[1], ts),
+            ("rel", "current", 3, variant_ids[2], ts),
+        ]
+        binding_store.bulk_bind(binding_rows, conn=conn)
+        db_rows = conn.execute(
+            "SELECT * FROM scope_bindings ORDER BY entry_id"
+        ).fetchall()
+        assert len(db_rows) == 3
+        assert db_rows[0]["scope_type"] == "rel"
+        assert db_rows[0]["scope_value"] == "current"
+        assert db_rows[0]["variant_id"] == variant_ids[0]

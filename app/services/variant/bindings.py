@@ -403,6 +403,22 @@ class _ScopeBindingStore:
             ).fetchall()
         return {int(row["variant_id"]): int(row["count"] or 0) for row in rows}
 
+    def bulk_bind(
+        self,
+        rows: list[tuple[str, str, int, int, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            INSERT INTO scope_bindings(scope_type, scope_value, entry_id, variant_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [(st, sv, eid, vid, ts, ts) for st, sv, eid, vid, ts in rows],
+        )
+
     def _hydrate_rows(self, rows: list[dict[str, object]]) -> list[BindingRecord]:
         return [
             {
