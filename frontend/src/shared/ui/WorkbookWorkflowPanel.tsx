@@ -6,7 +6,7 @@ import type { WorkbookIntakePreview, WorkbookMutationType, WorkbookWorkflowKind 
 import type { JobDetail } from "@/domains/jobs/types";
 import { waitForJobDetail } from "@/domains/jobs/api";
 import { buttonClassName, InlineNotice, StatGrid } from "@/shared/ui/primitives";
-import { FolderUpload } from "@/shared/ui/FolderUpload";
+import { WorkbookUpload } from "@/shared/ui/WorkbookUpload";
 
 import styles from "@/shared/ui/WorkbookWorkflowPanel.module.css";
 
@@ -66,7 +66,7 @@ export function WorkbookWorkflowPanel(props: WorkbookWorkflowPanelProps) {
       <div className={styles.header}>
         <h3>{props.title}</h3>
       </div>
-      <FolderUpload
+      <WorkbookUpload
         label={props.uploadLabel ?? "Upload workbook"}
         disabled={props.disabled}
         onFiles={(nextFiles) => {
@@ -77,7 +77,11 @@ export function WorkbookWorkflowPanel(props: WorkbookWorkflowPanelProps) {
           executeMut.reset();
         }}
       />
-      {files.length > 0 && <p className={styles.meta}>{files.length} files selected</p>}
+      {files.length > 0 && (
+        <p className={styles.meta}>
+          {files.length === 1 ? files[0].name : `${files.length} files selected`}
+        </p>
+      )}
       <div className={styles.actions}>
         <button
           className={buttonClassName("secondary")}
