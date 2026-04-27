@@ -1,8 +1,10 @@
 import pytest
+import openpyxl
 from app.db import init_db, get_conn
 from app.services.variant.store import _VariantStore
 from app.services.variant.bindings import _ScopeBindingStore
 from app.services.shared.utils import now_iso
+from app.services.bulk.excel_reader import read_excel_chunks, BulkSeedError
 
 
 def _create_project_and_entries(conn, n=3):
@@ -116,3 +118,70 @@ def test_bulk_bind():
         assert db_rows[0]["scope_type"] == "rel"
         assert db_rows[0]["scope_value"] == "current"
         assert db_rows[0]["variant_id"] == variant_ids[0]
+
+
+def _create_test_workbook(path, headers, rows):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+def test_read_excel_chunks_basic(tmp_path):
+    workbook_path = tmp_path / "test.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[
+            ["key_1", "Hello", "Bonjour", "Hello", "greeting"],
+            ["key_2", "World", "Monde", "World", "noun"],
+            ["key_3", "Foo", "Fou", "Foo", "test"],
+        ],
+    )
+    schema = {
+        "fixed_columns": {"business_key": "Key", "source": "MsgStr", "file_name": "file_name"},
+        "translation_columns": ["fr", "en"],
+        "remark_columns": ["context"],
+    }
+    chunks = list(read_excel_chunks(str(workbook_path), schema, chunk_size=2))
+    assert len(chunks) == 2
+    assert len(chunks[0]) == 2
+    assert len(chunks[1]) == 1
+    first_row = chunks[0][0]
+    assert first_row["business_key"] == "key_1"
+    assert first_row["source"] == "Hello"
+    assert first_row["translations"] == {"fr": "Bonjour", "en": "Hello"}
+    assert first_row["remarks"] == {"context": "greeting"}
+    assert first_row["file_name"] == "test.xlsx"
+    assert first_row["sheet_name"] == "Sheet1"
+
+
+def test_read_excel_chunks_fails_on_missing_header(tmp_path):
+    workbook_path = tmp_path / "bad.xlsx"
+    _create_test_workbook(workbook_path, headers=["Key", "wrong_col"], rows=[["k1", "v1"]])
+    schema = {
+        "fixed_columns": {"business_key": "Key", "source": "MsgStr", "file_name": "file_name"},
+        "translation_columns": ["fr"],
+        "remark_columns": [],
+    }
+    with pytest.raises(BulkSeedError, match="missing required header: MsgStr"):
+        list(read_excel_chunks(str(workbook_path), schema))
+
+
+def test_read_excel_chunks_fails_on_blank_business_key(tmp_path):
+    workbook_path = tmp_path / "blank.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr"],
+        rows=[["", "Hello", "Bonjour"]],
+    )
+    schema = {
+        "fixed_columns": {"business_key": "Key", "source": "MsgStr", "file_name": "file_name"},
+        "translation_columns": ["fr"],
+        "remark_columns": [],
+    }
+    with pytest.raises(BulkSeedError, match="blank business_key"):
+        list(read_excel_chunks(str(workbook_path), schema))
