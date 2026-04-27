@@ -302,6 +302,67 @@ class ProjectService:
     def require_project(self, project_id: int) -> dict[str, Any]:
         return self.get_project(project_id)
 
+    def delete_project(self, project_id: int, name: str) -> dict[str, Any]:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT project_id, name, is_default, created_at FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if not row:
+                raise KeyError(f"project not found: {project_id}")
+            if row["name"] != name:
+                raise ValueError("project name does not match")
+
+            entry_ids_sql = "SELECT entry_id FROM entries WHERE project_id = ?"
+            variant_ids_sql = f"SELECT variant_id FROM variants WHERE entry_id IN ({entry_ids_sql})"
+            import_ids_sql = "SELECT import_batch_id FROM imports WHERE project_id = ?"
+
+            conn.execute(
+                f"DELETE FROM scope_bindings WHERE variant_id IN ({variant_ids_sql})",
+                (project_id,),
+            )
+            conn.execute(
+                f"DELETE FROM variant_translations WHERE variant_id IN ({variant_ids_sql})",
+                (project_id,),
+            )
+            conn.execute(
+                f"DELETE FROM variant_remarks WHERE variant_id IN ({variant_ids_sql})",
+                (project_id,),
+            )
+            conn.execute(
+                f"DELETE FROM variants WHERE entry_id IN ({entry_ids_sql})",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM entries WHERE project_id = ?",
+                (project_id,),
+            )
+            conn.execute(
+                f"DELETE FROM import_rows WHERE import_batch_id IN ({import_ids_sql})",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM imports WHERE project_id = ?",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM jobs WHERE project_id = ?",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM dev_versions WHERE project_id = ?",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM project_schemas WHERE project_id = ?",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM projects WHERE project_id = ?",
+                (project_id,),
+            )
+        return {"deleted": True, "project_id": project_id, "name": name}
+
     def _normalize_headers(self, headers: list[Any]) -> tuple[dict[str, int], list[str]]:
         normalized: dict[str, int] = {}
         available_headers: list[str] = []

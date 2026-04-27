@@ -139,3 +139,36 @@ def test_create_project_rejects_invalid_pivot_configuration(
             pivot_language,
             pivoted_languages,
         )
+
+
+def test_delete_project_removes_project_and_all_child_data() -> None:
+    reset_db()
+    service = ProjectService()
+    project = service.create_project("Delete Me", ["fr", "en"], ["context"])
+    project_id = int(project["project_id"])
+
+    service.delete_project(project_id, "Delete Me")
+
+    with pytest.raises(KeyError, match="project not found"):
+        service.get_project(project_id)
+
+
+def test_delete_project_rejects_name_mismatch() -> None:
+    reset_db()
+    service = ProjectService()
+    project = service.create_project("Real Name", ["fr"], ["context"])
+    project_id = int(project["project_id"])
+
+    with pytest.raises(ValueError, match="project name does not match"):
+        service.delete_project(project_id, "Wrong Name")
+
+    result = service.get_project(project_id)
+    assert result["name"] == "Real Name"
+
+
+def test_delete_project_raises_on_missing_project() -> None:
+    reset_db()
+    service = ProjectService()
+
+    with pytest.raises(KeyError, match="project not found"):
+        service.delete_project(999, "Anything")
