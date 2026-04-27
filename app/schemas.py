@@ -22,6 +22,16 @@ class CreateProjectRequest(BaseModel):
     source_header: str = "MsgStr"
 
 
+class DeleteProjectRequest(BaseModel):
+    name: str
+
+
+class DeleteProjectResponse(BaseModel):
+    deleted: bool
+    project_id: int
+    name: str
+
+
 class ProjectSchemaSummary(BaseModel):
     schema_id: int
     project_id: int
