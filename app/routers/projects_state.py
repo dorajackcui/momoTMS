@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.routers.common import handle_errors
-from app.schemas import CreateProjectRequest, ProductStateResponse, ProjectSummary
+from app.schemas import CreateProjectRequest, DeleteProjectRequest, DeleteProjectResponse, ProductStateResponse, ProjectSummary
 from app.services.demo.service import DemoService
 from app.services.project.bootstrap import ProjectBootstrapService
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
@@ -36,6 +36,13 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
 @router.get("/api/projects/{project_id}/state", response_model=ProductStateResponse)
 def project_state(project_id: int) -> ProductStateResponse:
     return handle_errors(lambda: ProductStateResponse(**ProjectBootstrapService().get_state(project_id)))
+
+
+@router.delete("/api/projects/{project_id}", response_model=DeleteProjectResponse)
+def delete_project(project_id: int, payload: DeleteProjectRequest) -> DeleteProjectResponse:
+    return handle_errors(
+        lambda: DeleteProjectResponse(**ProjectService().delete_project(project_id, payload.name))
+    )
 
 
 @router.post("/api/demo/reset", response_model=ProductStateResponse)
