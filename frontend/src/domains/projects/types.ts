@@ -38,3 +38,9 @@ export type CreateProjectInput = {
   pivot_language?: string | null;
   pivoted_languages?: string[];
 };
+
+export type DeleteProjectResponse = {
+  deleted: boolean;
+  project_id: number;
+  name: string;
+};
