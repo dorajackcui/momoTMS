@@ -359,3 +359,47 @@ test("Dev create branch workbook panel shows error on execute failure", async ({
   await page.getByRole("button", { name: "Create Branch" }).last().click();
   await expect(page.getByText(/workbook import failed for test/)).toBeVisible();
 });
+
+test("delete project via confirmation dialog", async ({ page, request }) => {
+  // Create a project to delete
+  const createResp = await request.post("/api/projects", {
+    data: {
+      name: "Delete Target",
+      translation_columns: ["en"],
+      remark_columns: ["context"],
+    },
+  });
+  expect(createResp.ok()).toBeTruthy();
+  const created = await createResp.json();
+
+  await page.goto("/app");
+  await expect(page.locator("text=Delete Target")).toBeVisible();
+
+  // Click the delete button on the project card
+  const card = page.locator("button", { hasText: "Delete Target" });
+  await card.locator("[title='Delete project']").click();
+
+  // Confirmation dialog should be visible
+  await expect(page.locator("text=This will permanently delete")).toBeVisible();
+
+  // Delete button should be disabled until name matches
+  const deleteBtn = page.locator("button", { hasText: "Delete" }).last();
+  await expect(deleteBtn).toBeDisabled();
+
+  // Type the correct name
+  const confirmInput = page.locator("input[placeholder='Delete Target']");
+  await confirmInput.fill("Delete Target");
+  await expect(deleteBtn).toBeEnabled();
+
+  // Confirm deletion
+  await deleteBtn.click();
+
+  // Project should disappear from the list
+  await expect(page.locator("text=Delete Target")).not.toBeVisible();
+
+  // Verify via API that the project is gone
+  const getResp = await request.get(`/api/projects`);
+  expect(getResp.ok()).toBeTruthy();
+  const projects = await getResp.json();
+  expect(projects.find((p) => p.project_id === created.project_id)).toBeUndefined();
+});
