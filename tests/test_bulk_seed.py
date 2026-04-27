@@ -5,6 +5,9 @@ from app.services.variant.store import _VariantStore
 from app.services.variant.bindings import _ScopeBindingStore
 from app.services.shared.utils import now_iso
 from app.services.bulk.excel_reader import read_excel_chunks, BulkSeedError
+from app.services.bulk.writer import BulkVariantWriter
+from app.services.project.service import ProjectService
+from app.services.branch.models import BranchRef
 
 
 def _create_project_and_entries(conn, n=3):
@@ -185,3 +188,107 @@ def test_read_excel_chunks_fails_on_blank_business_key(tmp_path):
     }
     with pytest.raises(BulkSeedError, match="blank business_key"):
         list(read_excel_chunks(str(workbook_path), schema))
+
+
+def _create_project_with_schema():
+    init_db()
+    service = ProjectService()
+    project = service.create_project(
+        "Test Project",
+        ["fr", "en"],
+        ["context"],
+        business_key_header="Key",
+        source_header="MsgStr",
+    )
+    return int(project["project_id"])
+
+
+def test_bulk_writer_seed_rel_current(tmp_path):
+    project_id = _create_project_with_schema()
+    workbook_path = tmp_path / "data.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[
+            ["key_1", "Hello", "Bonjour", "Hello", "greeting"],
+            ["key_2", "World", "Monde", "World", "noun"],
+            ["key_3", "Foo", "Fou", "Foo", "test"],
+        ],
+    )
+    writer = BulkVariantWriter()
+    result = writer.seed(
+        project_id=project_id,
+        branch_ref=BranchRef.rel_current(),
+        workbook_path=str(workbook_path),
+        chunk_size=2,
+    )
+    assert result["entries_created"] == 3
+    assert result["variants_created"] == 3
+    assert result["bindings_created"] == 3
+    with get_conn() as conn:
+        entries = conn.execute("SELECT * FROM entries WHERE project_id = ?", (project_id,)).fetchall()
+        assert len(entries) == 3
+        variants = conn.execute("SELECT * FROM variants").fetchall()
+        assert len(variants) == 3
+        assert all(v["pivot_status"] == "init" for v in variants)
+        assert all(v["orphaned_at"] is None for v in variants)
+        translations = conn.execute("SELECT * FROM variant_translations").fetchall()
+        assert len(translations) == 6  # 3 variants * 2 languages
+        remarks = conn.execute("SELECT * FROM variant_remarks").fetchall()
+        assert len(remarks) == 3  # 3 variants * 1 remark column
+        bindings = conn.execute("SELECT * FROM scope_bindings").fetchall()
+        assert len(bindings) == 3
+        assert all(b["scope_type"] == "rel" and b["scope_value"] == "current" for b in bindings)
+
+
+def test_bulk_writer_seed_dev_branch(tmp_path):
+    project_id = _create_project_with_schema()
+    workbook_path = tmp_path / "data.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[["key_1", "Hello", "Bonjour", "Hello", "greeting"]],
+    )
+    writer = BulkVariantWriter()
+    result = writer.seed(
+        project_id=project_id,
+        branch_ref=BranchRef.dev("2.4.1"),
+        workbook_path=str(workbook_path),
+    )
+    assert result["variants_created"] == 1
+    with get_conn() as conn:
+        bindings = conn.execute("SELECT * FROM scope_bindings").fetchall()
+        assert bindings[0]["scope_type"] == "dev"
+        assert bindings[0]["scope_value"] == "2.4.1"
+        dev_row = conn.execute(
+            "SELECT * FROM dev_versions WHERE version = '2.4.1'"
+        ).fetchone()
+        assert dev_row["bootstrapped_at"] is not None
+
+
+def test_bulk_writer_rejects_nonempty_project(tmp_path):
+    project_id = _create_project_with_schema()
+    workbook_path = tmp_path / "data.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[["key_1", "Hello", "Bonjour", "Hello", "greeting"]],
+    )
+    writer = BulkVariantWriter()
+    writer.seed(
+        project_id=project_id,
+        branch_ref=BranchRef.rel_current(),
+        workbook_path=str(workbook_path),
+    )
+    workbook_path2 = tmp_path / "data2.xlsx"
+    _create_test_workbook(
+        workbook_path2,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[["key_2", "World", "Monde", "World", "noun"]],
+    )
+    with pytest.raises(ValueError, match="already has variant data"):
+        writer.seed(
+            project_id=project_id,
+            branch_ref=BranchRef.rel_current(),
+            workbook_path=str(workbook_path2),
+        )
