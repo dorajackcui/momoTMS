@@ -1,0 +1,13 @@
+.toggle {
+  color: var(--muted);
+  font-size: 13px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.toggle:hover {
+  color: var(--text);
+}
