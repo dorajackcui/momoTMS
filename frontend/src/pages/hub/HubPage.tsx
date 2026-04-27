@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
-import { createProject } from "@/domains/projects/api";
-import type { CreateProjectInput } from "@/domains/projects/types";
+import { createProject, deleteProject } from "@/domains/projects/api";
+import type { CreateProjectInput, ProjectSummary } from "@/domains/projects/types";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { buttonClassName, EmptyState, LoadingBlock } from "@/shared/ui/primitives";
 
@@ -15,6 +15,8 @@ export function HubPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
+  const [confirmName, setConfirmName] = useState("");
 
   const [name, setName] = useState("");
   const [translationCols, setTranslationCols] = useState("");
@@ -43,6 +45,33 @@ export function HubPage() {
       navigate(shell.buildHref("/app/workspace", { project: project.project_id }));
     },
   });
+
+  const deleteMut = useMutation({
+    mutationFn: () => {
+      if (!deleteTarget) throw new Error("no delete target");
+      return deleteProject(deleteTarget.project_id, deleteTarget.name);
+    },
+    onSuccess: async () => {
+      if (deleteTarget && shell.projectId === deleteTarget.project_id) {
+        navigate(shell.buildHref("/app", { project: null }));
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projects() });
+      setDeleteTarget(null);
+      setConfirmName("");
+    },
+  });
+
+  function openDeleteDialog(e: React.MouseEvent, project: ProjectSummary) {
+    e.stopPropagation();
+    setDeleteTarget(project);
+    setConfirmName("");
+  }
+
+  function closeDeleteDialog() {
+    if (deleteMut.isPending) return;
+    setDeleteTarget(null);
+    setConfirmName("");
+  }
 
   if (shell.projectsLoading) {
     return <LoadingBlock label="Loading projects..." />;
@@ -89,10 +118,54 @@ export function HubPage() {
                 navigate(shell.buildHref("/app/workspace", { project: p.project_id }));
               }}
             >
-              <span className={styles.cardName}>{p.name}</span>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardName}>{p.name}</span>
+                <span
+                  className={styles.deleteIconBtn}
+                  role="button"
+                  tabIndex={0}
+                  title="Delete project"
+                  onClick={(e) => openDeleteDialog(e, p)}
+                  onKeyDown={(e) => { if (e.key === "Enter") openDeleteDialog(e as unknown as React.MouseEvent, p); }}
+                >
+                  ✕
+                </span>
+              </div>
               <span className={styles.cardMeta}>Created {p.created_at}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className={styles.confirmOverlay} onClick={closeDeleteDialog}>
+          <div className={styles.confirmPanel} onClick={(e) => e.stopPropagation()}>
+            <h3>Delete project</h3>
+            <p className={styles.confirmWarning}>
+              This will permanently delete <strong>{deleteTarget.name}</strong> and all its data. This action cannot be undone.
+            </p>
+            <label>
+              Type <strong>{deleteTarget.name}</strong> to confirm
+              <input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={deleteTarget.name}
+                autoFocus
+              />
+            </label>
+            <div className={styles.confirmActions}>
+              <button className={buttonClassName("ghost")} onClick={closeDeleteDialog} disabled={deleteMut.isPending}>
+                Cancel
+              </button>
+              <button
+                className={buttonClassName("danger")}
+                disabled={confirmName !== deleteTarget.name || deleteMut.isPending}
+                onClick={() => deleteMut.mutate()}
+              >
+                {deleteMut.isPending ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

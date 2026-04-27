@@ -80,3 +80,74 @@
   gap: 10px;
   margin-top: 4px;
 }
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.deleteIconBtn {
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 120ms, background 120ms;
+}
+
+.deleteIconBtn:hover {
+  color: var(--danger);
+  background: var(--danger-bg, rgba(220, 38, 38, 0.08));
+}
+
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.confirmPanel {
+  width: min(440px, calc(100vw - 40px));
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  display: grid;
+  gap: 16px;
+}
+
+.confirmPanel h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.confirmWarning {
+  font-size: 14px;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.confirmPanel input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface-strong);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.confirmActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
