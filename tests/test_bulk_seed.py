@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 import openpyxl
 from app.db import init_db, get_conn
@@ -292,3 +295,53 @@ def test_bulk_writer_rejects_nonempty_project(tmp_path):
             branch_ref=BranchRef.rel_current(),
             workbook_path=str(workbook_path2),
         )
+
+
+def test_cli_missing_args():
+    result = subprocess.run(
+        [sys.executable, "scripts/seed_variants.py"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "required" in result.stderr.lower() or "error" in result.stderr.lower()
+
+
+def test_cli_end_to_end(tmp_path, monkeypatch):
+    db_path = tmp_path / "data" / "tms.db"
+    monkeypatch.setenv("MOMO_TMS_DB_PATH", str(db_path))
+    workbook_path = tmp_path / "data.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[
+            ["key_1", "Hello", "Bonjour", "Hello", "greeting"],
+            ["key_2", "World", "Monde", "World", "noun"],
+        ],
+    )
+    init_db()
+    service = ProjectService()
+    project = service.create_project(
+        "CLI Test",
+        ["fr", "en"],
+        ["context"],
+        business_key_header="Key",
+        source_header="MsgStr",
+    )
+    project_id = int(project["project_id"])
+
+    result = subprocess.run(
+        [
+            sys.executable, "scripts/seed_variants.py",
+            "--project-id", str(project_id),
+            "--branch", "rel/current",
+            "--workbook", str(workbook_path),
+        ],
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, "MOMO_TMS_DB_PATH": str(db_path)},
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "entries created:  2" in result.stdout
+    assert "variants created: 2" in result.stdout
+    assert "bindings created: 2" in result.stdout
