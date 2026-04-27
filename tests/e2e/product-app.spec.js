@@ -200,6 +200,7 @@ test("Dev create branch uses workbook panel with preview and execute", async ({
   await page.goto("/app/dev?project=1&lang=fr");
   await page.getByRole("button", { name: /Create Branch/ }).click();
   await page.getByLabel("Version number").fill("2.4.9");
+  await page.getByRole("button", { name: "or upload folder" }).click();
   await page.locator('input[type="file"]').setInputFiles(importDir);
   await page.getByRole("button", { name: "Check Workbook" }).click();
 
@@ -219,9 +220,9 @@ test("Release edit shows workbook mutation type selector", async ({
   await page.getByRole("button", { name: "Edit" }).click();
 
   await expect(page.getByText("Mutation type")).toBeVisible();
-  await expect(page.getByText("Content")).toBeVisible();
-  await expect(page.getByText("Range")).toBeVisible();
-  await expect(page.getByText("Upload workbook")).toBeVisible();
+  await expect(page.getByText("Content", { exact: true })).toBeVisible();
+  await expect(page.getByText("Range", { exact: true })).toBeVisible();
+  await expect(page.getByText("Upload workbook", { exact: true })).toBeVisible();
 
   // Old UI elements should not be present
   await expect(page.locator("textarea")).toHaveCount(0);
@@ -260,10 +261,10 @@ test("Workspace reflects state and branch filters in URL and API params", async 
 test("Release trash shows workbook upload panel and calls correct API", async ({
   page,
 }) => {
-  let trashPreviewPayload = null;
+  let trashPreviewCalled = false;
 
   await page.route("**/api/projects/1/workbooks/intake/preview", async (route) => {
-    trashPreviewPayload = route.request().postDataJSON();
+    trashPreviewCalled = true;
     await route.fulfill({
       json: {
         upload_session_id: "session-for-trash",
@@ -281,8 +282,7 @@ test("Release trash shows workbook upload panel and calls correct API", async ({
   await page.goto("/app/release?project=1&lang=fr");
   await page.getByRole("button", { name: "Trash" }).click();
 
-  await expect(page.getByText("Upload key workbook")).toBeVisible();
-  await expect(page.getByText("Delete From Branch")).toBeVisible();
+  await expect(page.getByText("Upload key workbook").first()).toBeVisible();
   await expect(page.getByText("Trash orphan variants")).toBeVisible();
 
   // Old UI elements should not be present
@@ -290,9 +290,13 @@ test("Release trash shows workbook upload panel and calls correct API", async ({
   await expect(page.getByText("Preview unbind")).toHaveCount(0);
 
   // Upload files and verify the preview calls the correct API
+  await page.getByRole("button", { name: "or upload folder" }).first().click();
   await page.locator('input[type="file"]').first().setInputFiles(importDir);
   await page.getByRole("button", { name: "Check Workbook" }).first().click();
-  await expect.poll(() => trashPreviewPayload).not.toBeNull();
+  await expect.poll(() => trashPreviewCalled).toBeTruthy();
+
+  // Execute button appears after successful preview
+  await expect(page.getByRole("button", { name: "Delete From Branch" })).toBeVisible();
 });
 
 test("normalizes stale branch params before branch-scoped pages query data", async ({
@@ -347,6 +351,7 @@ test("Dev create branch workbook panel shows error on execute failure", async ({
   await page.goto("/app/dev?project=1&lang=fr");
   await page.getByRole("button", { name: /Create Branch/ }).click();
   await page.getByLabel("Version number").fill("2.4.8");
+  await page.getByRole("button", { name: "or upload folder" }).click();
   await page.locator('input[type="file"]').setInputFiles(importDir);
   await page.getByRole("button", { name: "Check Workbook" }).click();
 
