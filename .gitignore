@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 *.egg-info/
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.log
 data/jobs/
 data/demo_samples/
@@ -14,3 +16,4 @@ test-results/
 .playwright/
 .claude/
 .superpowers/
+test_*.txt

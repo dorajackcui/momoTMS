@@ -21,7 +21,7 @@ export function HubPage() {
   const [name, setName] = useState("");
   const [translationCols, setTranslationCols] = useState("");
   const [remarkCols, setRemarkCols] = useState("");
-  const [keyHeader, setKeyHeader] = useState("key");
+  const [keyHeader, setKeyHeader] = useState("Key");
   const [sourceHeader, setSourceHeader] = useState("MsgStr");
   const [pivotLang, setPivotLang] = useState("");
   const [pivotedLangs, setPivotedLangs] = useState("");
@@ -90,7 +90,7 @@ export function HubPage() {
         <div className={styles.createForm}>
           <h2>Create Project</h2>
           <label>Project name <input value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <label>Key column header <input value={keyHeader} onChange={(e) => setKeyHeader(e.target.value)} placeholder="key" /></label>
+          <label>Key column header <input value={keyHeader} onChange={(e) => setKeyHeader(e.target.value)} placeholder="Key" /></label>
           <label>Source column header <input value={sourceHeader} onChange={(e) => setSourceHeader(e.target.value)} placeholder="MsgStr" /></label>
           <label>Translation columns (comma-separated) <input value={translationCols} onChange={(e) => setTranslationCols(e.target.value)} placeholder="zh-Hans, en, ja" /></label>
           <label>Remark columns (comma-separated) <input value={remarkCols} onChange={(e) => setRemarkCols(e.target.value)} placeholder="context, max_length" /></label>

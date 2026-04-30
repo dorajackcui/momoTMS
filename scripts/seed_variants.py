@@ -10,11 +10,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.db import init_db
 from app.services.branch.models import BranchRef
 from app.services.bulk.writer import BulkVariantWriter
+from app.services.project.service import ProjectService
+
+
+def _resolve_project_id(args: argparse.Namespace) -> int:
+    service = ProjectService()
+    if args.project_id is not None:
+        service.require_project(args.project_id)
+        return int(args.project_id)
+    projects = service.list_projects()
+    for p in projects:
+        if p["name"] == args.project_name:
+            return int(p["project_id"])
+    raise KeyError(f"project not found: {args.project_name}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bulk-seed variants into an empty project")
-    parser.add_argument("--project-id", type=int, required=True, help="Target project ID (must exist, zero variants)")
+    project_group = parser.add_mutually_exclusive_group(required=True)
+    project_group.add_argument("--project-id", type=int, help="Target project ID")
+    project_group.add_argument("--project-name", type=str, help="Target project name")
     parser.add_argument("--branch", type=str, required=True, help="Target branch, e.g. rel/current or dev/2.4.1")
     parser.add_argument("--workbook", type=str, required=True, help="Path to .xlsx workbook")
     parser.add_argument("--chunk-size", type=int, default=5000, help="Rows per write chunk (default: 5000)")
@@ -32,10 +47,17 @@ def main() -> None:
         sys.exit(1)
 
     init_db()
+
+    try:
+        project_id = _resolve_project_id(args)
+    except (KeyError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     writer = BulkVariantWriter()
     try:
         result = writer.seed(
-            project_id=args.project_id,
+            project_id=project_id,
             branch_ref=branch_ref,
             workbook_path=str(workbook_path),
             chunk_size=args.chunk_size,

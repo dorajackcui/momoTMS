@@ -31,6 +31,7 @@ def init_db(db_path: Path | str | None = None) -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.row_factory = _dict_factory
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         if _current_schema_version(conn) != SCHEMA_VERSION:
             _rebuild_schema(conn)
@@ -245,7 +246,7 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
 @contextmanager
 def get_conn(db_path: Path | str | None = None) -> Iterator[sqlite3.Connection]:
     db_path = get_db_path(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = _dict_factory
     conn.execute("PRAGMA foreign_keys = ON")
     try:

@@ -103,7 +103,7 @@ Preview family:
 
 `POST /api/projects`
 
-- request body accepts `name`, `translation_columns`, `remark_columns`, optional `pivot_language`, optional `pivoted_languages`, optional `business_key_header` (default `"key"`), and optional `source_header` (default `"MsgStr"`)
+- request body accepts `name`, `translation_columns`, `remark_columns`, optional `pivot_language`, optional `pivoted_languages`, optional `business_key_header` (default `"Key"`), and optional `source_header` (default `"MsgStr"`)
 - `pivot_language` must be one of `translation_columns`
 - `pivoted_languages` must be a subset of `translation_columns`, cannot include `pivot_language`, and require `pivot_language` to be set
 - response remains `ProjectSummary`; schema details still come from bootstrap

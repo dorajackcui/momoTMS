@@ -75,7 +75,7 @@ Content fields:
 - project creation may also define a single `pivot_language` plus `pivoted_languages`; when omitted, every translation column defaults to `null` pivot
 - `pivot_language` must be one of the project translation columns, `pivoted_languages` must be a subset of the translation columns, and the pivot configuration stays fixed after project creation
 - project creation accepts optional `business_key_header` and `source_header` to configure the workbook column names that map to internal `business_key` and `source` fields
-- when not provided, `business_key_header` defaults to `"key"` and `source_header` defaults to `"MsgStr"`
+- when not provided, `business_key_header` defaults to `"Key"` and `source_header` defaults to `"MsgStr"`
 - header matching is schema-driven
 - import mapping always requires `business_key` and `source`
 - translation and remark mappings may be omitted for import; omitted fields are treated as "keep existing value"

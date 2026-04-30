@@ -345,3 +345,40 @@ def test_cli_end_to_end(tmp_path, monkeypatch):
     assert "entries created:  2" in result.stdout
     assert "variants created: 2" in result.stdout
     assert "bindings created: 2" in result.stdout
+
+
+def test_cli_end_to_end_with_project_name(tmp_path, monkeypatch):
+    db_path = tmp_path / "data" / "tms.db"
+    monkeypatch.setenv("MOMO_TMS_DB_PATH", str(db_path))
+    workbook_path = tmp_path / "data.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr", "en", "context"],
+        rows=[
+            ["key_1", "Hello", "Bonjour", "Hello", "greeting"],
+        ],
+    )
+    init_db()
+    service = ProjectService()
+    service.create_project(
+        "My TMS Project",
+        ["fr", "en"],
+        ["context"],
+        business_key_header="Key",
+        source_header="MsgStr",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable, "scripts/seed_variants.py",
+            "--project-name", "My TMS Project",
+            "--branch", "rel/current",
+            "--workbook", str(workbook_path),
+        ],
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, "MOMO_TMS_DB_PATH": str(db_path)},
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "entries created:  1" in result.stdout
+    assert "variants created: 1" in result.stdout
