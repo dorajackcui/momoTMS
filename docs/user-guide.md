@@ -192,7 +192,7 @@ Workspace 的浏览状态以 URL 为准。状态、branch filter、分页和列�
 
 这里集中处理开发分支的完整生命周期：创建新 dev 分支、上传 Excel 并完成 bootstrap、查看分支详情，以及执行 `dev/<version> -> rel/current` 的替换操作。原 `Intake` 的文件上传与字段映射流程现已整合到 Dev 的 bootstrap 入口。
 
-创建 dev 分支时，系统会先把上传文件生成为 import batch，等该异步任务成功后再进入 bootstrap 预览。这样预览看到的是已经落库的 batch，而不是还在运行中的上传任务。
+创建 dev 分支时，系统会先对上传文件做轻量检查；确认执行后会提交一个后台 job，把 workbook 行落库并完成 bootstrap。大文件可能运行较久，页面会持续显示 `Job #...` 的 `running`、`success` 或 `failed` 状态，而不是把长时间执行当成上传或预览超时。
 
 ### `Release`
 

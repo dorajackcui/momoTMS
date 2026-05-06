@@ -475,10 +475,20 @@ test("delete project via confirmation dialog", async ({ page, request }) => {
   await expect(deleteBtn).toBeEnabled();
 
   // Confirm deletion
+  const deleteResponsePromise = page.waitForResponse((response) => {
+    return (
+      response.request().method() === "DELETE" &&
+      response.url().endsWith(`/api/projects/${created.project_id}`)
+    );
+  });
   await deleteBtn.click();
+  const deleteResp = await deleteResponsePromise;
+  expect(deleteResp.ok()).toBeTruthy();
 
   // Project should disappear from the list
-  await expect(page.locator("text=Delete Target")).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Delete Target .* Created/ }),
+  ).toHaveCount(0);
 
   // Verify via API that the project is gone
   const getResp = await request.get(`/api/projects`);
