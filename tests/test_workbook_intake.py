@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook
 
 from app.services.demo.service import DemoService
@@ -128,3 +129,83 @@ def test_workbook_batch_service_persists_rows_for_batch_reader(tmp_path) -> None
     assert rows[0]["business_key"] == "hello.key"
     assert rows[0]["source"] == "Hello"
     assert rows[0]["payload"]["translations"] == {"fr": "Bonjour"}
+
+
+def test_workbook_batch_service_iter_row_chunks_preserves_order(tmp_path) -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Chunked Batch Project",
+        ["fr"],
+        ["context"],
+        business_key_header="Key",
+        source_header="MsgStr",
+    )
+    project_id = int(project["project_id"])
+    root = tmp_path / "batch-chunks"
+    write_workbook(
+        root,
+        "batch.xlsx",
+        [
+            ["Key", "MsgStr", "fr", "context"],
+            ["chunk.1", "Source 1", "FR 1", "Remark 1"],
+            ["chunk.2", "Source 2", "FR 2", "Remark 2"],
+            ["chunk.3", "Source 3", "FR 3", "Remark 3"],
+        ],
+    )
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        project_id,
+        WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="content"),
+    )
+    chunks = list(
+        WorkbookBatchService().iter_row_chunks(
+            batch["workbook_batch_id"],
+            project_id,
+            ok_only=True,
+            chunk_size=2,
+        )
+    )
+    assert [[row["business_key"] for row in chunk] for chunk in chunks] == [
+        ["chunk.1", "chunk.2"],
+        ["chunk.3"],
+    ]
+    iter_rows_keys = [
+        row["business_key"]
+        for row in WorkbookBatchService().iter_rows(batch["workbook_batch_id"], project_id, ok_only=True)
+    ]
+    assert [row["business_key"] for chunk in chunks for row in chunk] == iter_rows_keys
+
+
+def test_workbook_batch_service_iter_row_chunks_rejects_invalid_chunk_size(tmp_path) -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Invalid Chunked Batch Project",
+        ["fr"],
+        ["context"],
+        business_key_header="Key",
+        source_header="MsgStr",
+    )
+    project_id = int(project["project_id"])
+    root = tmp_path / "batch-invalid-chunks"
+    write_workbook(
+        root,
+        "batch.xlsx",
+        [
+            ["Key", "MsgStr", "fr", "context"],
+            ["chunk.1", "Source 1", "FR 1", "Remark 1"],
+        ],
+    )
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        project_id,
+        WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="content"),
+    )
+
+    with pytest.raises(ValueError, match="chunk_size"):
+        list(
+            WorkbookBatchService().iter_row_chunks(
+                batch["workbook_batch_id"],
+                project_id,
+                chunk_size=0,
+            )
+        )

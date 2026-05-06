@@ -157,7 +157,7 @@ Domain services:
 
 ## Database Tables
 
-Current schema version: `variant-v11`
+Current schema version: `variant-v12`
 
 Live tables:
 

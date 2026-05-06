@@ -128,10 +128,10 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - bootstrap preview is the read-only preview family entrypoint for this workflow
 - bootstrap preview reads persisted import rows in chunks but never creates entries, variants, bindings, or bootstrap metadata
 - bootstrap preview requires an existing non-bootstrapped `dev/<version>` branch row
-- bootstrap accepts a persisted import batch whose rows must provide normalized `business_key` and `source`; optional `file_name`, translation columns, and remark columns may be present as sparse content for newly created variants
+- bootstrap accepts a persisted import batch whose rows must provide normalized `business_key` and `source`; optional `file_name`, translation columns, and remark columns may be present in the uploaded file but are parsed and not used by bootstrap — content columns are always ignored regardless of whether the row creates a new variant or binds an existing one
 - bootstrap reads persisted `import_rows` in chunks, primes entry and variant caches per chunk, and refreshes orphan state after the touched entries in that chunk instead of doing a single giant in-memory apply
 - rows that match an existing same-source canonical variant under the entry are reported as `BOUND_EXISTING_VARIANT`; uploaded translation or remark content is ignored for those reuse hits because bootstrap only needs to bind the already-existing variant
-- rows that have no same-source canonical variant create the variant, bind it to the dev branch, and report `CREATED_AND_BOUND_VARIANT`
+- rows that have no same-source canonical variant create a new bare variant (source only, no translations or remarks), bind it to the dev branch, and report `CREATED_AND_BOUND_VARIANT`; content for these new variants must be populated via the mutation workflow after bootstrap completes
 - rows missing normalized `business_key` or `source`, or rows that come from a non-`ok` import row status, are reported as `INVALID_ROW`
 - repeated `business_key` values inside the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`
 - bootstrap effect-forecast rows classify reuse hits as `binding_effect = bind`, `variant_resolution = reuse_existing`, `row_outcome = applied`

@@ -112,6 +112,26 @@ class WorkbookBatchService:
             for row in rows:
                 yield row
 
+    def iter_row_chunks(
+        self,
+        workbook_batch_id: int,
+        project_id: int = DEFAULT_PROJECT_ID,
+        *,
+        ok_only: bool = False,
+        chunk_size: int | None = None,
+    ) -> Iterator[list[dict[str, Any]]]:
+        limit = self.READ_CHUNK_SIZE if chunk_size is None else int(chunk_size)
+        if limit <= 0:
+            raise ValueError("chunk_size must be greater than 0")
+        self.require_batch_project(workbook_batch_id, project_id)
+        last_id = 0
+        while True:
+            rows = self._load_chunk(workbook_batch_id, last_id, ok_only=ok_only, limit=limit)
+            if not rows:
+                break
+            last_id = int(rows[-1]["import_row_id"])
+            yield rows
+
     def require_batch_project(self, workbook_batch_id: int, project_id: int) -> None:
         with get_conn() as conn:
             row = conn.execute(
@@ -121,7 +141,14 @@ class WorkbookBatchService:
         if not row or int(row["project_id"]) != project_id:
             raise KeyError(f"workbook batch not found: {workbook_batch_id}")
 
-    def _load_chunk(self, workbook_batch_id: int, after_row_id: int, *, ok_only: bool) -> list[dict[str, Any]]:
+    def _load_chunk(
+        self,
+        workbook_batch_id: int,
+        after_row_id: int,
+        *,
+        ok_only: bool,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         query = """
             SELECT import_row_id, file_path, sheet_name, row_index, business_key, source, status, message, payload_json
             FROM import_rows
@@ -132,7 +159,7 @@ class WorkbookBatchService:
         if ok_only:
             query += " AND status = 'ok'"
         query += " ORDER BY import_row_id LIMIT ?"
-        params.append(self.READ_CHUNK_SIZE)
+        params.append(self.READ_CHUNK_SIZE if limit is None else int(limit))
         with get_conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [

@@ -122,7 +122,7 @@ Branch bootstrap jobs:
 
 - `POST /api/projects/{project_id}/branches/bootstrap` accepts `branch_ref` plus `import_batch_id`
 - the request is asynchronous and returns `JobDetail`
-- bootstrap rows are sparse branch-establishment input: `business_key` and `source` are required, while optional translations and remarks are only used when a new variant is created
+- bootstrap is a scope-establishment workflow: `business_key` and `source` are required; any translation or remark columns in the uploaded file are parsed but ignored by bootstrap — content is never written during bootstrap regardless of whether a row creates a new variant or reuses an existing one
 - reuse-hit rows bind the existing same-source variant and ignore uploaded content, so the report status is `BOUND_EXISTING_VARIANT`
 - missing or invalid rows are reported as `INVALID_ROW`
 - repeated keys within the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`

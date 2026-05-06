@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 from app.services.shared.io import (
     normalize_content_map,
@@ -57,6 +58,18 @@ class VariantCatalogService:
         self._commands.overwrite_remarks(variant_id, content["remarks"], timestamp, conn=conn)
         return variant_id
 
+    def create_variant_bare(
+        self,
+        entry_id: int,
+        source: str,
+        *,
+        file_name: str | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> int:
+        """Create a variant row only (no translations/remarks) for scope-only bootstrap."""
+        timestamp = now_iso()
+        return self._commands.create(entry_id, file_name, source, timestamp, conn=conn)
+
     def update_variant(
         self,
         variant_id: int,
@@ -89,6 +102,45 @@ class VariantCatalogService:
         if variant is None:
             raise KeyError(f"variant not found: {variant_id}")
         return variant
+
+    def get_variants(
+        self,
+        variant_ids: list[int],
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, VariantRecord]:
+        return self._queries.get_many(variant_ids, conn=conn)
+
+    def bulk_upsert_translations(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._commands.bulk_upsert_translations(rows, conn=conn)
+
+    def bulk_upsert_remarks(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._commands.bulk_upsert_remarks(rows, conn=conn)
+
+    def bulk_update_variant_files(
+        self,
+        rows: list[tuple[int, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._commands.bulk_update_variant_files(rows, conn=conn)
+
+    def bulk_set_pivot_changed(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._commands.bulk_set_pivot_changed(rows, conn=conn)
 
     def find_variant_by_source(
         self,
@@ -131,3 +183,11 @@ class VariantCatalogService:
         conn: sqlite3.Connection | None = None,
     ) -> dict[int, list[VariantRecord]]:
         return self._queries.list_by_entries(entry_ids, include_trashed=include_trashed, conn=conn)
+
+    def list_variants_for_entries_shallow(
+        self,
+        entry_ids: list[int],
+        include_trashed: bool = True,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, list[dict[str, Any]]]:
+        return self._queries.list_by_entries_shallow(entry_ids, include_trashed=include_trashed, conn=conn)

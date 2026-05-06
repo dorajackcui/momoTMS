@@ -7,6 +7,7 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/*.log
+data/branch_cycle_smoke*/
 data/jobs/
 data/demo_samples/
 .python-home/
@@ -15,5 +16,6 @@ playwright-report/
 test-results/
 .playwright/
 .claude/
+.codex/
 .superpowers/
 test_*.txt

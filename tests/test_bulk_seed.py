@@ -96,6 +96,99 @@ def test_bulk_write_remarks():
         assert db_rows[0]["remark_value"] == "greeting"
 
 
+def test_bulk_upsert_translations_replaces_existing_value() -> None:
+    init_db()
+    store = _VariantStore()
+    ts = now_iso()
+    with get_conn() as conn:
+        _create_project_and_entries(conn, n=1)
+        variant_id = store.bulk_create_variants([(1, "f.xlsx", "Hello", ts)], conn=conn)[0]
+        store.bulk_write_translations([(variant_id, "fr", "Bonjour", ts)], conn=conn)
+        store.bulk_upsert_translations([(variant_id, "fr", "", "2026-01-02T00:00:00+00:00")], conn=conn)
+        row = conn.execute(
+            "SELECT target_text, updated_at FROM variant_translations WHERE variant_id = ? AND lang = 'fr'",
+            (variant_id,),
+        ).fetchone()
+        assert row["target_text"] == ""
+        assert row["updated_at"] == "2026-01-02T00:00:00+00:00"
+
+
+def test_bulk_upsert_remarks_replaces_existing_value() -> None:
+    init_db()
+    store = _VariantStore()
+    ts = now_iso()
+    with get_conn() as conn:
+        _create_project_and_entries(conn, n=1)
+        variant_id = store.bulk_create_variants([(1, "f.xlsx", "Hello", ts)], conn=conn)[0]
+        store.bulk_write_remarks([(variant_id, "context", "old", ts)], conn=conn)
+        store.bulk_upsert_remarks([(variant_id, "context", "", "2026-01-02T00:00:00+00:00")], conn=conn)
+        row = conn.execute(
+            "SELECT remark_value, updated_at FROM variant_remarks WHERE variant_id = ? AND remark_key = 'context'",
+            (variant_id,),
+        ).fetchone()
+        assert row["remark_value"] == ""
+        assert row["updated_at"] == "2026-01-02T00:00:00+00:00"
+
+
+def test_bulk_update_variant_files_and_pivot_changed() -> None:
+    init_db()
+    store = _VariantStore()
+    ts = now_iso()
+    with get_conn() as conn:
+        _create_project_and_entries(conn, n=1)
+        variant_id = store.bulk_create_variants([(1, "old.xlsx", "Hello", ts)], conn=conn)[0]
+        store.bulk_update_variant_files([(variant_id, "new.xlsx", "2026-01-02T00:00:00+00:00")], conn=conn)
+        store.bulk_set_pivot_changed(
+            [(variant_id, "dev", "2.5.3", "2026-01-02T00:00:00+00:00")],
+            conn=conn,
+        )
+        row = conn.execute("SELECT * FROM variants WHERE variant_id = ?", (variant_id,)).fetchone()
+        assert row["file_name"] == "new.xlsx"
+        assert row["updated_at"] == "2026-01-02T00:00:00+00:00"
+        assert row["pivot_status"] == "changed"
+        assert row["pivot_changed_by_scope_type"] == "dev"
+        assert row["pivot_changed_by_scope_value"] == "2.5.3"
+        assert row["pivot_changed_at"] == "2026-01-02T00:00:00+00:00"
+        assert row["pivot_status_updated_at"] == "2026-01-02T00:00:00+00:00"
+
+
+def test_variant_store_get_many_hydrates_existing_unique_variants() -> None:
+    init_db()
+    store = _VariantStore()
+    ts = now_iso()
+    with get_conn() as conn:
+        _create_project_and_entries(conn, n=2)
+        first_id, second_id = store.bulk_create_variants(
+            [(1, "f.xlsx", "Hello", ts), (2, "f.xlsx", "World", ts)],
+            conn=conn,
+        )
+        store.bulk_write_translations(
+            [(first_id, "fr", "Bonjour", ts), (second_id, "fr", "Monde", ts)],
+            conn=conn,
+        )
+        store.bulk_write_remarks(
+            [(first_id, "context", "greeting", ts), (second_id, "context", "noun", ts)],
+            conn=conn,
+        )
+
+        variants = store.get_many([second_id, first_id, first_id, 999999], conn=conn)
+
+        assert set(variants) == {first_id, second_id}
+        assert variants[first_id]["translations"] == {"fr": "Bonjour"}
+        assert variants[first_id]["remarks"] == {"context": "greeting"}
+        assert variants[second_id]["translations"] == {"fr": "Monde"}
+        assert variants[second_id]["remarks"] == {"context": "noun"}
+        assert store.get_many([], conn=conn) == {}
+
+
+def test_scope_bindings_entry_variant_index_exists() -> None:
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute("PRAGMA index_list('scope_bindings')").fetchall()
+    index_names = {row["name"] for row in rows}
+    assert "idx_scope_bindings_entry_variant" in index_names
+
+
 def test_bulk_bind():
     init_db()
     store = _VariantStore()

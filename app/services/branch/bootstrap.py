@@ -180,22 +180,47 @@ class BranchBootstrapService:
         conn: sqlite3.Connection,
     ) -> dict[str, Any]:
         started = perf_counter()
+        scope_type, scope_value = branch_ref.as_tuple()
+        timestamp = now_iso()
+
+        # ── phase 1: bulk-bind existing variants via SQL ──
+        bulk_result = self._bulk_bind_existing(
+            import_batch_id,
+            project_id=project_id,
+            scope_type=scope_type,
+            scope_value=scope_value,
+            timestamp=timestamp,
+            conn=conn,
+        )
+
+        # ── phase 2: incremental loop for remaining rows ──
         entries_by_key: dict[str, dict[str, Any]] = {}
         variants_by_entry: dict[int, list[dict[str, Any]]] = {}
         binding_rows_by_entry: dict[int, list[dict[str, Any]]] = {}
         created_entry_keys: set[str] = set()
-        seen_business_keys: set[str] = set()
+        seen_business_keys: set[str] = set(bulk_result["bound_keys"])
         status_counts: Counter[str] = Counter()
-        processed_count = 0
-        last_import_row_id = 0
+        status_counts["BOUND_EXISTING_VARIANT"] = bulk_result["bound_count"]
+        status_counts["DUPLICATE_KEY_IN_BOOTSTRAP"] = bulk_result["dup_count"]
+        processed_count = bulk_result["bound_count"] + bulk_result["dup_count"]
 
+        for row in bulk_result["bound_report_rows"]:
+            report_writer.write_row(row)
+
+        last_import_row_id = 0
         while True:
             chunk_rows = self._load_chunk(import_batch_id, last_import_row_id, conn=conn)
             if not chunk_rows:
                 break
             last_import_row_id = chunk_rows[-1]["import_row_id"]
+            remainder = [
+                row for row in chunk_rows
+                if row["business_key"] not in seen_business_keys
+            ]
+            if not remainder:
+                continue
             self._prime_chunk_cache(
-                chunk_rows,
+                remainder,
                 project_id=project_id,
                 conn=conn,
                 entries_by_key=entries_by_key,
@@ -204,7 +229,7 @@ class BranchBootstrapService:
                 created_entry_keys=created_entry_keys,
             )
             touched_entry_ids: set[int] = set()
-            for row in chunk_rows:
+            for row in remainder:
                 status = self._apply_row_cached(
                     row,
                     branch_ref,
@@ -254,6 +279,11 @@ class BranchBootstrapService:
             "bootstrap_import_batch_id": branch_metadata["bootstrap_import_batch_id"],
             "stages": [
                 {
+                    "stage": "bulk_bind_existing",
+                    "elapsed_ms": bulk_result["elapsed_ms"],
+                    "meta": {"bound_count": bulk_result["bound_count"]},
+                },
+                {
                     "stage": "apply_branch_bootstrap",
                     "elapsed_ms": int((perf_counter() - started) * 1000),
                     "meta": {
@@ -261,7 +291,7 @@ class BranchBootstrapService:
                         "input_kind": "bootstrap",
                         "processed_count": processed_count,
                     },
-                }
+                },
             ],
         }
         report_writer.finalize(summary)
@@ -274,6 +304,166 @@ class BranchBootstrapService:
         return {
             "summary": summary,
             "report_path": str(report_writer.report_path),
+        }
+
+    def _bulk_bind_existing(
+        self,
+        import_batch_id: int,
+        *,
+        project_id: int,
+        scope_type: str,
+        scope_value: str,
+        timestamp: str,
+        conn: sqlite3.Connection,
+    ) -> dict[str, Any]:
+        """Bulk-bind import rows that match existing active variants via SQL JOIN.
+
+        For each valid import row where (business_key, source) matches an
+        existing non-trashed variant under the same project, insert a
+        scope_binding and clear orphaned_at — all in bulk SQL instead of
+        per-row Python.
+
+        Returns the set of business_keys handled so the incremental loop
+        can skip them.
+        """
+        started = perf_counter()
+
+        # Step 1: collect the minimum import_row_id per (business_key, source)
+        # from valid ok rows. This gives us the first-seen row per key without
+        # an expensive window function.
+        # import_rows.business_key and .source are already normalised by the parser.
+        conn.execute(
+            """
+            CREATE TEMP TABLE _bulk_first AS
+            SELECT
+                MIN(ir.import_row_id) AS import_row_id,
+                ir.business_key,
+                ir.source
+            FROM import_rows ir
+            WHERE ir.import_batch_id = ?
+              AND ir.status = 'ok'
+              AND ir.business_key != ''
+              AND ir.business_key IS NOT NULL
+              AND ir.source != ''
+              AND ir.source IS NOT NULL
+            GROUP BY ir.business_key
+            """,
+            (import_batch_id,),
+        )
+
+        # Step 2: join to entries + active variants to get existing matches
+        conn.execute(
+            """
+            CREATE TEMP TABLE _bulk_matched AS
+            SELECT
+                bf.import_row_id,
+                ir.file_path,
+                ir.sheet_name,
+                ir.row_index,
+                bf.business_key,
+                bf.source,
+                e.entry_id,
+                v.variant_id
+            FROM _bulk_first bf
+            JOIN import_rows ir ON ir.import_row_id = bf.import_row_id
+            JOIN entries e
+              ON e.project_id = ? AND e.business_key = bf.business_key
+            JOIN variants v
+              ON v.entry_id = e.entry_id
+             AND v.source = bf.source
+             AND v.trashed_at IS NULL
+            """,
+            (project_id,),
+        )
+
+        # Step 3: bulk insert scope_bindings
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO scope_bindings(
+                scope_type, scope_value, entry_id, variant_id, created_at, updated_at
+            )
+            SELECT ?, ?, entry_id, variant_id, ?, ?
+            FROM _bulk_matched
+            """,
+            (scope_type, scope_value, timestamp, timestamp),
+        )
+
+        # Step 4: clear orphaned_at for bound variants
+        conn.execute(
+            """
+            UPDATE variants
+            SET orphaned_at = NULL, updated_at = ?
+            WHERE variant_id IN (SELECT variant_id FROM _bulk_matched)
+              AND orphaned_at IS NOT NULL
+            """,
+            (timestamp,),
+        )
+
+        # Index on business_key so the duplicate-row query (step 6) can
+        # hash-join instead of doing a 34K × 27K nested-loop scan.
+        conn.execute("CREATE INDEX _idx_bm_bk ON _bulk_matched(business_key)")
+
+        # Step 5: fetch matched rows for report
+        matched_rows = conn.execute(
+            """
+            SELECT import_row_id, file_path, sheet_name, row_index, business_key
+            FROM _bulk_matched
+            ORDER BY import_row_id
+            """
+        ).fetchall()
+
+        bound_keys: set[str] = set()
+        report_rows: list[dict[str, Any]] = []
+        for row in matched_rows:
+            bk = row["business_key"]
+            bound_keys.add(bk)
+            report_rows.append({
+                "business_key": bk,
+                "file_path": row["file_path"],
+                "sheet_name": row["sheet_name"],
+                "row_index": int(row["row_index"]),
+                "status": "BOUND_EXISTING_VARIANT",
+            })
+
+        # Step 6: collect duplicate-key rows only for keys that were bulk-bound.
+        # Rows whose first occurrence didn't match go through the incremental
+        # loop, which deduplicates via seen_business_keys as before.
+        if bound_keys:
+            dup_rows = conn.execute(
+                """
+                SELECT ir.import_row_id, ir.file_path, ir.sheet_name,
+                       ir.row_index, ir.business_key
+                FROM import_rows ir
+                JOIN _bulk_matched bm ON bm.business_key = ir.business_key
+                WHERE ir.import_batch_id = ?
+                  AND ir.import_row_id != bm.import_row_id
+                  AND ir.status = 'ok'
+                ORDER BY ir.import_row_id
+                """,
+                (import_batch_id,),
+            ).fetchall()
+            for row in dup_rows:
+                bound_keys.add(row["business_key"])
+                report_rows.append({
+                    "business_key": row["business_key"],
+                    "file_path": row["file_path"],
+                    "sheet_name": row["sheet_name"],
+                    "row_index": int(row["row_index"]),
+                    "status": "DUPLICATE_KEY_IN_BOOTSTRAP",
+                })
+
+        conn.execute("DROP TABLE IF EXISTS _bulk_matched")
+        conn.execute("DROP TABLE IF EXISTS _bulk_first")
+
+        elapsed_ms = int((perf_counter() - started) * 1000)
+        bound_count = sum(1 for r in report_rows if r["status"] == "BOUND_EXISTING_VARIANT")
+        dup_count = sum(1 for r in report_rows if r["status"] == "DUPLICATE_KEY_IN_BOOTSTRAP")
+        return {
+            "bound_count": bound_count,
+            "dup_count": dup_count,
+            "bound_keys": bound_keys,
+            "bound_report_rows": report_rows,
+            "elapsed_ms": elapsed_ms,
         }
 
     def _load_chunk(
@@ -365,7 +555,7 @@ class BranchBootstrapService:
         if not entry_ids_to_load:
             return
 
-        variants = self.catalog.list_variants_for_entries(entry_ids_to_load, include_trashed=False, conn=conn)
+        variants = self.catalog.list_variants_for_entries_shallow(entry_ids_to_load, include_trashed=False, conn=conn)
         bindings = self.binding_lookup.list_bindings_for_entries(entry_ids_to_load, conn=conn)
         for entry_id in entry_ids_to_load:
             variants_by_entry[entry_id] = list(variants.get(entry_id, []))
@@ -410,24 +600,21 @@ class BranchBootstrapService:
             return "BOUND_EXISTING_VARIANT"
 
         payload = row["payload"]
-        variant_id = self.catalog.create_variant(
+        file_name = payload.get("file_name") or row["file_path"]
+        variant_id = self.catalog.create_variant_bare(
             entry_id,
-            self.catalog.build_content(
-                payload.get("file_name") or row["file_path"],
-                row["source"],
-                payload.get("translations", {}),
-                payload.get("remarks", {}),
-            ),
+            row["source"],
+            file_name=file_name,
             conn=conn,
         )
         self._append_variant_cache(
             variants,
             entry_id,
             variant_id,
-            payload.get("file_name") or row["file_path"],
+            file_name,
             row["source"],
-            payload.get("translations", {}),
-            payload.get("remarks", {}),
+            {},
+            {},
         )
         self.bindings.bind(
             entry_id,

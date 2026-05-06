@@ -155,6 +155,44 @@ class _VariantStore:
                 return None
             return self._hydrate_rows([row], conn=local_conn)[0]
 
+    def get_many(
+        self,
+        variant_ids: list[int],
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, VariantRecord]:
+        unique_ids = sorted({int(variant_id) for variant_id in variant_ids})
+        if not unique_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in unique_ids)
+        if conn is not None:
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM variants
+                WHERE variant_id IN ({placeholders})
+                ORDER BY variant_id
+                """,
+                unique_ids,
+            ).fetchall()
+            return {
+                int(variant["variant_id"]): variant
+                for variant in self._hydrate_rows(rows, conn=conn)
+            }
+        with get_conn() as local_conn:
+            rows = local_conn.execute(
+                f"""
+                SELECT *
+                FROM variants
+                WHERE variant_id IN ({placeholders})
+                ORDER BY variant_id
+                """,
+                unique_ids,
+            ).fetchall()
+            return {
+                int(variant["variant_id"]): variant
+                for variant in self._hydrate_rows(rows, conn=local_conn)
+            }
+
     def get_active_by_entry_and_source(
         self,
         entry_id: int,
@@ -274,6 +312,53 @@ class _VariantStore:
             for variant in self._hydrate_rows(rows, conn=local_conn):
                 grouped[int(variant["entry_id"])].append(variant)
             return grouped
+
+    def list_by_entries_shallow(
+        self,
+        entry_ids: list[int],
+        include_trashed: bool = True,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Return variant rows grouped by entry_id WITHOUT hydrating translations/remarks."""
+        if not entry_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in entry_ids)
+        where = [f"entry_id IN ({placeholders})"]
+        params: list[Any] = [*entry_ids]
+        if not include_trashed:
+            where.append("trashed_at IS NULL")
+        effective_conn = conn
+        local_conn_ctx = None
+        if effective_conn is None:
+            local_conn_ctx = get_conn()
+            effective_conn = local_conn_ctx.__enter__()
+        try:
+            rows = effective_conn.execute(
+                f"""
+                SELECT variant_id, entry_id, file_name, source,
+                       orphaned_at, trashed_at, created_at, updated_at
+                FROM variants
+                WHERE {' AND '.join(where)}
+                ORDER BY variant_id
+                """,
+                params,
+            ).fetchall()
+            grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+            for row in rows:
+                grouped[int(row["entry_id"])].append({
+                    "variant_id": int(row["variant_id"]),
+                    "entry_id": int(row["entry_id"]),
+                    "file_name": row["file_name"],
+                    "source": row["source"],
+                    "orphaned_at": row["orphaned_at"],
+                    "trashed_at": row["trashed_at"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                })
+            return grouped
+        finally:
+            if local_conn_ctx is not None:
+                local_conn_ctx.__exit__(None, None, None)
 
     def clear_orphaned_at(
         self,
@@ -416,6 +501,25 @@ class _VariantStore:
             rows,
         )
 
+    def bulk_upsert_translations(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            INSERT INTO variant_translations(variant_id, lang, target_text, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(variant_id, lang) DO UPDATE SET
+                target_text = excluded.target_text,
+                updated_at = excluded.updated_at
+            """,
+            rows,
+        )
+
     def bulk_write_remarks(
         self,
         rows: list[tuple[int, str, str, str]],
@@ -430,6 +534,67 @@ class _VariantStore:
             VALUES (?, ?, ?, ?)
             """,
             rows,
+        )
+
+    def bulk_upsert_remarks(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            INSERT INTO variant_remarks(variant_id, remark_key, remark_value, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(variant_id, remark_key) DO UPDATE SET
+                remark_value = excluded.remark_value,
+                updated_at = excluded.updated_at
+            """,
+            rows,
+        )
+
+    def bulk_update_variant_files(
+        self,
+        rows: list[tuple[int, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            UPDATE variants
+            SET file_name = ?,
+                updated_at = ?
+            WHERE variant_id = ?
+            """,
+            [(file_name, updated_at, variant_id) for variant_id, file_name, updated_at in rows],
+        )
+
+    def bulk_set_pivot_changed(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not rows:
+            return
+        conn.executemany(
+            """
+            UPDATE variants
+            SET pivot_status = 'changed',
+                pivot_changed_by_scope_type = ?,
+                pivot_changed_by_scope_value = ?,
+                pivot_changed_at = ?,
+                pivot_status_updated_at = ?
+            WHERE variant_id = ?
+            """,
+            [
+                (scope_type, scope_value, timestamp, timestamp, variant_id)
+                for variant_id, scope_type, scope_value, timestamp in rows
+            ],
         )
 
     def set_pivot_reviewed(

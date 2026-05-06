@@ -9,7 +9,7 @@ from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
 DB_PATH_ENV_VAR = "MOMO_TMS_DB_PATH"
-SCHEMA_VERSION = "variant-v11"
+SCHEMA_VERSION = "variant-v12"
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
@@ -191,6 +191,8 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
         ON scope_bindings(scope_type, scope_value);
         CREATE INDEX idx_scope_bindings_variant
         ON scope_bindings(variant_id);
+        CREATE INDEX idx_scope_bindings_entry_variant
+        ON scope_bindings(entry_id, variant_id);
 
         CREATE TABLE imports (
             import_batch_id INTEGER PRIMARY KEY AUTOINCREMENT,

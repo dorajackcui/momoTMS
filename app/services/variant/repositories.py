@@ -97,6 +97,38 @@ class VariantCommandRepository:
     ) -> None:
         self._store.set_pivot_reviewed(variant_id, timestamp, conn=conn)
 
+    def bulk_upsert_translations(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._store.bulk_upsert_translations(rows, conn=conn)
+
+    def bulk_upsert_remarks(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._store.bulk_upsert_remarks(rows, conn=conn)
+
+    def bulk_update_variant_files(
+        self,
+        rows: list[tuple[int, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._store.bulk_update_variant_files(rows, conn=conn)
+
+    def bulk_set_pivot_changed(
+        self,
+        rows: list[tuple[int, str, str, str]],
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        self._store.bulk_set_pivot_changed(rows, conn=conn)
+
 
 class VariantQueryRepository:
     def __init__(self, store: _VariantStore | None = None) -> None:
@@ -104,6 +136,13 @@ class VariantQueryRepository:
 
     def get(self, variant_id: int, conn: sqlite3.Connection | None = None) -> VariantRecord | None:
         return self._store.get(variant_id, conn=conn)
+
+    def get_many(
+        self,
+        variant_ids: list[int],
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, VariantRecord]:
+        return self._store.get_many(variant_ids, conn=conn)
 
     def get_active_by_entry_and_source(
         self,
@@ -128,6 +167,14 @@ class VariantQueryRepository:
         conn: sqlite3.Connection | None = None,
     ) -> dict[int, list[VariantRecord]]:
         return self._store.list_by_entries(entry_ids, include_trashed=include_trashed, conn=conn)
+
+    def list_by_entries_shallow(
+        self,
+        entry_ids: list[int],
+        include_trashed: bool = True,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[int, list[dict[str, Any]]]:
+        return self._store.list_by_entries_shallow(entry_ids, include_trashed=include_trashed, conn=conn)
 
     def hydrate_variant_rows(
         self,

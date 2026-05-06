@@ -123,6 +123,30 @@ Windows PowerShell:
 .\.venv\Scripts\python.exe -m pytest -q tests/test_branch_service.py tests/test_io_flows.py
 ```
 
+Focused branch-cycle TDD flow:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_tdd_branch_cycle.py
+```
+
+This test creates an isolated project with translation columns `en`, `fr`, and `es`, remark columns `Version` and `SpeakerName`, and pivot configuration `en -> fr/es`. It then bulk-seeds `rel/current` from a small synthetic 2.4 workbook, bootstraps `dev/2.5.3` from a synthetic 2.5 workbook, and applies a dev content mutation with that same 2.5 workbook to populate translations and remarks after bootstrap.
+
+Use the local smoke runner when you want to exercise the same flow against the large desktop workbooks without adding those files to the normal pytest suite:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_branch_cycle_smoke.py --reset
+```
+
+Use the query-plan helper to verify that bulk content mutation binding lookups use the entry/variant index before running large smoke:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_content_mutation_query_plan.py
+```
+
+By default the smoke runner uses `C:\Users\yizhi003\Desktop\All_test\tms_test\2.4diff3.xlsx` for release seed and `C:\Users\yizhi003\Desktop\All_test\tms_test\2.5diff3.xlsx` for dev bootstrap plus content mutation, and writes to the isolated runtime root `data/branch_cycle_smoke`. Override paths with `--release-workbook`, `--dev-workbook`, or `--runtime-root` when needed.
+
+The smoke runner prints wall-clock checkpoints for project creation, release seed, bootstrap workbook parsing, dev bootstrap, content workbook parsing, and content mutation. It also prints service stage timings when summaries include `stages`. Because the known long-running risk is step 3, content mutation has live row progress and aborts after `--max-content-seconds` seconds by default. Use `--stop-after content-batch` to validate setup without running mutation, or set `--max-content-seconds 0` only when intentionally allowing the full mutation to run.
+
 Frontend build prerequisite:
 
 ```bash
@@ -191,6 +215,7 @@ Use this section after selecting the owner doc from [docs/README.md](README.md).
 - backend or domain changes: run `python -m pytest -q`
 - API or routing changes: run `tests/test_variant_api.py` and `tests/test_services_architecture.py`
 - branch workflow changes: run `tests/test_branch_service.py` and `tests/test_io_flows.py`
+- branch-cycle TDD changes: run `tests/test_tdd_branch_cycle.py`; run `scripts/run_branch_cycle_smoke.py --reset` only for local large-workbook smoke coverage
 - frontend `/app` changes: run `npm run build:app`, then `npm run test:e2e` when user-visible flows changed
 - docs-only changes: run `scripts/validate_docs.py`, then manually verify wording, ownership, and behavior claims the validator cannot prove
 - test-harness changes: run the directly impacted suite plus any docs validation needed for changed test references or commands
