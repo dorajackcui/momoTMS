@@ -80,6 +80,7 @@ class _BootstrapReportWriter:
 
 class BranchBootstrapService:
     READ_CHUNK_SIZE = 1000
+    ALLOWED_SUMMARY_EXTRA_KEYS = frozenset({"workbook_batch_id"})
 
     def __init__(
         self,
@@ -111,6 +112,7 @@ class BranchBootstrapService:
         job_id: int | None = None,
         summary_extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        summary_extra = self._validate_summary_extra(summary_extra)
         if not branch_ref.is_dev:
             raise ValueError(f"bootstrap only supports dev branches: {branch_ref}")
         self.projects.require_project(project_id)
@@ -298,6 +300,10 @@ class BranchBootstrapService:
             ],
         }
         if summary_extra:
+            collisions = sorted(set(summary_extra).intersection(summary))
+            if collisions:
+                joined = ", ".join(collisions)
+                raise ValueError(f"bootstrap summary_extra cannot override summary fields: {joined}")
             summary.update(summary_extra)
         report_writer.finalize(summary)
         self._complete_job_in_transaction(
@@ -729,6 +735,15 @@ class BranchBootstrapService:
         )
         if int(cursor.rowcount or 0) != 1:
             raise KeyError(f"job not found: {job_id}")
+
+    def _validate_summary_extra(self, summary_extra: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not summary_extra:
+            return None
+        unsupported = sorted(set(summary_extra).difference(self.ALLOWED_SUMMARY_EXTRA_KEYS))
+        if unsupported:
+            joined = ", ".join(unsupported)
+            raise ValueError(f"unsupported bootstrap summary_extra key: {joined}")
+        return dict(summary_extra)
 
     def _normalize_text(self, value: Any) -> str:
         if value is None:

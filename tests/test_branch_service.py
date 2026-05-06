@@ -140,6 +140,30 @@ def test_bootstrap_reports_duplicate_keys_and_invalid_rows_without_aborting_job(
     assert branch_metadata["bootstrap_job_id"] is not None
 
 
+def test_bootstrap_rejects_summary_extra_that_overrides_owned_fields(tmp_path) -> None:
+    sample = reset_demo()
+    import_root = tmp_path / "bootstrap-summary-extra"
+    write_import_workbook(
+        import_root,
+        "bundle/bootstrap-summary-extra.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["bootstrap.summary.extra", "Bootstrap source", "Bonjour bootstrap"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+
+    with pytest.raises(ValueError, match="unsupported bootstrap summary_extra key"):
+        BranchBootstrapService().bootstrap(
+            BranchRef.dev(sample["dev_version"]),
+            batch["import_batch_id"],
+            summary_extra={"import_batch_id": 999},
+        )
+
+    with pytest.raises(KeyError, match="dev branch not found"):
+        branch_services().get_dev_branch(sample["dev_version"])
+
+
 def test_bootstrap_rejects_branch_that_is_already_bootstrapped(tmp_path) -> None:
     sample = reset_demo()
     import_root = tmp_path / "bootstrap-repeat"
