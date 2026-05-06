@@ -134,7 +134,7 @@ This test creates an isolated project with translation columns `en`, `fr`, and `
 Use the local smoke runner when you want to exercise the same flow against the large desktop workbooks without adding those files to the normal pytest suite:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\run_branch_cycle_smoke.py --reset
+.\.venv\Scripts\python.exe scripts\run_branch_cycle_smoke.py --reset --release-workbook <path-to-release.xlsx> --dev-workbook <path-to-dev.xlsx>
 ```
 
 Use the query-plan helper to verify that bulk content mutation binding lookups use the entry/variant index before running large smoke:
@@ -143,7 +143,7 @@ Use the query-plan helper to verify that bulk content mutation binding lookups u
 .\.venv\Scripts\python.exe scripts\check_content_mutation_query_plan.py
 ```
 
-By default the smoke runner uses `C:\Users\yizhi003\Desktop\All_test\tms_test\2.4diff3.xlsx` for release seed and `C:\Users\yizhi003\Desktop\All_test\tms_test\2.5diff3.xlsx` for dev bootstrap plus content mutation, and writes to the isolated runtime root `data/branch_cycle_smoke`. Override paths with `--release-workbook`, `--dev-workbook`, or `--runtime-root` when needed.
+Pass workbook paths with `--release-workbook` and `--dev-workbook`, or set `MOMO_TMS_RELEASE_WORKBOOK` and `MOMO_TMS_DEV_WORKBOOK`. If neither is provided, the smoke runner looks for `data/branch_cycle_smoke_inputs/2.4diff3.xlsx` and `data/branch_cycle_smoke_inputs/2.5diff3.xlsx`. It writes to the isolated runtime root `data/branch_cycle_smoke` unless `--runtime-root` is provided.
 
 The smoke runner prints wall-clock checkpoints for project creation, release seed, bootstrap workbook parsing, dev bootstrap, content workbook parsing, and content mutation. It also prints service stage timings when summaries include `stages`. Because the known long-running risk is step 3, content mutation has live row progress and aborts after `--max-content-seconds` seconds by default. Use `--stop-after content-batch` to validate setup without running mutation, or set `--max-content-seconds 0` only when intentionally allowing the full mutation to run.
 

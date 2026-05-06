@@ -11,8 +11,13 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_RELEASE_WORKBOOK = Path(r"C:\Users\yizhi003\Desktop\All_test\tms_test\2.4diff3.xlsx")
-DEFAULT_DEV_WORKBOOK = Path(r"C:\Users\yizhi003\Desktop\All_test\tms_test\2.5diff3.xlsx")
+DEFAULT_INPUT_ROOT = ROOT / "data" / "branch_cycle_smoke_inputs"
+DEFAULT_RELEASE_WORKBOOK = Path(
+    os.getenv("MOMO_TMS_RELEASE_WORKBOOK") or DEFAULT_INPUT_ROOT / "2.4diff3.xlsx"
+)
+DEFAULT_DEV_WORKBOOK = Path(
+    os.getenv("MOMO_TMS_DEV_WORKBOOK") or DEFAULT_INPUT_ROOT / "2.5diff3.xlsx"
+)
 DEFAULT_RUNTIME_ROOT = ROOT / "data" / "branch_cycle_smoke"
 
 
@@ -24,13 +29,13 @@ def main() -> int:
         "--release-workbook",
         type=Path,
         default=DEFAULT_RELEASE_WORKBOOK,
-        help="2.4 release workbook path.",
+        help="2.4 release workbook path. Defaults to MOMO_TMS_RELEASE_WORKBOOK or data/branch_cycle_smoke_inputs/2.4diff3.xlsx.",
     )
     parser.add_argument(
         "--dev-workbook",
         type=Path,
         default=DEFAULT_DEV_WORKBOOK,
-        help="2.5 dev workbook path.",
+        help="2.5 dev workbook path. Defaults to MOMO_TMS_DEV_WORKBOOK or data/branch_cycle_smoke_inputs/2.5diff3.xlsx.",
     )
     parser.add_argument(
         "--runtime-root",
