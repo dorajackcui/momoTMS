@@ -152,6 +152,16 @@ function buildJobDetail(overrides = {}) {
   };
 }
 
+function buildRunningWorkbookJob(jobId = 902) {
+  return buildJobDetail({
+    job_id: jobId,
+    job_type: "workbook_create_branch",
+    status: "running",
+    summary: {},
+    finished_at: null,
+  });
+}
+
 test("Dev create branch uses workbook panel with preview and execute", async ({
   page,
 }) => {
@@ -211,6 +221,49 @@ test("Dev create branch uses workbook panel with preview and execute", async ({
   await expect.poll(() => executePayload).not.toBeNull();
   expect(executePayload.upload_session_id).toBe("session-for-create-branch");
   expect(executePayload.workflow_kind).toBe("create_branch");
+});
+
+test("Dev create branch keeps showing a running job instead of timing out", async ({
+  page,
+}) => {
+  let jobPollCount = 0;
+
+  await page.route("**/api/projects/1/workbooks/intake/preview", async (route) => {
+    await route.fulfill({
+      json: {
+        upload_session_id: "session-for-long-create-branch",
+        workflow_kind: "create_branch",
+        mutation_type: null,
+        file_count: 1,
+        sheet_count: 1,
+        missing_required_headers: [],
+        sampled_issue_count: 0,
+        sheet_previews: [],
+      },
+    });
+  });
+
+  await page.route("**/api/projects/1/workbooks/intake/execute", async (route) => {
+    await route.fulfill({ json: buildRunningWorkbookJob(902) });
+  });
+
+  await page.route("**/api/projects/1/jobs/902", async (route) => {
+    jobPollCount += 1;
+    await route.fulfill({ json: buildRunningWorkbookJob(902) });
+  });
+
+  await page.goto("/app/dev?project=1&lang=fr");
+  await page.getByRole("button", { name: /Create Branch/ }).click();
+  await page.getByLabel("Version number").fill("2.5.4");
+  await page.getByRole("button", { name: "or upload folder" }).click();
+  await page.locator('input[type="file"]').setInputFiles(importDir);
+  await page.getByRole("button", { name: "Check Workbook" }).click();
+  await page.getByRole("button", { name: "Create Branch" }).last().click();
+
+  await expect(page.getByText(/Job #902/)).toBeVisible();
+  await expect(page.getByText("running", { exact: true })).toBeVisible();
+  await expect(page.getByText(/preview timeout/i)).toHaveCount(0);
+  await expect.poll(() => jobPollCount).toBeGreaterThan(0);
 });
 
 test("Release edit shows workbook mutation type selector", async ({

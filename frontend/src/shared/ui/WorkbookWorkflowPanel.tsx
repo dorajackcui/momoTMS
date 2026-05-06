@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import { executeWorkbookWorkflow, previewWorkbookWorkflow } from "@/domains/workbooks/api";
 import type { WorkbookIntakePreview, WorkbookMutationType, WorkbookWorkflowKind } from "@/domains/workbooks/types";
 import type { JobDetail } from "@/domains/jobs/types";
-import { waitForJobDetail } from "@/domains/jobs/api";
+import { useJobDetailPolling } from "@/domains/jobs/useJobDetailPolling";
 import { buttonClassName, InlineNotice, StatGrid } from "@/shared/ui/primitives";
 import { WorkbookUpload } from "@/shared/ui/WorkbookUpload";
 
@@ -23,16 +23,29 @@ export type WorkbookWorkflowPanelProps = {
 };
 
 export function WorkbookWorkflowPanel(props: WorkbookWorkflowPanelProps) {
+  const {
+    projectId,
+    workflowKind,
+    branchRef,
+    mutationType,
+    onJobCompleted,
+    disabled,
+    executeLabel,
+    title,
+    uploadLabel,
+  } = props;
   const [files, setFiles] = useState<File[]>([]);
   const [preview, setPreview] = useState<WorkbookIntakePreview | null>(null);
   const [completedJob, setCompletedJob] = useState<JobDetail | null>(null);
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const completedJobIdRef = useRef<number | null>(null);
 
   const previewMut = useMutation({
     mutationFn: () =>
-      previewWorkbookWorkflow(props.projectId, files, {
-        workflow_kind: props.workflowKind,
-        branch_ref: props.branchRef,
-        mutation_type: props.mutationType,
+      previewWorkbookWorkflow(projectId, files, {
+        workflow_kind: workflowKind,
+        branch_ref: branchRef,
+        mutation_type: mutationType,
       }),
     onSuccess: (data) => setPreview(data),
   });
@@ -40,39 +53,58 @@ export function WorkbookWorkflowPanel(props: WorkbookWorkflowPanelProps) {
   const executeMut = useMutation({
     mutationFn: async () => {
       if (!preview) throw new Error("Preview is required before execute");
-      const started = await executeWorkbookWorkflow(props.projectId, {
+      const started = await executeWorkbookWorkflow(projectId, {
         upload_session_id: preview.upload_session_id,
-        workflow_kind: props.workflowKind,
-        branch_ref: props.branchRef,
-        mutation_type: props.mutationType,
+        workflow_kind: workflowKind,
+        branch_ref: branchRef,
+        mutation_type: mutationType,
       });
-      const completed = await waitForJobDetail(props.projectId, started.job.job_id);
-      if (completed.job.status !== "success") {
-        throw new Error(completed.job.error_message || "Workbook workflow failed");
-      }
-      return completed;
-    },
-    onSuccess: (job) => {
-      setCompletedJob(job);
-      props.onJobCompleted(job);
+      setActiveJobId(started.job.job_id);
+      return started;
     },
   });
 
-  const canPreview = files.length > 0 && !props.disabled;
-  const canExecute = preview !== null && preview.missing_required_headers.length === 0 && !props.disabled;
+  const activeJobQuery = useJobDetailPolling(projectId, activeJobId);
+  const activeJob =
+    activeJobQuery.data ??
+    (executeMut.data?.job.job_id === activeJobId ? executeMut.data : null);
+  const isRunning = executeMut.isPending || activeJob?.job.status === "running";
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (activeJob.job.status === "success") {
+      if (completedJobIdRef.current === activeJob.job.job_id) return;
+      completedJobIdRef.current = activeJob.job.job_id;
+      setCompletedJob(activeJob);
+      onJobCompleted(activeJob);
+      return;
+    }
+    if (activeJob.job.status === "failed") {
+      setCompletedJob(null);
+    }
+  }, [activeJob, onJobCompleted]);
+
+  const canPreview = files.length > 0 && !disabled;
+  const canExecute =
+    preview !== null &&
+    preview.missing_required_headers.length === 0 &&
+    !disabled &&
+    !isRunning;
 
   return (
     <section className={styles.panel}>
       <div className={styles.header}>
-        <h3>{props.title}</h3>
+        <h3>{title}</h3>
       </div>
       <WorkbookUpload
-        label={props.uploadLabel ?? "Upload workbook"}
-        disabled={props.disabled}
+        label={uploadLabel ?? "Upload workbook"}
+        disabled={disabled}
         onFiles={(nextFiles) => {
           setFiles(nextFiles);
           setPreview(null);
           setCompletedJob(null);
+          setActiveJobId(null);
+          completedJobIdRef.current = null;
           previewMut.reset();
           executeMut.reset();
         }}
@@ -93,15 +125,18 @@ export function WorkbookWorkflowPanel(props: WorkbookWorkflowPanelProps) {
         {preview && (
           <button
             className={buttonClassName("primary")}
-            disabled={!canExecute || executeMut.isPending}
+            disabled={!canExecute}
             onClick={() => executeMut.mutate()}
           >
-            {executeMut.isPending ? "Running..." : props.executeLabel}
+            {isRunning ? "Running..." : executeLabel}
           </button>
         )}
       </div>
       {previewMut.isError && <InlineNotice tone="error">{String(previewMut.error)}</InlineNotice>}
       {executeMut.isError && <InlineNotice tone="error">{String(executeMut.error)}</InlineNotice>}
+      {activeJobQuery.isError && (
+        <InlineNotice tone="error">{String(activeJobQuery.error)}</InlineNotice>
+      )}
       {preview && (
         <div className={styles.preview}>
           <StatGrid
@@ -114,6 +149,26 @@ export function WorkbookWorkflowPanel(props: WorkbookWorkflowPanelProps) {
           {preview.missing_required_headers.length > 0 && (
             <InlineNotice tone="error">
               Missing required headers: {preview.missing_required_headers.join(", ")}
+            </InlineNotice>
+          )}
+        </div>
+      )}
+      {activeJob && (
+        <div className={styles.preview}>
+          <p className={styles.meta}>Job #{activeJob.job.job_id}</p>
+          <StatGrid
+            items={[
+              { label: "Job", value: `#${activeJob.job.job_id}` },
+              { label: "Status", value: activeJob.job.status },
+              ...Object.entries(activeJob.job.summary).map(([label, value]) => ({
+                label,
+                value: String(value),
+              })),
+            ]}
+          />
+          {activeJob.job.status === "failed" && (
+            <InlineNotice tone="error">
+              {activeJob.job.error_message || "Workbook workflow failed"}
             </InlineNotice>
           )}
         </div>
