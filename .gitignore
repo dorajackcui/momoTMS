@@ -8,6 +8,7 @@ data/*.db-shm
 data/*.db-wal
 data/*.log
 data/branch_cycle_smoke*/
+data/inputs/
 data/jobs/
 data/demo_samples/
 .python-home/
