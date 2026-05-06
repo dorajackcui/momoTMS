@@ -14,6 +14,7 @@ from app.services.branch.registry import BranchRegistryService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
+from app.services.shared.jobs import JobService
 from app.services.workflows.trash import TrashService
 from tests.service_helpers import branch_services
 from app.services.workbooks.batches import WorkbookBatchService
@@ -152,6 +153,7 @@ def test_bootstrap_rejects_summary_extra_that_overrides_owned_fields(tmp_path) -
         ],
     )
     batch = ImportService().import_directory(str(import_root))
+    before_jobs = JobService().list_jobs(project_id=1)
 
     with pytest.raises(ValueError, match="unsupported bootstrap summary_extra key"):
         BranchBootstrapService().bootstrap(
@@ -160,6 +162,7 @@ def test_bootstrap_rejects_summary_extra_that_overrides_owned_fields(tmp_path) -
             summary_extra={"import_batch_id": 999},
         )
 
+    assert JobService().list_jobs(project_id=1) == before_jobs
     with pytest.raises(KeyError, match="dev branch not found"):
         branch_services().get_dev_branch(sample["dev_version"])
 
