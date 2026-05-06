@@ -1,6 +1,5 @@
 import { createContext, useContext } from "react";
 
-import type { BranchListResponse } from "@/domains/branches/types";
 import type { ProductStateResponse, ProjectSummary } from "@/domains/projects/types";
 
 export type NoticeTone = "info" | "success" | "warning" | "error";
@@ -20,7 +19,6 @@ export type AppShellContextValue = {
   businessKey: string | null;
   hasProjects: boolean;
   bootstrap: ProductStateResponse | null;
-  branchSummary: BranchListResponse | null;
   projectsLoading: boolean;
   shellLoading: boolean;
   shellError: string | null;

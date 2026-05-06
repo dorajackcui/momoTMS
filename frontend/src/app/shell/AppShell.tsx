@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useSearchParams } from "react-router-dom";
 
-import { getBranchSummary } from "@/domains/branches/api";
-import type { BranchListResponse } from "@/domains/branches/types";
 import { getProjectState, listProjects } from "@/domains/projects/api";
 import type { ProductStateResponse, ProjectSummary } from "@/domains/projects/types";
 import { queryKeys } from "@/shared/api/queryKeys";
@@ -54,21 +52,8 @@ export function AppShell() {
       ? requestedLang
       : availableLangs[0] || "";
 
-  const branchSummaryQuery = useQuery({
-    queryKey:
-      resolvedProjectId && resolvedLang
-        ? queryKeys.branchSummary(resolvedProjectId, resolvedLang)
-        : ["branch-summary", "idle"],
-    queryFn: () => getBranchSummary(resolvedProjectId!, resolvedLang),
-    enabled: resolvedProjectId !== null && Boolean(resolvedLang),
-  });
-
   const requestedBranch = normalizeText(searchParams.get("branch"));
-  const resolvedBranchRef = resolveBranchRef(
-    requestedBranch,
-    projectStateQuery.data,
-    branchSummaryQuery.data,
-  );
+  const resolvedBranchRef = resolveBranchRef(requestedBranch, projectStateQuery.data);
   const allowOverviewProjectWideBranchless =
     location.pathname === "/app/workspace" && requestedBranch === null;
 
@@ -141,14 +126,9 @@ export function AppShell() {
       ? projectsQuery.error.message
       : projectStateQuery.error instanceof Error
         ? projectStateQuery.error.message
-        : branchSummaryQuery.error instanceof Error
-          ? branchSummaryQuery.error.message
-          : null;
+        : null;
 
-  const shellLoading =
-    projectsQuery.isLoading ||
-    projectStateQuery.isLoading ||
-    (Boolean(resolvedProjectId && resolvedLang) && branchSummaryQuery.isLoading);
+  const shellLoading = projectsQuery.isLoading || projectStateQuery.isLoading;
 
   const shellValue = {
     projects,
@@ -160,7 +140,6 @@ export function AppShell() {
     businessKey,
     hasProjects: projects.length > 0,
     bootstrap: projectStateQuery.data || null,
-    branchSummary: branchSummaryQuery.data || null,
     projectsLoading: projectsQuery.isLoading,
     shellLoading,
     shellError,
@@ -227,11 +206,6 @@ export function AppShell() {
         await queryClient.invalidateQueries({
           queryKey: queryKeys.projectState(resolvedProjectId),
         });
-        if (resolvedLang) {
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.branchSummary(resolvedProjectId, resolvedLang),
-          });
-        }
       }
     },
   };
@@ -265,16 +239,14 @@ function resolveProjectId(
 function resolveBranchRef(
   requestedBranchRef: string | null,
   bootstrap: ProductStateResponse | undefined,
-  branchSummary: BranchListResponse | undefined,
 ) {
   const branchRefs = new Set<string>(["rel/current"]);
   bootstrap?.dev_branches.forEach((branch) => branchRefs.add(branch.branch_ref));
-  branchSummary?.branches.forEach((branch) => branchRefs.add(branch.branch_ref));
   if (requestedBranchRef && branchRefs.has(requestedBranchRef)) {
     return requestedBranchRef;
   }
-  if (!bootstrap && !branchSummary) {
+  if (!bootstrap) {
     return null;
   }
-  return bootstrap?.dev_branches[0]?.branch_ref || "rel/current";
+  return bootstrap.dev_branches[0]?.branch_ref || "rel/current";
 }

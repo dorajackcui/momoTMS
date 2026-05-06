@@ -363,6 +363,25 @@ test("normalizes stale branch params before branch-scoped pages query data", asy
   await expect(page.getByText("Failed to load shell data")).toHaveCount(0);
 });
 
+test("Dev page shell does not require heavy branch summary", async ({ page }) => {
+  let branchSummaryRequested = false;
+
+  await page.route("**/api/projects/1/branches?*", async (route) => {
+    branchSummaryRequested = true;
+    await route.fulfill({
+      status: 500,
+      json: { detail: "branch summary should not be required for shell load" },
+    });
+  });
+
+  await page.goto("/app/dev?project=1&lang=fr");
+
+  await expect(page.getByTestId("product-app")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Create Branch/ })).toBeVisible();
+  await expect(page.getByText(/Failed to load shell data/)).toHaveCount(0);
+  expect(branchSummaryRequested).toBeFalsy();
+});
+
 test("Dev create branch workbook panel shows error on execute failure", async ({
   page,
 }) => {
