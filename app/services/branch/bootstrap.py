@@ -109,6 +109,7 @@ class BranchBootstrapService:
         *,
         project_id: int = DEFAULT_PROJECT_ID,
         job_id: int | None = None,
+        summary_extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not branch_ref.is_dev:
             raise ValueError(f"bootstrap only supports dev branches: {branch_ref}")
@@ -142,6 +143,7 @@ class BranchBootstrapService:
                         project_id=project_id,
                         version_series=str(branch["version_series"]),
                         bootstrap_job_id=active_job_id,
+                        summary_extra=summary_extra,
                         report_writer=report_writer,
                         conn=conn,
                     )
@@ -176,6 +178,7 @@ class BranchBootstrapService:
         project_id: int,
         version_series: str,
         bootstrap_job_id: int,
+        summary_extra: dict[str, Any] | None,
         report_writer: _BootstrapReportWriter,
         conn: sqlite3.Connection,
     ) -> dict[str, Any]:
@@ -294,6 +297,8 @@ class BranchBootstrapService:
                 },
             ],
         }
+        if summary_extra:
+            summary.update(summary_extra)
         report_writer.finalize(summary)
         self._complete_job_in_transaction(
             bootstrap_job_id,

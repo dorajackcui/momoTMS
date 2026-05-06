@@ -98,9 +98,8 @@ class WorkbookWorkflowService:
                 workbook_batch_id,
                 project_id=project_id,
                 job_id=job_id,
+                summary_extra={"workbook_batch_id": workbook_batch_id},
             )
-            result["summary"]["workbook_batch_id"] = workbook_batch_id
-            self.jobs.patch_job_summary(job_id, {"workbook_batch_id": workbook_batch_id})
             return {"already_completed_job": True, **result}
         if workflow_kind == "branch_mutation":
             if not branch_ref:
