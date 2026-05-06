@@ -18,7 +18,8 @@ export function WorkspacePage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const stateFilter = parseStateFilter(searchParams.get("state"));
-  const branchFilter = normalizeText(searchParams.get("branch"));
+  const rawBranchFilter = normalizeText(searchParams.get("branch"));
+  const branchFilter = rawBranchFilter ? shell.branchRef : null;
   const page = parsePositiveInt(searchParams.get("page")) ?? 1;
   const columnFilters: Record<string, string> = {
     search_business_key: normalizeText(searchParams.get("search_business_key")) ?? "",

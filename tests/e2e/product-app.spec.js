@@ -355,12 +355,23 @@ test("Release trash shows workbook upload panel and calls correct API", async ({
 test("normalizes stale branch params before branch-scoped pages query data", async ({
   page,
 }) => {
+  const variantRequests = [];
+
+  await page.route("**/api/projects/1/variants?*", async (route) => {
+    const url = new URL(route.request().url());
+    variantRequests.push(url.searchParams.getAll("branch_ref"));
+    await route.continue();
+  });
+
   // /app/overview → /app/workspace (workspace is the branch-scoped entry page)
   await page.goto("/app/workspace?project=1&lang=fr&branch=dev%2F9.9.9");
 
   await expect(page).toHaveURL(/branch=rel%2Fcurrent/);
   await expect(page.getByTestId("product-app")).toBeVisible();
   await expect(page.getByText("Failed to load shell data")).toHaveCount(0);
+  expect(
+    variantRequests.some((branchRefs) => branchRefs.includes("dev/9.9.9")),
+  ).toBeFalsy();
 });
 
 test("Dev page shell does not require heavy branch summary", async ({ page }) => {
