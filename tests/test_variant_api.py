@@ -696,6 +696,17 @@ def test_variant_grid_filter_request_validates_columns_against_schema() -> None:
     else:
         raise AssertionError("expected unknown translation column to fail")
 
+    orphan_branch_request = VariantGridFilterRequest(
+        scope={"kind": "branch", "branch_ref": "orphan"},
+        filters=[],
+    )
+    try:
+        build_grid_query(1, orphan_branch_request)
+    except ValueError as exc:
+        assert "branch_ref must be rel/current or dev/<version>" in str(exc)
+    else:
+        raise AssertionError("expected orphan branch_ref to fail")
+
 
 def test_project_variants_route_supports_branch_filters_search_and_multi_bindings() -> None:
     reset_demo()

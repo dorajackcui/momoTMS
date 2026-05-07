@@ -102,7 +102,10 @@ def _scope_selector(request: VariantGridQueryRequest) -> ScopeSelector | None:
     branch_ref = normalize_non_content_value(request.scope.branch_ref)
     if not branch_ref:
         raise ValueError("branch_ref is required for branch scope")
-    return ScopeSelector.from_branch(BranchRef.parse(branch_ref))
+    parsed = BranchRef.parse(branch_ref)
+    if parsed.is_orphan:
+        raise ValueError("branch_ref must be rel/current or dev/<version>")
+    return ScopeSelector.from_branch(parsed)
 
 
 def _validated_filter(
