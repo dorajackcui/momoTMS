@@ -42,18 +42,128 @@
   min-height: 400px;
 }
 
+.dataGrid :global(.rdg-header-row),
+.dataGrid :global(.rdg-header-row .rdg-cell) {
+  overflow: visible;
+  z-index: 30;
+}
+
+.headerCell {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.headerCell > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filterButton {
+  inline-size: 24px;
+  block-size: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.filterButtonActive {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.filterPopover {
+  position: absolute;
+  z-index: 100;
+  inset-block-start: calc(100% - 2px);
+  inset-inline-start: 0;
+  display: grid;
+  gap: 8px;
+  inline-size: 260px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+}
+
+.filterLabel {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.filterLabel input {
+  inline-size: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.optionList {
+  display: grid;
+  gap: 4px;
+  max-block-size: 220px;
+  overflow: auto;
+}
+
+.optionItem {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.optionItem span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionMeta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.filterActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.filterActions button,
+.clearButton {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filterActions button:last-child {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .orphan {
   color: var(--muted);
 }
 
 .clearButton {
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
   font-size: 13px;
-  cursor: pointer;
 }
 
 .clearButton:disabled {

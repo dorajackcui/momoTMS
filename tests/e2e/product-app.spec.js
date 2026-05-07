@@ -308,6 +308,52 @@ test("Workspace reflects state and branch filters in URL and API params", async 
   await expect.poll(() => variantRequests.some((item) => item.page_size === 50)).toBeTruthy();
 });
 
+test("Workspace applies source header filter with explicit apply", async ({
+  page,
+}) => {
+  const queryRequests = [];
+  const optionsRequests = [];
+
+  await page.route("**/api/projects/1/variants/query", async (route) => {
+    const payload = route.request().postDataJSON();
+    queryRequests.push(payload);
+    await route.continue();
+  });
+  await page.route("**/api/projects/1/variants/filter-options", async (route) => {
+    const payload = route.request().postDataJSON();
+    optionsRequests.push(payload);
+    await route.fulfill({
+      json: {
+        values: [
+          { value: "Welcome source", label: "Welcome source", count: null },
+        ],
+        limit: 100,
+        has_more: true,
+      },
+    });
+  });
+
+  await page.goto("/app/workspace?project=1&lang=fr&state=all");
+  await page.getByRole("button", { name: "Filter source" }).click();
+  await expect(page.getByText("Showing first 100 values")).toBeVisible();
+  await page.getByLabel("Search source").fill("welcome");
+  await expect.poll(() => queryRequests.some((item) =>
+    (item.filters || []).some((filter) => filter.text === "welcome")
+  )).toBeFalsy();
+  await page.getByRole("button", { name: "Apply source filter" }).click();
+
+  await expect.poll(() => queryRequests.some((item) =>
+    (item.filters || []).some((filter) =>
+      filter.column.kind === "field" &&
+      filter.column.name === "source" &&
+      filter.text === "welcome"
+    )
+  )).toBeTruthy();
+  await expect
+    .poll(() => optionsRequests.some((item) => item.target_column?.name === "source"))
+    .toBeTruthy();
+});
+
 test("Release trash shows workbook upload panel and calls correct API", async ({
   page,
 }) => {
