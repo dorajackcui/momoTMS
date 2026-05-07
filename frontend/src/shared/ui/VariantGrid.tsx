@@ -3,7 +3,12 @@ import { DataGrid } from "react-data-grid";
 import type { Column } from "react-data-grid";
 
 import type { ProjectSchema } from "@/domains/projects/types";
-import type { ProjectVariantRow } from "@/domains/variants/types";
+import type {
+  ProjectVariantRow,
+  VariantFilterOptionsResponse,
+  VariantGridColumnRef,
+} from "@/domains/variants/types";
+import { hasAnyFilter, type VariantGridFilterState } from "@/shared/ui/variantGridFilters";
 
 import styles from "@/shared/ui/VariantGrid.module.css";
 
@@ -14,8 +19,14 @@ export type VariantGridProps = {
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
-  columnFilters: Record<string, string>;
-  onColumnFilterChange: (column: string, value: string) => void;
+  filters: VariantGridFilterState;
+  onFiltersChange: (filters: VariantGridFilterState) => void;
+  branchFilter?: string;
+  onBranchFilterChange?: (value: string) => void;
+  loadFilterOptions: (
+    targetColumn: VariantGridColumnRef,
+    optionSearch: string,
+  ) => Promise<VariantFilterOptionsResponse>;
   stateFilter: "active" | "orphan" | "all";
   onStateFilterChange: (state: "active" | "orphan" | "all") => void;
   branchOptions?: string[];
@@ -31,26 +42,11 @@ function formatBranch(row: ProjectVariantRow): string {
   return refs.length > 1 ? `${first} +${refs.length - 1}` : first;
 }
 
-function HeaderFilter(props: {
-  column: string;
-  value: string;
-  onChange: (column: string, value: string) => void;
-}) {
-  return (
-    <input
-      className={styles.headerFilter}
-      value={props.value}
-      onChange={(e) => props.onChange(props.column, e.target.value)}
-      placeholder="Filter..."
-      onClick={(e) => e.stopPropagation()}
-    />
-  );
-}
-
 export function VariantGrid(props: VariantGridProps) {
   const {
     schema, rows, totalRows, page, pageSize,
-    onPageChange, columnFilters, onColumnFilterChange,
+    onPageChange, filters, onFiltersChange, branchFilter, onBranchFilterChange,
+    loadFilterOptions: _loadFilterOptions,
     stateFilter, onStateFilterChange, branchOptions, showStateFilter = true,
     columnToggles, onColumnToggleChange,
   } = props;
@@ -64,13 +60,6 @@ export function VariantGrid(props: VariantGridProps) {
         name: "business_key",
         width: 220,
         frozen: true,
-        headerCellClass: styles.filterableHeader,
-        renderHeaderCell: () => (
-          <div className={styles.headerCell}>
-            <span>business_key</span>
-            <HeaderFilter column="search_business_key" value={columnFilters["search_business_key"] ?? ""} onChange={onColumnFilterChange} />
-          </div>
-        ),
       },
       {
         key: "file_name",
@@ -82,13 +71,6 @@ export function VariantGrid(props: VariantGridProps) {
         key: "source",
         name: "source",
         width: 260,
-        headerCellClass: styles.filterableHeader,
-        renderHeaderCell: () => (
-          <div className={styles.headerCell}>
-            <span>source</span>
-            <HeaderFilter column="search_source" value={columnFilters["search_source"] ?? ""} onChange={onColumnFilterChange} />
-          </div>
-        ),
       },
     ];
 
@@ -142,7 +124,7 @@ export function VariantGrid(props: VariantGridProps) {
     );
 
     return cols;
-  }, [schema, columnToggles, columnFilters, onColumnFilterChange]);
+  }, [schema, columnToggles]);
 
   return (
     <div className={styles.grid}>
@@ -164,8 +146,8 @@ export function VariantGrid(props: VariantGridProps) {
           <label className={styles.toolbarItem}>
             Branch:
             <select
-              value={columnFilters["branch"] ?? ""}
-              onChange={(e) => onColumnFilterChange("branch", e.target.value)}
+              value={branchFilter ?? ""}
+              onChange={(e) => onBranchFilterChange?.(e.target.value)}
             >
               <option value="">All branches</option>
               {branchOptions.map((branchRef) => (
@@ -186,6 +168,14 @@ export function VariantGrid(props: VariantGridProps) {
           <input type="checkbox" checked={columnToggles.pivot} onChange={(e) => onColumnToggleChange("pivot", e.target.checked)} />
           Pivot
         </label>
+        <button
+          type="button"
+          className={styles.clearButton}
+          onClick={() => onFiltersChange({})}
+          disabled={!hasAnyFilter(filters)}
+        >
+          Clear filters
+        </button>
       </div>
       <DataGrid
         columns={columns}

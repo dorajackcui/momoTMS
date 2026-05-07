@@ -42,32 +42,23 @@
   min-height: 400px;
 }
 
-.filterableHeader {
-  overflow: visible !important;
-}
-
-.headerCell {
-  display: grid;
-  gap: 4px;
-  padding: 2px 0;
-}
-
-.headerFilter {
-  width: 100%;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 12px;
-  background: var(--surface);
-}
-
-.headerFilter:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .orphan {
   color: var(--muted);
+}
+
+.clearButton {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.clearButton:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .pagination {

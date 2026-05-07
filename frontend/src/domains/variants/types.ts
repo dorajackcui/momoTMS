@@ -75,3 +75,49 @@ export type ProjectVariantsResponse = {
   page: number;
   page_size: number;
 };
+
+export type VariantGridColumnRef = {
+  kind: "field" | "translation" | "remark";
+  name: string;
+};
+
+export type VariantGridScope =
+  | { kind: "project" }
+  | { kind: "branch"; branch_ref: string };
+
+export type VariantGridColumnFilter = {
+  column: VariantGridColumnRef;
+  text?: string | null;
+  values?: Array<string | null>;
+};
+
+export type VariantGridQueryRequest = {
+  scope: VariantGridScope;
+  state?: "active" | "orphan" | "all";
+  filters?: VariantGridColumnFilter[];
+  page?: number;
+  page_size?: number;
+};
+
+export type ProjectVariantsQueryResponse = ProjectVariantsResponse & {
+  has_next_page: boolean;
+  total_rows_exact: boolean;
+};
+
+export type VariantFilterOptionValue = {
+  value: string | null;
+  label: string;
+  count: number | null;
+};
+
+export type VariantFilterOptionsRequest = VariantGridQueryRequest & {
+  target_column: VariantGridColumnRef;
+  option_search?: string | null;
+  limit?: number;
+};
+
+export type VariantFilterOptionsResponse = {
+  values: VariantFilterOptionValue[];
+  limit: number;
+  has_more: boolean;
+};

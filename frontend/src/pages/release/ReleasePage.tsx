@@ -2,16 +2,18 @@ import { useDeferredValue, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
-import { getBranchRows } from "@/domains/branches/api";
+import { getProjectVariantFilterOptions, queryProjectVariants } from "@/domains/variants/api";
 import { queryKeys, invalidateProject } from "@/shared/api/queryKeys";
 import { VariantGrid } from "@/shared/ui/VariantGrid";
 import { EditPanel } from "@/shared/ui/EditPanel";
 import { TrashPanel } from "@/shared/ui/TrashPanel";
 import type { JobDetail } from "@/domains/jobs/types";
+import { toApiFilters, type VariantGridFilterState } from "@/shared/ui/variantGridFilters";
 
 import styles from "@/pages/release/ReleasePage.module.css";
 
 type ReleaseTab = "browse" | "edit" | "trash";
+const pageSize = 50;
 
 export function ReleasePage() {
   const shell = useAppShell();
@@ -22,21 +24,22 @@ export function ReleasePage() {
 
   const [tab, setTab] = useState<ReleaseTab>("browse");
   const [stateFilter, setStateFilter] = useState<"active" | "orphan" | "all">("active");
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [gridFilters, setGridFilters] = useState<VariantGridFilterState>({});
   const [columnToggles, setColumnToggles] = useState({ translations: true, remarks: false, pivot: false });
   const [page, setPage] = useState(1);
 
-  const deferredFilters = useDeferredValue(columnFilters);
+  const deferredFilters = useDeferredValue(gridFilters);
   const browseParams = {
-    search_business_key: deferredFilters["search_business_key"] || undefined,
-    search_source: deferredFilters["search_source"] || undefined,
+    scope: { kind: "branch" as const, branch_ref: branchRef },
+    state: stateFilter,
+    filters: toApiFilters(deferredFilters),
     page,
-    page_size: 100,
+    page_size: pageSize,
   };
 
   const browseQuery = useQuery({
     queryKey: queryKeys.branchRows(projectId, branchRef, browseParams),
-    queryFn: () => getBranchRows(projectId, branchRef, browseParams),
+    queryFn: () => queryProjectVariants(projectId, browseParams),
     enabled: tab === "browse",
   });
 
@@ -62,10 +65,18 @@ export function ReleasePage() {
           rows={browseQuery.data?.rows ?? []}
           totalRows={browseQuery.data?.total_rows ?? 0}
           page={page}
-          pageSize={100}
+          pageSize={pageSize}
           onPageChange={setPage}
-          columnFilters={columnFilters}
-          onColumnFilterChange={(col, val) => { setColumnFilters((p) => ({ ...p, [col]: val })); setPage(1); }}
+          filters={gridFilters}
+          onFiltersChange={(filters) => { setGridFilters(filters); setPage(1); }}
+          loadFilterOptions={(targetColumn, optionSearch) =>
+            getProjectVariantFilterOptions(projectId, {
+              ...browseParams,
+              target_column: targetColumn,
+              option_search: optionSearch,
+              limit: 100,
+            })
+          }
           stateFilter={stateFilter}
           onStateFilterChange={(s) => { setStateFilter(s); setPage(1); }}
           showStateFilter={false}

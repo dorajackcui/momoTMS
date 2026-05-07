@@ -3,13 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
-import { getProjectVariants } from "@/domains/variants/api";
+import { getProjectVariantFilterOptions, queryProjectVariants } from "@/domains/variants/api";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { applySearchPatch, normalizeText, parsePositiveInt } from "@/shared/lib/url";
 import { InlineNotice } from "@/shared/ui/primitives";
 import { VariantGrid } from "@/shared/ui/VariantGrid";
+import {
+  decodeGridFilters,
+  encodeGridFilters,
+  toApiFilters,
+  type VariantGridFilterState,
+} from "@/shared/ui/variantGridFilters";
 
 type WorkspaceStateFilter = "active" | "orphan" | "all";
+const pageSize = 50;
 
 export function WorkspacePage() {
   const shell = useAppShell();
@@ -21,11 +28,7 @@ export function WorkspacePage() {
   const rawBranchFilter = normalizeText(searchParams.get("branch"));
   const branchFilter = rawBranchFilter ? shell.branchRef : null;
   const page = parsePositiveInt(searchParams.get("page")) ?? 1;
-  const columnFilters: Record<string, string> = {
-    search_business_key: normalizeText(searchParams.get("search_business_key")) ?? "",
-    search_source: normalizeText(searchParams.get("search_source")) ?? "",
-    branch: branchFilter ?? "",
-  };
+  const gridFilters = decodeGridFilters(searchParams.get("grid_filters"));
   const columnToggles = {
     translations: searchParams.get("translations") !== "0",
     remarks: searchParams.get("remarks") === "1",
@@ -36,25 +39,33 @@ export function WorkspacePage() {
     ...(shell.bootstrap?.dev_branches ?? []).map((branch) => branch.branch_ref),
   ];
 
-  const deferredFilters = useDeferredValue(columnFilters);
+  const deferredFilters = useDeferredValue(gridFilters);
 
   const params = {
+    scope: branchFilter
+      ? { kind: "branch" as const, branch_ref: branchFilter }
+      : { kind: "project" as const },
     state: stateFilter,
-    search_business_key: deferredFilters["search_business_key"] || undefined,
-    search_source: deferredFilters["search_source"] || undefined,
-    branch_ref: deferredFilters["branch"] ? [deferredFilters["branch"]] : undefined,
+    filters: toApiFilters(deferredFilters),
     page,
-    page_size: 100,
+    page_size: pageSize,
   };
 
   const query = useQuery({
     queryKey: queryKeys.projectVariants(projectId, params),
-    queryFn: () => getProjectVariants(projectId, params),
+    queryFn: () => queryProjectVariants(projectId, params),
   });
 
   function handleColumnFilter(column: string, value: string) {
     setSearchParams(
       (current) => applySearchPatch(current, { [column]: value, page: null }),
+      { replace: false },
+    );
+  }
+
+  function handleGridFiltersChange(filters: VariantGridFilterState) {
+    setSearchParams(
+      (current) => applySearchPatch(current, { grid_filters: encodeGridFilters(filters), page: null }),
       { replace: false },
     );
   }
@@ -94,10 +105,20 @@ export function WorkspacePage() {
       rows={query.data?.rows ?? []}
       totalRows={query.data?.total_rows ?? 0}
       page={page}
-      pageSize={100}
+      pageSize={pageSize}
       onPageChange={handlePageChange}
-      columnFilters={columnFilters}
-      onColumnFilterChange={handleColumnFilter}
+      filters={gridFilters}
+      onFiltersChange={handleGridFiltersChange}
+      branchFilter={branchFilter ?? ""}
+      onBranchFilterChange={(value) => handleColumnFilter("branch", value)}
+      loadFilterOptions={(targetColumn, optionSearch) =>
+        getProjectVariantFilterOptions(projectId, {
+          ...params,
+          target_column: targetColumn,
+          option_search: optionSearch,
+          limit: 100,
+        })
+      }
       stateFilter={stateFilter}
       onStateFilterChange={handleStateFilter}
       branchOptions={branchOptions}

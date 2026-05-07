@@ -291,12 +291,8 @@ test("Workspace reflects state and branch filters in URL and API params", async 
   await seedDevBranch(request);
 
   const variantRequests = [];
-  await page.route("**/api/projects/1/variants?*", async (route) => {
-    const url = new URL(route.request().url());
-    variantRequests.push({
-      state: url.searchParams.get("state"),
-      branchRefs: url.searchParams.getAll("branch_ref"),
-    });
+  await page.route("**/api/projects/1/variants/query", async (route) => {
+    variantRequests.push(route.request().postDataJSON());
     await route.continue();
   });
 
@@ -307,8 +303,9 @@ test("Workspace reflects state and branch filters in URL and API params", async 
   await page.getByLabel(/Branch:/).selectOption("rel/current");
   await expect.poll(() => new URL(page.url()).searchParams.get("branch")).toBe("rel/current");
   await expect
-    .poll(() => variantRequests.some((item) => item.branchRefs.includes("rel/current")))
+    .poll(() => variantRequests.some((item) => item.scope?.branch_ref === "rel/current"))
     .toBeTruthy();
+  await expect.poll(() => variantRequests.some((item) => item.page_size === 50)).toBeTruthy();
 });
 
 test("Release trash shows workbook upload panel and calls correct API", async ({
@@ -357,9 +354,9 @@ test("normalizes stale branch params before branch-scoped pages query data", asy
 }) => {
   const variantRequests = [];
 
-  await page.route("**/api/projects/1/variants?*", async (route) => {
-    const url = new URL(route.request().url());
-    variantRequests.push(url.searchParams.getAll("branch_ref"));
+  await page.route("**/api/projects/1/variants/query", async (route) => {
+    const payload = route.request().postDataJSON();
+    variantRequests.push(payload.scope?.branch_ref ?? null);
     await route.continue();
   });
 
@@ -369,9 +366,7 @@ test("normalizes stale branch params before branch-scoped pages query data", asy
   await expect(page).toHaveURL(/branch=rel%2Fcurrent/);
   await expect(page.getByTestId("product-app")).toBeVisible();
   await expect(page.getByText("Failed to load shell data")).toHaveCount(0);
-  expect(
-    variantRequests.some((branchRefs) => branchRefs.includes("dev/9.9.9")),
-  ).toBeFalsy();
+  expect(variantRequests.includes("dev/9.9.9")).toBeFalsy();
 });
 
 test("Dev page shell does not require heavy branch summary", async ({ page }) => {

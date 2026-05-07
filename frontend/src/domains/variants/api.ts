@@ -5,7 +5,11 @@ import type {
   EntryVariantsResponse,
   OrphanVariantsResponse,
   PivotStatus,
+  ProjectVariantsQueryResponse,
   ProjectVariantsResponse,
+  VariantFilterOptionsRequest,
+  VariantFilterOptionsResponse,
+  VariantGridQueryRequest,
 } from "@/domains/variants/types";
 
 export function getEntryVariants(projectId: number, businessKey: string) {
@@ -36,6 +40,32 @@ export function getProjectVariants(
   const query = buildQueryString(params);
   return fetchJson<ProjectVariantsResponse>(
     `/api/projects/${projectId}/variants?${query}`,
+  );
+}
+
+export function queryProjectVariants(
+  projectId: number,
+  payload: VariantGridQueryRequest,
+) {
+  return fetchJson<ProjectVariantsQueryResponse>(
+    `/api/projects/${projectId}/variants/query`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export function getProjectVariantFilterOptions(
+  projectId: number,
+  payload: VariantFilterOptionsRequest,
+) {
+  return fetchJson<VariantFilterOptionsResponse>(
+    `/api/projects/${projectId}/variants/filter-options`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
   );
 }
 
