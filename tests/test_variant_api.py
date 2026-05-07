@@ -90,6 +90,31 @@ def create_bound_variant(
     return variant_id
 
 
+def create_bound_variant_with_remarks(
+    *,
+    project_id: int,
+    business_key: str,
+    source: str,
+    file_name: str,
+    translations: dict[str, str],
+    remarks: dict[str, str],
+    branch_refs: list[BranchRef],
+) -> int:
+    entries = EntryService()
+    catalog = VariantCatalogService()
+    bindings = VariantStateCoordinator()
+    entry = entries.get_or_create_entry(business_key, project_id=project_id)
+    variant_id = catalog.create_variant(
+        int(entry["entry_id"]),
+        catalog.build_content(file_name, source, translations, remarks),
+    )
+    for branch_ref in branch_refs:
+        if branch_ref.is_dev:
+            BranchRegistryService().ensure_dev_branch(branch_ref.version, project_id=project_id)
+        bindings.bind(int(entry["entry_id"]), branch_ref, variant_id)
+    return variant_id
+
+
 def test_scope_routes_and_removed_compatibility_surface() -> None:
     reset_demo()
     sample = DemoService().get_sample("core-cycle")
@@ -706,6 +731,122 @@ def test_variant_grid_filter_request_validates_columns_against_schema() -> None:
         assert "branch_ref must be rel/current or dev/<version>" in str(exc)
     else:
         raise AssertionError("expected orphan branch_ref to fail")
+
+
+def test_project_variants_query_filters_every_column_family_and_caps_page_size() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Grid Filter Query Project",
+        ["fr", "en"],
+        ["context"],
+    )
+    project_id = int(project["project_id"])
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="rose.red",
+        source="A red rose blooms",
+        file_name="flowers.xlsx",
+        translations={"fr": "Rose rouge", "en": "Red rose"},
+        remarks={"context": "garden"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="rose.white",
+        source="A white rose fades",
+        file_name="flowers.xlsx",
+        translations={"fr": "Rose blanche", "en": "White rose"},
+        remarks={"context": "vase"},
+        branch_refs=[BranchRef.dev("2.5.0")],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="lily.blue",
+        source="A blue lily",
+        file_name="lilies.xlsx",
+        translations={"fr": "Lys bleu", "en": "Blue lily"},
+        remarks={"context": "garden"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/projects/{project_id}/variants/query",
+            json={
+                "scope": {"kind": "project"},
+                "state": "all",
+                "filters": [
+                    {"column": {"kind": "field", "name": "source"}, "text": "rose", "values": []},
+                    {"column": {"kind": "translation", "name": "fr"}, "text": "rouge", "values": []},
+                    {"column": {"kind": "remark", "name": "context"}, "text": "", "values": ["garden"]},
+                    {"column": {"kind": "field", "name": "branch"}, "text": "", "values": ["rel/current"]},
+                    {"column": {"kind": "field", "name": "state"}, "text": "", "values": ["active"]},
+                    {"column": {"kind": "field", "name": "pivot_status"}, "text": "", "values": ["init"]},
+                    {"column": {"kind": "field", "name": "file_name"}, "text": "", "values": ["flowers.xlsx"]},
+                ],
+                "page": 1,
+                "page_size": 500,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page"] == 1
+    assert payload["page_size"] == 50
+    assert payload["total_rows_exact"] is True
+    assert payload["has_next_page"] is False
+    assert [row["business_key"] for row in payload["rows"]] == ["rose.red"]
+    assert payload["rows"][0]["translations"]["fr"] == "Rose rouge"
+    assert payload["rows"][0]["remarks"]["context"] == "garden"
+
+
+def test_project_variants_query_branch_scope_ignores_project_state_and_supports_blank_values() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Branch Grid Filter Project",
+        ["fr"],
+        ["context"],
+    )
+    project_id = int(project["project_id"])
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="branch.blank",
+        source="Blank remark row",
+        file_name="",
+        translations={"fr": ""},
+        remarks={"context": ""},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="branch.other",
+        source="Other row",
+        file_name="other.xlsx",
+        translations={"fr": "Autre"},
+        remarks={"context": "filled"},
+        branch_refs=[BranchRef.dev("2.5.0")],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/projects/{project_id}/variants/query",
+            json={
+                "scope": {"kind": "branch", "branch_ref": "rel/current"},
+                "state": "orphan",
+                "filters": [
+                    {"column": {"kind": "field", "name": "file_name"}, "values": [None]},
+                    {"column": {"kind": "translation", "name": "fr"}, "values": [None]},
+                    {"column": {"kind": "remark", "name": "context"}, "values": [None]},
+                ],
+                "page": 1,
+                "page_size": 50,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [row["business_key"] for row in payload["rows"]] == ["branch.blank"]
+    assert payload["rows"][0]["state"] == "active"
 
 
 def test_project_variants_route_supports_branch_filters_search_and_multi_bindings() -> None:

@@ -4,6 +4,7 @@ from typing import Any
 
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.read_models.hydrate import ReadModelHydrator
+from app.services.read_models.grid_filters import build_grid_query
 from app.services.read_models.repository import ReadModelRepository
 from app.services.read_models.selectors import ScopeSelector, VariantFilter
 
@@ -52,6 +53,27 @@ class ScopeMembershipDataset:
             "total_rows": total_rows,
             "page": max(page, 1) if page_size is not None and page_size > 0 else 1,
             "page_size": page_size_value,
+        }
+
+    def query(
+        self,
+        request,
+        *,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        self.projects.require_project(project_id)
+        spec = build_grid_query(project_id, request, projects=self.projects)
+        if spec.scope_selector is None:
+            raise ValueError("branch scope is required")
+        payload = self.repository.list_grid_variant_rows(spec)
+        return {
+            "scope_ref": str(spec.scope_selector),
+            "rows": self.hydrator.scope_members(payload["rows"]),
+            "total_rows": payload["total_rows"],
+            "page": payload["page"],
+            "page_size": payload["page_size"],
+            "has_next_page": payload["has_next_page"],
+            "total_rows_exact": payload["total_rows_exact"],
         }
 
     def lookup(

@@ -5,9 +5,16 @@ from typing import Literal
 from fastapi import APIRouter, Query
 
 from app.routers.common import handle_errors, parse_branch_ref
-from app.schemas import EntryVariantsResponse, OrphanVariantsResponse, ProjectVariantsResponse
+from app.schemas import (
+    EntryVariantsResponse,
+    OrphanVariantsResponse,
+    ProjectVariantsQueryResponse,
+    ProjectVariantsResponse,
+    VariantGridQueryRequest,
+)
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
 from app.services.read_models.datasets.live_variants import ProjectLiveVariantsDataset
+from app.services.read_models.datasets.scope_members import ScopeMembershipDataset
 from app.services.read_models.selectors import VariantFilter
 
 router = APIRouter()
@@ -46,6 +53,21 @@ def project_variants(
             )
         )
     )
+
+
+@router.post("/api/projects/{project_id}/variants/query", response_model=ProjectVariantsQueryResponse)
+def project_variants_query(
+    project_id: int,
+    request: VariantGridQueryRequest,
+) -> ProjectVariantsQueryResponse:
+    def run() -> ProjectVariantsQueryResponse:
+        if request.scope.kind == "project":
+            payload = ProjectLiveVariantsDataset().query(request, project_id=project_id)
+        else:
+            payload = ScopeMembershipDataset().query(request, project_id=project_id)
+        return ProjectVariantsQueryResponse(**payload)
+
+    return handle_errors(run)
 
 
 @router.get("/api/projects/{project_id}/entries/{business_key}/variants", response_model=EntryVariantsResponse)

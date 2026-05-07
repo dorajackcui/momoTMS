@@ -4,6 +4,9 @@ import sqlite3
 from typing import Any
 
 from app.db import get_conn
+from app.schemas import VariantGridColumnRef
+from app.services.branch.models import BranchRef
+from app.services.read_models.grid_filters import GridColumnFilter, GridQuerySpec
 from app.services.read_models.selectors import ScopeSelector, VariantFilter
 from app.services.read_models.types import FillCandidate, ProjectionRow
 from app.services.shared.io import normalize_content_value, normalize_non_content_value
@@ -169,6 +172,31 @@ class ReadModelRepository:
             "total_rows": total_rows,
             "page": max(page, 1) if page_size is not None and page_size > 0 else 1,
             "page_size": page_size_value,
+        }
+
+    def list_grid_variant_rows(
+        self,
+        spec: GridQuerySpec,
+        *,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]:
+        where_clauses, params = self._grid_where(spec)
+        rows = self._select_variant_rows(
+            where_clauses,
+            params,
+            page=spec.page,
+            page_size=spec.page_size,
+            order_sql=self._grid_order_sql(spec),
+            conn=conn,
+        )
+        total_rows = self._count_variant_rows(where_clauses, params, conn=conn)
+        return {
+            "rows": rows,
+            "total_rows": total_rows,
+            "page": spec.page,
+            "page_size": spec.page_size,
+            "has_next_page": spec.page * spec.page_size < total_rows,
+            "total_rows_exact": True,
         }
 
     def list_same_source_history_rows(
@@ -473,6 +501,230 @@ class ReadModelRepository:
             where_clauses.append("LOWER(v.source) LIKE ?")
             params.append(f"%{search_value}%")
         return where_clauses, params
+
+    def _grid_where(self, spec: GridQuerySpec) -> tuple[list[str], list[Any]]:
+        where_clauses = [
+            "e.project_id = ?",
+            "v.trashed_at IS NULL",
+        ]
+        params: list[Any] = [spec.project_id]
+        active_binding_exists = (
+            "EXISTS (SELECT 1 FROM scope_bindings active_b WHERE active_b.variant_id = v.variant_id)"
+        )
+
+        if spec.scope_selector is None:
+            if spec.state == "active":
+                where_clauses.append(active_binding_exists)
+            elif spec.state == "orphan":
+                where_clauses.append(f"NOT {active_binding_exists}")
+        else:
+            branch_ref = spec.scope_selector.branch_ref
+            if branch_ref is None:
+                raise ValueError("branch scope selector is required")
+            scope_type, scope_value = branch_ref.as_tuple()
+            where_clauses.append(
+                "EXISTS ("
+                "SELECT 1 FROM scope_bindings scope_b "
+                "WHERE scope_b.variant_id = v.variant_id "
+                "AND scope_b.scope_type = ? "
+                "AND scope_b.scope_value = ?"
+                ")"
+            )
+            params.extend([scope_type, scope_value])
+
+        for item in spec.filters:
+            clause, clause_params = self._apply_grid_filter(item)
+            if clause:
+                where_clauses.append(clause)
+                params.extend(clause_params)
+        return where_clauses, params
+
+    def _apply_grid_filter(self, item: GridColumnFilter) -> tuple[str | None, list[Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        text_clause, text_params = self._grid_text_clause(item.column, item.text)
+        if text_clause:
+            clauses.append(text_clause)
+            params.extend(text_params)
+        values_clause, values_params = self._grid_values_clause(item.column, item.values)
+        if values_clause:
+            clauses.append(values_clause)
+            params.extend(values_params)
+        if not clauses:
+            return None, []
+        return f"({' AND '.join(clauses)})", params
+
+    def _grid_field_expression(self, column: VariantGridColumnRef) -> str:
+        if column.name == "business_key":
+            return "e.business_key"
+        if column.name == "file_name":
+            return "v.file_name"
+        if column.name == "source":
+            return "v.source"
+        if column.name == "pivot_status":
+            return "v.pivot_status"
+        if column.name == "state":
+            return (
+                "CASE WHEN EXISTS ("
+                "SELECT 1 FROM scope_bindings state_b "
+                "WHERE state_b.variant_id = v.variant_id"
+                ") THEN 'active' ELSE 'orphan' END"
+            )
+        raise ValueError(f"unsupported grid field: {column.name}")
+
+    def _grid_text_clause(
+        self,
+        column: VariantGridColumnRef,
+        text: str,
+    ) -> tuple[str | None, list[Any]]:
+        if not text:
+            return None, []
+        pattern = f"%{text}%"
+        if column.kind == "field":
+            if column.name == "branch":
+                return (
+                    "EXISTS ("
+                    "SELECT 1 FROM scope_bindings branch_text_b "
+                    "WHERE branch_text_b.variant_id = v.variant_id "
+                    "AND LOWER(branch_text_b.scope_type || '/' || branch_text_b.scope_value) LIKE ?"
+                    ")",
+                    [pattern],
+                )
+            expression = self._grid_field_expression(column)
+            return f"LOWER(COALESCE({expression}, '')) LIKE ?", [pattern]
+        if column.kind == "translation":
+            return (
+                "EXISTS ("
+                "SELECT 1 FROM variant_translations text_vt "
+                "WHERE text_vt.variant_id = v.variant_id "
+                "AND text_vt.lang = ? "
+                "AND LOWER(COALESCE(text_vt.target_text, '')) LIKE ?"
+                ")",
+                [column.name, pattern],
+            )
+        if column.kind == "remark":
+            return (
+                "EXISTS ("
+                "SELECT 1 FROM variant_remarks text_vr "
+                "WHERE text_vr.variant_id = v.variant_id "
+                "AND text_vr.remark_key = ? "
+                "AND LOWER(COALESCE(text_vr.remark_value, '')) LIKE ?"
+                ")",
+                [column.name, pattern],
+            )
+        return None, []
+
+    def _grid_values_clause(
+        self,
+        column: VariantGridColumnRef,
+        values: tuple[str | None, ...],
+    ) -> tuple[str | None, list[Any]]:
+        if not values:
+            return None, []
+        non_blank_values = [value for value in values if value is not None]
+        include_blank = any(value is None for value in values)
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if column.kind == "field":
+            if column.name == "branch":
+                if non_blank_values:
+                    branch_clauses: list[str] = []
+                    for value in non_blank_values:
+                        scope_type, scope_value = BranchRef.parse(value).as_tuple()
+                        branch_clauses.append(
+                            "(branch_value_b.scope_type = ? AND branch_value_b.scope_value = ?)"
+                        )
+                        params.extend([scope_type, scope_value])
+                    clauses.append(
+                        "EXISTS ("
+                        "SELECT 1 FROM scope_bindings branch_value_b "
+                        "WHERE branch_value_b.variant_id = v.variant_id "
+                        f"AND ({' OR '.join(branch_clauses)})"
+                        ")"
+                    )
+                if include_blank:
+                    clauses.append(
+                        "NOT EXISTS ("
+                        "SELECT 1 FROM scope_bindings branch_blank_b "
+                        "WHERE branch_blank_b.variant_id = v.variant_id"
+                        ")"
+                    )
+            else:
+                expression = self._grid_field_expression(column)
+                value_clauses: list[str] = []
+                if non_blank_values:
+                    placeholders = ", ".join("?" for _ in non_blank_values)
+                    value_clauses.append(f"COALESCE({expression}, '') IN ({placeholders})")
+                    params.extend(non_blank_values)
+                if include_blank:
+                    value_clauses.append(f"COALESCE({expression}, '') = ''")
+                clauses.extend(value_clauses)
+        elif column.kind == "translation":
+            return self._grid_child_values_clause(
+                "variant_translations",
+                "child_vt",
+                "lang",
+                column.name,
+                "target_text",
+                values,
+            )
+        elif column.kind == "remark":
+            return self._grid_child_values_clause(
+                "variant_remarks",
+                "child_vr",
+                "remark_key",
+                column.name,
+                "remark_value",
+                values,
+            )
+
+        if not clauses:
+            return None, []
+        return f"({' OR '.join(clauses)})", params
+
+    def _grid_child_values_clause(
+        self,
+        table: str,
+        alias: str,
+        key_column: str,
+        key_value: str,
+        value_column: str,
+        values: tuple[str | None, ...],
+    ) -> tuple[str | None, list[Any]]:
+        non_blank_values = [value for value in values if value is not None]
+        include_blank = any(value is None for value in values)
+        clauses: list[str] = []
+        params: list[Any] = []
+        if non_blank_values:
+            placeholders = ", ".join("?" for _ in non_blank_values)
+            clauses.append(
+                "EXISTS ("
+                f"SELECT 1 FROM {table} {alias} "
+                f"WHERE {alias}.variant_id = v.variant_id "
+                f"AND {alias}.{key_column} = ? "
+                f"AND COALESCE({alias}.{value_column}, '') IN ({placeholders})"
+                ")"
+            )
+            params.extend([key_value, *non_blank_values])
+        if include_blank:
+            clauses.append(
+                "NOT EXISTS ("
+                f"SELECT 1 FROM {table} {alias}_blank "
+                f"WHERE {alias}_blank.variant_id = v.variant_id "
+                f"AND {alias}_blank.{key_column} = ? "
+                f"AND COALESCE({alias}_blank.{value_column}, '') <> ''"
+                ")"
+            )
+            params.append(key_value)
+        if not clauses:
+            return None, []
+        return f"({' OR '.join(clauses)})", params
+
+    def _grid_order_sql(self, spec: GridQuerySpec) -> str:
+        if spec.scope_selector is not None:
+            return "ORDER BY LOWER(e.business_key), v.updated_at DESC, v.variant_id DESC"
+        return "ORDER BY v.updated_at DESC, v.variant_id DESC"
 
     def _select_variant_rows(
         self,
