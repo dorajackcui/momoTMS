@@ -71,6 +71,19 @@ def test_preview_and_resolve_headers_allow_sparse_import_language_mapping() -> N
     assert mapping["remark_columns"] == {}
 
 
+def test_preview_and_resolve_headers_suggest_source_name_file_name_mapping() -> None:
+    reset_db()
+    service = ProjectService()
+
+    project = service.create_project("File Name Mapping", ["fr"], ["context"])
+    project_id = int(project["project_id"])
+    preview = service.preview_headers(["Source.Name", "business_key", "source", "fr"], project_id)
+    mapping = service.resolve_headers(["Source.Name", "business_key", "source", "fr"], project_id)
+
+    assert preview["suggested_mapping"]["file_name"] == "Source.Name"
+    assert mapping["file_name"] == 1
+
+
 @pytest.mark.parametrize(
     ("translation_columns", "remark_columns", "message"),
     [

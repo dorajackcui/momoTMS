@@ -58,7 +58,7 @@
 - fixed columns: `business_key`, `source`
 - project-defined translation columns and remark columns
 - optional project-level pivot configuration stored alongside the schema as `pivot_language` plus `pivoted_languages`
-- `file_name` is runtime metadata derived from workbook path, not a schema column
+- `file_name` is variant business metadata sourced from the workbook `Source.Name` column; it is not a schema fixed column and is not derived from uploaded workbook paths
 
 `Entry`
 
@@ -70,7 +70,7 @@
 - mutable content node under one entry
 - current identity is the parent entry plus canonical `source`
 - runtime keeps one canonical non-trashed same-source variant under an entry
-- carries `file_name`, `source`, `translations`, `remarks`, and lifecycle timestamps
+- carries `file_name`, `source`, `translations`, `remarks`, and lifecycle timestamps; `file_name` is non-content business metadata from `Source.Name`
 - also carries variant-level pivot review metadata: `pivot_status`, optional changed-owner branch ref, `pivot_changed_at`, `pivot_reviewed_at`, and `pivot_status_updated_at`
 
 `Scope Binding`

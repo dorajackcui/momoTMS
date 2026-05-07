@@ -376,13 +376,15 @@ class ImportService:
             remark_key: cell_value(column_index, is_content=False)
             for remark_key, column_index in mapping["remark_columns"].items()
         }
-        return {
-            "file_name": normalize_non_content_value(file_path),
+        payload: dict[str, Any] = {
             "business_key": cell_value(mapping["business_key"], is_content=False),
             "source": cell_value(mapping["source"], is_content=False),
             "translations": translations,
             "remarks": remarks,
         }
+        if mapping.get("file_name") is not None:
+            payload["file_name"] = cell_value(mapping["file_name"], is_content=False)
+        return payload
 
     @staticmethod
     def build_sheet_key(file_path: str, sheet_name: str) -> str:

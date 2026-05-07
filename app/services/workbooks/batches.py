@@ -63,12 +63,13 @@ class WorkbookBatchService:
             if row.status != "ok":
                 issues += 1
             payload = {
-                "file_name": row.file_path,
                 "business_key": row.business_key,
                 "source": row.source,
                 "translations": row.translations,
                 "remarks": row.remarks,
             }
+            if row.file_name is not None:
+                payload["file_name"] = row.file_name
             pending.append(
                 (
                     batch_id,

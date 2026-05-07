@@ -11,6 +11,8 @@ from app.services.shared.io import (
     normalize_non_content_value,
 )
 
+SOURCE_NAME_HEADER = "Source.Name"
+
 
 class BulkSeedError(Exception):
     def __init__(self, message: str, *, file_name: str = "", sheet_name: str = "", row_index: int = 0) -> None:
@@ -33,6 +35,7 @@ def read_excel_chunks(
 
     wb = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
     try:
+        physical_file_name = Path(workbook_path).name
         for ws in wb.worksheets:
             sheet_name = ws.title
             header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
@@ -45,16 +48,15 @@ def read_excel_chunks(
                 src_header=src_header,
                 translation_cols=translation_cols,
                 remark_cols=remark_cols,
-                file_name=Path(workbook_path).name,
+                file_name=physical_file_name,
                 sheet_name=sheet_name,
             )
-            file_name = Path(workbook_path).name
             chunk: list[dict[str, Any]] = []
             for row_index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 parsed = _parse_row(
                     row,
                     col_map=col_map,
-                    file_name=file_name,
+                    file_name=physical_file_name,
                     sheet_name=sheet_name,
                     row_index=row_index,
                     translation_cols=translation_cols,
@@ -96,6 +98,8 @@ def _build_column_map(
             sheet_name=sheet_name,
         )
     col_map["source"] = header_index[src_header]
+    if SOURCE_NAME_HEADER in header_index:
+        col_map["file_name"] = header_index[SOURCE_NAME_HEADER]
     for lang in translation_cols:
         if lang in header_index:
             col_map[f"t:{lang}"] = header_index[lang]
@@ -150,7 +154,7 @@ def _parse_row(
     return {
         "business_key": business_key,
         "source": source,
-        "file_name": file_name,
+        "file_name": normalize_non_content_value(cell("file_name")),
         "sheet_name": sheet_name,
         "row_index": row_index,
         "translations": normalize_content_map(translations),

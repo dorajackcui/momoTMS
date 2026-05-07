@@ -10,6 +10,44 @@ from app.services.shared.io import normalize_content_value, normalize_non_conten
 
 
 class ReadModelRepository:
+    def select_branch_identity_rows(
+        self,
+        project_id: int,
+        scope_selector: ScopeSelector,
+        conn: sqlite3.Connection | None = None,
+    ) -> list[dict[str, Any]]:
+        if scope_selector.is_master or scope_selector.is_orphan or scope_selector.branch_ref is None:
+            raise ValueError("branch scope selector is required")
+        scope_type, scope_value = scope_selector.branch_ref.as_tuple()
+        query = """
+            SELECT
+                e.entry_id,
+                e.business_key,
+                b.variant_id
+            FROM scope_bindings b
+            JOIN entries e ON e.entry_id = b.entry_id
+            JOIN variants v ON v.variant_id = b.variant_id
+            WHERE e.project_id = ?
+              AND b.scope_type = ?
+              AND b.scope_value = ?
+              AND v.trashed_at IS NULL
+            ORDER BY LOWER(e.business_key)
+        """
+        params = (project_id, scope_type, scope_value)
+        if conn is not None:
+            rows = conn.execute(query, params).fetchall()
+        else:
+            with get_conn() as local_conn:
+                rows = local_conn.execute(query, params).fetchall()
+        return [
+            {
+                "entry_id": int(row["entry_id"]),
+                "business_key": normalize_non_content_value(row["business_key"]),
+                "variant_id": int(row["variant_id"]),
+            }
+            for row in rows
+        ]
+
     def select_scope_member_rows(
         self,
         project_id: int,

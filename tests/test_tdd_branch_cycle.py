@@ -11,6 +11,7 @@ from app.services.bulk.writer import BulkVariantWriter
 from app.services.project.service import ProjectService
 from app.services.read_models.derived.branch_catalog import BranchCatalogView
 from app.services.variant.catalog import VariantCatalogService
+from app.services.variant.entries import EntryService
 from app.services.workbooks.batches import WorkbookBatchService
 from app.services.workbooks.models import WorkbookWorkflowContext
 
@@ -131,13 +132,16 @@ def test_tdd_branch_cycle_release_bulk_seed_dev_bootstrap_then_translation_fill(
 
     catalog = VariantCatalogService()
     dev_after_bootstrap = branch_rows(dev_ref, project_id)
+    same_after_bootstrap = catalog.get_variant(int(dev_after_bootstrap["cycle.same"]["variant_id"]))
     changed_after_bootstrap = catalog.get_variant(int(dev_after_bootstrap["cycle.changed"]["variant_id"]))
     new_after_bootstrap = catalog.get_variant(int(dev_after_bootstrap["cycle.new"]["variant_id"]))
 
+    assert same_after_bootstrap["translations"]["fr"] == "FR rel same"
+    assert same_after_bootstrap["remarks"] == {"Version": "2.4", "SpeakerName": "RelSpeaker"}
     assert changed_after_bootstrap["translations"] == {}
-    assert changed_after_bootstrap["remarks"] == {}
+    assert changed_after_bootstrap["remarks"] == {"Version": "2.5", "SpeakerName": "Narrator"}
     assert new_after_bootstrap["translations"] == {}
-    assert new_after_bootstrap["remarks"] == {}
+    assert new_after_bootstrap["remarks"] == {"Version": "2.5", "SpeakerName": "NewSpeaker"}
 
     content_batch = WorkbookBatchService().create_batch_from_directory(
         dev_root,
@@ -179,9 +183,9 @@ def test_tdd_branch_cycle_release_bulk_seed_dev_bootstrap_then_translation_fill(
         "es": "ES dev changed",
     }
     assert changed_variant["remarks"] == {"Version": "2.5", "SpeakerName": "Narrator"}
-    assert changed_variant["pivot_status"] == "changed"
-    assert changed_variant["pivot_changed_by_scope_type"] == "dev"
-    assert changed_variant["pivot_changed_by_scope_value"] == "2.5.3"
+    assert changed_variant["pivot_status"] == "init"
+    assert changed_variant["pivot_changed_by_scope_type"] is None
+    assert changed_variant["pivot_changed_by_scope_value"] is None
 
     assert new_variant["translations"] == {
         "en": "New source",
@@ -189,9 +193,48 @@ def test_tdd_branch_cycle_release_bulk_seed_dev_bootstrap_then_translation_fill(
         "es": "ES dev new",
     }
     assert new_variant["remarks"] == {"Version": "2.5", "SpeakerName": "NewSpeaker"}
-    assert new_variant["pivot_status"] == "changed"
-    assert new_variant["pivot_changed_by_scope_type"] == "dev"
-    assert new_variant["pivot_changed_by_scope_value"] == "2.5.3"
+    assert new_variant["pivot_status"] == "init"
+    assert new_variant["pivot_changed_by_scope_type"] is None
+    assert new_variant["pivot_changed_by_scope_value"] is None
+
+
+def test_tdd_first_pivot_language_write_on_bare_variant_remains_init() -> None:
+    init_db()
+    project = ProjectService().create_project(
+        "TDD Pivot First Write",
+        ["en", "fr"],
+        ["Note"],
+        pivot_language="en",
+        pivoted_languages=["fr"],
+        business_key_header="Key",
+        source_header="MsgStr",
+    )
+    project_id = int(project["project_id"])
+    entry = EntryService().get_or_create_entry("pivot.first.write", project_id=project_id)
+    catalog = VariantCatalogService()
+    variant_id = catalog.create_variant_bare(
+        int(entry["entry_id"]),
+        "Source",
+        file_name="first-write.xlsx",
+    )
+
+    catalog.update_variant(
+        variant_id,
+        catalog.build_content(
+            "first-write.xlsx",
+            "Source",
+            {"en": "First English", "fr": "Premier francais"},
+            {"Note": ""},
+        ),
+        actor_scope=BranchRef.dev("2.5.3").as_tuple(),
+    )
+
+    variant = catalog.get_variant(variant_id)
+    assert variant["translations"]["en"] == "First English"
+    assert variant["pivot_status"] == "init"
+    assert variant["pivot_changed_by_scope_type"] is None
+    assert variant["pivot_changed_by_scope_value"] is None
+    assert variant["pivot_changed_at"] is None
 
 
 def test_tdd_content_mutation_uses_schema_fields_clears_blanks_and_ignores_extra_columns(tmp_path) -> None:

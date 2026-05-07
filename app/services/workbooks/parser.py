@@ -117,6 +117,7 @@ class WorkbookParser:
         return {
             "available_headers": list(normalized.keys()),
             "missing_required_headers": missing,
+            "file_name": normalized.get(ProjectService.FILE_NAME_HEADER),
             "business_key": normalized.get(schema["fixed_columns"]["business_key"]),
             "source": normalized.get(schema["fixed_columns"]["source"]),
             "translation_columns": {
@@ -142,6 +143,9 @@ class WorkbookParser:
     ) -> WorkbookRow:
         business_key = self._cell(values, mapping.get("business_key"), is_content=False)
         source = self._cell(values, mapping.get("source"), is_content=False)
+        file_name = None
+        if mapping.get("file_name") is not None:
+            file_name = self._cell(values, mapping.get("file_name"), is_content=False)
         translations = {
             lang: self._cell(values, index, is_content=True)
             for lang, index in mapping["translation_columns"].items()
@@ -164,6 +168,7 @@ class WorkbookParser:
             row_index=row_index,
             business_key=business_key,
             source=source,
+            file_name=file_name,
             translations=translations,
             remarks=remarks,
             status=status,

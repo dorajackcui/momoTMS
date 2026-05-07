@@ -129,12 +129,12 @@ Focused branch-cycle TDD flow:
 .\.venv\Scripts\python.exe -m pytest -q tests/test_tdd_branch_cycle.py
 ```
 
-This test creates an isolated project with translation columns `en`, `fr`, and `es`, remark columns `Version` and `SpeakerName`, and pivot configuration `en -> fr/es`. It then bulk-seeds `rel/current` from a small synthetic 2.4 workbook, bootstraps `dev/2.5.3` from a synthetic 2.5 workbook, and applies a dev content mutation with that same 2.5 workbook to populate translations and remarks after bootstrap.
+This test creates an isolated project with translation columns `en`, `fr`, and `es`, remark columns `Version` and `SpeakerName`, and pivot configuration `en -> fr/es`. It then bulk-seeds `rel/current` from a small synthetic 2.4 workbook, bootstraps `dev/2.5.3` from a synthetic 2.5 workbook while schema-mapped remarks are written for newly created variants, and applies a dev content mutation with that same 2.5 workbook to populate translations after bootstrap.
 
-Use the local smoke runner when you want to exercise the same flow against the large desktop workbooks without adding those files to the normal pytest suite:
+Use the local smoke runner when you want to exercise the expanded branch cycle against the large desktop workbooks without adding those files to the normal pytest suite. The runner seeds `rel/current`, bootstraps and content-updates two dev branches, then replaces `rel/current` from the second dev branch:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\run_branch_cycle_smoke.py --reset --release-workbook <path-to-release.xlsx> --dev-workbook <path-to-dev.xlsx>
+.\.venv\Scripts\python.exe scripts\run_branch_cycle_smoke.py --reset --release-workbook <path-to-release.xlsx> --dev-workbook <path-to-first-dev.xlsx> --next-dev-workbook <path-to-second-dev.xlsx>
 ```
 
 Use the query-plan helper to verify that bulk content mutation binding lookups use the entry/variant index before running large smoke:
@@ -143,9 +143,9 @@ Use the query-plan helper to verify that bulk content mutation binding lookups u
 .\.venv\Scripts\python.exe scripts\check_content_mutation_query_plan.py
 ```
 
-Pass workbook paths with `--release-workbook` and `--dev-workbook`, or set `MOMO_TMS_RELEASE_WORKBOOK` and `MOMO_TMS_DEV_WORKBOOK`. If neither is provided, the smoke runner looks for `data/branch_cycle_smoke_inputs/2.4diff3.xlsx` and `data/branch_cycle_smoke_inputs/2.5diff3.xlsx`. It writes to the isolated runtime root `data/branch_cycle_smoke` unless `--runtime-root` is provided.
+Pass workbook paths with `--release-workbook`, `--dev-workbook`, and optionally `--next-dev-workbook`, or set `MOMO_TMS_RELEASE_WORKBOOK` and `MOMO_TMS_DEV_WORKBOOK` for the first two paths. If neither is provided, the smoke runner looks for `data/branch_cycle_smoke_inputs/2.4diff3.xlsx` and `data/branch_cycle_smoke_inputs/2.5diff3.xlsx`. `--next-dev-workbook` defaults to `--dev-workbook`, and `--next-dev-version` defaults to `2.5.4`. It writes to the isolated runtime root `data/branch_cycle_smoke` unless `--runtime-root` is provided.
 
-The smoke runner prints wall-clock checkpoints for project creation, release seed, bootstrap workbook parsing, dev bootstrap, content workbook parsing, and content mutation. It also prints service stage timings when summaries include `stages`. Because the known long-running risk is step 3, content mutation has live row progress and aborts after `--max-content-seconds` seconds by default. Use `--stop-after content-batch` to validate setup without running mutation, or set `--max-content-seconds 0` only when intentionally allowing the full mutation to run.
+The smoke runner prints wall-clock checkpoints for project creation, release seed, each dev bootstrap workbook parse, each dev bootstrap, each content workbook parse, each content mutation, and final replace. It also prints service stage timings when summaries include `stages`. Because content mutation is the known long-running risk, each content mutation has live row progress and aborts after `--max-content-seconds` seconds by default. Use `--stop-after content-batch`, `--stop-after next-content-batch`, or `--stop-after replace-current-rel` depending on how far you want the local smoke to run, or set `--max-content-seconds 0` only when intentionally allowing the full mutation to run.
 
 Frontend build prerequisite:
 
@@ -215,7 +215,7 @@ Use this section after selecting the owner doc from [docs/README.md](README.md).
 - backend or domain changes: run `python -m pytest -q`
 - API or routing changes: run `tests/test_variant_api.py` and `tests/test_services_architecture.py`
 - branch workflow changes: run `tests/test_branch_service.py` and `tests/test_io_flows.py`
-- branch-cycle TDD changes: run `tests/test_tdd_branch_cycle.py`; run `scripts/run_branch_cycle_smoke.py --reset` only for local large-workbook smoke coverage
+- branch-cycle TDD or smoke runner changes: run `tests/test_tdd_branch_cycle.py` and `tests/test_branch_cycle_smoke_runner.py`; run `scripts/run_branch_cycle_smoke.py --reset` only for local large-workbook smoke coverage
 - frontend `/app` changes: run `npm run build:app`, then `npm run test:e2e` when user-visible flows changed
 - docs-only changes: run `scripts/validate_docs.py`, then manually verify wording, ownership, and behavior claims the validator cannot prove
 - test-harness changes: run the directly impacted suite plus any docs validation needed for changed test references or commands

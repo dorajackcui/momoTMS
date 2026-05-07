@@ -30,6 +30,7 @@ class WorkbookRow:
     row_index: int
     business_key: str
     source: str
+    file_name: str | None = None
     translations: dict[str, str] = field(default_factory=dict)
     remarks: dict[str, str] = field(default_factory=dict)
     status: str = "ok"

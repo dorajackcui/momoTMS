@@ -78,8 +78,8 @@ Content fields:
 - when not provided, `business_key_header` defaults to `"Key"` and `source_header` defaults to `"MsgStr"`
 - header matching is schema-driven
 - import mapping always requires `business_key` and `source`
-- translation and remark mappings may be omitted for import; omitted fields are treated as "keep existing value"
-- `file_name` is derived from workbook relative path, not from a sheet column
+- `file_name` is an optional non-content business field sourced from workbook header `Source.Name`; it is not a project fixed column and is never derived from the uploaded workbook file name or relative path
+- translation, remark, and `file_name` mappings may be omitted for import; omitted fields are treated as "keep existing value"
 - upload preview is sheet-based and returns suggested mappings per sheet
 
 Header preview and resolution are implemented by `ProjectService.preview_headers()` and `ProjectService.resolve_headers()`.
@@ -95,8 +95,9 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - rows missing normalized `source` are invalid
 - import parsing uses `openpyxl.load_workbook(..., read_only=True, data_only=True)` and iterates workbook rows sequentially
 - import persistence writes `import_rows` in chunks instead of building one giant in-memory batch
-- persisted import row payloads are sparse patches: only mapped translation and remark fields are stored
-- an omitted translation or remark field means "leave the current value unchanged"; an explicitly provided blank cell still clears that field to `""`
+- `import_rows.file_path` stores the upload-relative workbook path for tracing and reports; it is transport metadata and is not used as `payload.file_name`
+- persisted import row payloads are sparse patches: only mapped `file_name`, translation, and remark fields are stored
+- an omitted `file_name`, translation, or remark field means "leave the current value unchanged"; an explicitly provided blank cell still clears that field to `""`
 - import results are persisted row by row in `imports` and `import_rows`
 - upload preview returns `available_headers`, `suggested_mapping`, and `missing_targets`
 - import jobs are async: preview uploads once, confirm starts a job, and clients poll job status separately
@@ -117,6 +118,7 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - create branch, branch mutation, branch trash, and project trash use workflow-specific workbook uploads
 - upload precheck is lightweight and validates files, sheets, headers, and sampled row issues
 - execute starts one async job that persists workbook rows and applies the target workflow
+- workbook intake maps optional `Source.Name` to `payload.file_name`; when `Source.Name` is absent, workbook batches omit `file_name` instead of falling back to the uploaded workbook path
 - content mutation requires configured key + source and only updates the currently bound branch variant
 - content mutation never binds, rebinds, creates variants, or changes branch range
 - range mutation requires configured key + source and may bind, rebind, or create variants according to branch policy
@@ -128,10 +130,13 @@ Header preview and resolution are implemented by `ProjectService.preview_headers
 - bootstrap preview is the read-only preview family entrypoint for this workflow
 - bootstrap preview reads persisted import rows in chunks but never creates entries, variants, bindings, or bootstrap metadata
 - bootstrap preview requires an existing non-bootstrapped `dev/<version>` branch row
-- bootstrap accepts a persisted import batch whose rows must provide normalized `business_key` and `source`; optional `file_name`, translation columns, and remark columns may be present in the uploaded file but are parsed and not used by bootstrap — content columns are always ignored regardless of whether the row creates a new variant or binds an existing one
+- bootstrap accepts a persisted import batch whose rows must provide normalized `business_key` and `source`; optional `file_name` from `Source.Name`, translation columns, and remark columns may be present in the uploaded file
+- bootstrap stores `file_name` only for newly created bare variants when the row payload includes it; it does not use `file_path` as a fallback, and rows without `Source.Name` create variants with empty `file_name`
+- uploaded translation content is always ignored by bootstrap regardless of whether the row creates a new variant or binds an existing one
+- uploaded remark content is ignored for same-source reuse hits, but newly created variants receive the row remarks mapped by the project schema
 - bootstrap reads persisted `import_rows` in chunks, primes entry and variant caches per chunk, and refreshes orphan state after the touched entries in that chunk instead of doing a single giant in-memory apply
 - rows that match an existing same-source canonical variant under the entry are reported as `BOUND_EXISTING_VARIANT`; uploaded translation or remark content is ignored for those reuse hits because bootstrap only needs to bind the already-existing variant
-- rows that have no same-source canonical variant create a new bare variant (source only, no translations or remarks), bind it to the dev branch, and report `CREATED_AND_BOUND_VARIANT`; content for these new variants must be populated via the mutation workflow after bootstrap completes
+- rows that have no same-source canonical variant create a new variant (source plus optional `file_name`, schema-mapped remarks, and no translations), bind it to the dev branch, and report `CREATED_AND_BOUND_VARIANT`; translation content for these new variants must be populated via the mutation workflow after bootstrap completes
 - rows missing normalized `business_key` or `source`, or rows that come from a non-`ok` import row status, are reported as `INVALID_ROW`
 - repeated `business_key` values inside the same bootstrap batch are reported as `DUPLICATE_KEY_IN_BOOTSTRAP`
 - bootstrap effect-forecast rows classify reuse hits as `binding_effect = bind`, `variant_resolution = reuse_existing`, `row_outcome = applied`
@@ -184,7 +189,7 @@ Mutation rules:
 - pure rebind can still succeed when no content change is needed, because binding an already-matching same-source variant is distinct from mutating that variant's content
 - `dev` policy may create missing entries when `source` is present
 - `rel` policy always starts from the currently bound rel variant and never creates a missing business key from scratch
-- `import_batch` applies persisted sparse patches using the same merge rules as direct mutation: only provided translations and remarks overwrite existing content
+- `import_batch` applies persisted sparse patches using the same merge rules as direct mutation: only provided `file_name`, translations, and remarks overwrite existing content
 - `import_batch + dev/<version>` runs as a job and streams report rows into job storage instead of returning the full apply result inline
 - `import_batch + rel/current` remains invalid
 - import-batch apply reads persisted `import_rows` in chunks, batches entry or variant or binding hydration, and refreshes orphan state once per touched entry set instead of once per row
@@ -206,7 +211,8 @@ Mutation rules:
 - `row_outcome_counts` groups rows as `applied_count`, `noop_count`, and `missing_count`
 - legacy status wording remains authoritative for compatibility reporting, and `content_filtered_by_authority` remains the compatibility flag for filtered content edits
 - new variants always start with `pivot_status = init`
-- when a mutation changes the normalized value of the project `pivot_language`, the touched variant becomes `pivot_status = changed`, records the actor branch as owner, and updates `pivot_changed_at`
+- when a mutation changes an already-written normalized value of the project `pivot_language`, the touched variant becomes `pivot_status = changed`, records the actor branch as owner, and updates `pivot_changed_at`
+- when a variant is still `pivot_status = init`, the first write from a missing or blank pivot-language value to a non-blank value remains `init` because it establishes the initial pivot text rather than changing reviewed pivot text
 - `NOOP` mutations and non-pivot-language changes do not alter pivot status
 - normal mutation paths never auto-clear `changed` back to `reviewed`
 
@@ -227,6 +233,7 @@ Mutation rules:
 - replace rebinds active variants; it does not copy content or create variants
 - replace preview is an `effect_forecast` and reports binding-change semantics instead of content-diff semantics
 - replace preview is read-only preview and keeps rows minimal while surfacing the shared semantic block when it has a clear meaning
+- replace preview reads identity-only source and target branch projections (`business_key`, `entry_id`, and `variant_id`) and does not hydrate variant content or branch-binding details
 - preview rows may report `ADD_TO_TARGET`, `KEEP_IN_TARGET`, `REBIND_TARGET`, or `REMOVE_FROM_TARGET`
 - `REBIND_TARGET` means the target branch already has the same `business_key` but is bound to a different variant than the source branch, so execute will switch the binding to the source branch's variant
 - execute runs in one DB transaction

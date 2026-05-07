@@ -66,7 +66,7 @@ class VariantCatalogService:
         file_name: str | None = None,
         conn: sqlite3.Connection | None = None,
     ) -> int:
-        """Create a variant row only (no translations/remarks) for scope-only bootstrap."""
+        """Create a variant row only; callers may add sparse side tables explicitly."""
         timestamp = now_iso()
         return self._commands.create(entry_id, file_name, source, timestamp, conn=conn)
 

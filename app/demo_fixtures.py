@@ -98,7 +98,7 @@ SAMPLES: list[dict] = [
                     {
                         "title": "Strings",
                         "rows": [
-                            ["file_name", "business_key", "source", "fr", "en", "context"],
+                            ["Source.Name", "business_key", "source", "fr", "en", "context"],
                             ["release/locked.xlsx", "rel.locked.same", "Release same source", "Release same target", "Release same target EN", "Should become tagged_only"],
                             ["release/locked.xlsx", "rel.locked.changed", "Release protected source changed", "Release protected target changed", "Release protected target changed EN", "Should become protected_skipped"],
                             ["dev/mutable.xlsx", "dev.mutable", "Mutable source updated", "Mutable updated fr", "Mutable updated en", "Updated by dev import"],
@@ -117,7 +117,7 @@ SAMPLES: list[dict] = [
                     {
                         "title": "Sheet1",
                         "rows": [
-                            ["file_name", "business_key", "source", "fr", "en", "context"],
+                            ["Source.Name", "business_key", "source", "fr", "en", "context"],
                             ["common/home.xlsx", "common.welcome", "Welcome {0}", "", "", "Fill from rel"],
                             ["master/fallback.xlsx", "fill.master_only", "Master fallback source", "", "", "Fill from master"],
                             ["release/fill.xlsx", "fill.rel", "Release fill source changed", "", "", "Should mismatch source"],

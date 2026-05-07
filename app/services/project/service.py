@@ -11,11 +11,12 @@ DEFAULT_PROJECT_ID = 1
 
 
 class ProjectService:
+    FILE_NAME_HEADER = "Source.Name"
     FIXED_COLUMNS = {
-        "file_name": "file_name",
         "business_key": "business_key",
         "source": "source",
     }
+    RESERVED_SCHEMA_COLUMNS = frozenset({"file_name", FILE_NAME_HEADER})
 
     def list_projects(self) -> list[dict[str, Any]]:
         with get_conn() as conn:
@@ -53,13 +54,12 @@ class ProjectService:
         if overlap:
             raise ValueError(f"schema columns must be distinct across translations and remarks: {sorted(overlap)}")
         fixed_columns = {
-            "file_name": "file_name",
             "business_key": normalize_non_content_value(business_key_header) or "business_key",
             "source": normalize_non_content_value(source_header) or "source",
         }
         if fixed_columns["business_key"] == fixed_columns["source"]:
             raise ValueError("business_key_header and source_header must be distinct")
-        fixed_names = set(fixed_columns.values())
+        fixed_names = set(fixed_columns.values()) | self.RESERVED_SCHEMA_COLUMNS
         if fixed_names & set(normalized_translation_columns + normalized_remark_columns):
             raise ValueError("schema columns cannot reuse fixed business headers")
         normalized_pivot_language, normalized_pivoted_languages = self._normalize_pivot_configuration(
@@ -183,7 +183,7 @@ class ProjectService:
         normalized, available_headers = self._normalize_headers(headers)
         fixed_columns = schema["fixed_columns"]
         suggested_mapping = {
-            "file_name": "",
+            "file_name": self.FILE_NAME_HEADER if self.FILE_NAME_HEADER in normalized else "",
             "business_key": fixed_columns["business_key"] if fixed_columns["business_key"] in normalized else "",
             "source": fixed_columns["source"] if fixed_columns["source"] in normalized else "",
             "translation_columns": {
@@ -261,6 +261,13 @@ class ProjectService:
             has_override="source" in override,
             required=True,
         )
+        file_name_header = resolve_header_name(
+            field_label="file_name",
+            default_header=self.FILE_NAME_HEADER,
+            selected_header=override.get("file_name"),
+            has_override="file_name" in override,
+            required=False,
+        )
         translation_columns: dict[str, int] = {}
         override_translation = override.get("translation_columns") or {}
         for lang in schema["translation_columns"]:
@@ -287,7 +294,7 @@ class ProjectService:
                 remark_columns[remark_key] = column_index
         return {
             "schema": schema,
-            "file_name": None,
+            "file_name": file_name_header,
             "business_key": business_key_header,
             "source": source_header,
             "translation_columns": translation_columns,

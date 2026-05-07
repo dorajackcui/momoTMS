@@ -22,6 +22,7 @@ from app.services.shared.utils import now_iso
 from app.services.variant.bindings import BindingLookupService
 from app.services.variant.catalog import VariantCatalogService
 from app.services.variant.entries import EntryService
+from app.services.variant.pivot import pivot_language_requires_review
 from app.services.workbooks.batches import WorkbookBatchService
 
 
@@ -338,13 +339,11 @@ class ContentBatchMutationApplier:
         pivot_language = schema.get("pivot_language")
         if pivot_language is None:
             return False
-        old_value = normalize_content_map(
-            {pivot_language: dict(variant.get("translations") or {}).get(pivot_language)}
-        )[pivot_language]
-        new_value = normalize_content_map(
-            {pivot_language: dict(merged["translations"]).get(pivot_language)}
-        )[pivot_language]
-        return old_value != new_value
+        return pivot_language_requires_review(
+            variant,
+            dict(merged["translations"]),
+            pivot_language,
+        )
 
     def _flush_write_set(self, write_set: _ContentWriteSet, conn: sqlite3.Connection) -> None:
         self.catalog.bulk_upsert_translations(write_set.translation_rows, conn=conn)

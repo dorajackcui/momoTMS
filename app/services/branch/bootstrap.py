@@ -611,21 +611,35 @@ class BranchBootstrapService:
             return "BOUND_EXISTING_VARIANT"
 
         payload = row["payload"]
-        file_name = payload.get("file_name") or row["file_path"]
+        content = self.catalog.build_content(
+            payload.get("file_name"),
+            row["source"],
+            {},
+            payload.get("remarks") or {},
+        )
         variant_id = self.catalog.create_variant_bare(
             entry_id,
-            row["source"],
-            file_name=file_name,
+            content["source"],
+            file_name=content["file_name"],
             conn=conn,
         )
+        if content["remarks"]:
+            remark_timestamp = now_iso()
+            self.catalog.bulk_upsert_remarks(
+                [
+                    (variant_id, remark_key, remark_value, remark_timestamp)
+                    for remark_key, remark_value in content["remarks"].items()
+                ],
+                conn=conn,
+            )
         self._append_variant_cache(
             variants,
             entry_id,
             variant_id,
-            file_name,
-            row["source"],
-            {},
-            {},
+            content["file_name"],
+            content["source"],
+            content["translations"],
+            content["remarks"],
         )
         self.bindings.bind(
             entry_id,

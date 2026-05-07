@@ -11,6 +11,7 @@ from app.services.shared.io import (
     normalize_non_content_map,
     normalize_non_content_value,
 )
+from app.services.shared.sql import iter_sql_chunks
 from app.services.variant.records import VariantRecord
 
 
@@ -163,31 +164,14 @@ class _VariantStore:
         unique_ids = sorted({int(variant_id) for variant_id in variant_ids})
         if not unique_ids:
             return {}
-        placeholders = ", ".join("?" for _ in unique_ids)
         if conn is not None:
-            rows = conn.execute(
-                f"""
-                SELECT *
-                FROM variants
-                WHERE variant_id IN ({placeholders})
-                ORDER BY variant_id
-                """,
-                unique_ids,
-            ).fetchall()
+            rows = self._select_rows_by_variant_ids(unique_ids, conn=conn)
             return {
                 int(variant["variant_id"]): variant
                 for variant in self._hydrate_rows(rows, conn=conn)
             }
         with get_conn() as local_conn:
-            rows = local_conn.execute(
-                f"""
-                SELECT *
-                FROM variants
-                WHERE variant_id IN ({placeholders})
-                ORDER BY variant_id
-                """,
-                unique_ids,
-            ).fetchall()
+            rows = self._select_rows_by_variant_ids(unique_ids, conn=local_conn)
             return {
                 int(variant["variant_id"]): variant
                 for variant in self._hydrate_rows(rows, conn=local_conn)
@@ -627,47 +611,15 @@ class _VariantStore:
     ) -> list[VariantRecord]:
         if not rows:
             return []
-        variant_ids = [int(row["variant_id"]) for row in rows]
-        placeholders = ", ".join("?" for _ in variant_ids)
+        variant_ids = sorted({int(row["variant_id"]) for row in rows})
         if conn is not None:
-            translation_rows = conn.execute(
-                f"""
-                SELECT variant_id, lang, target_text
-                FROM variant_translations
-                WHERE variant_id IN ({placeholders})
-                ORDER BY lang
-                """,
-                variant_ids,
-            ).fetchall()
-            remark_rows = conn.execute(
-                f"""
-                SELECT variant_id, remark_key, remark_value
-                FROM variant_remarks
-                WHERE variant_id IN ({placeholders})
-                ORDER BY remark_key
-                """,
-                variant_ids,
-            ).fetchall()
+            translation_rows, remark_rows = self._select_content_rows_by_variant_ids(variant_ids, conn=conn)
         else:
             with get_conn() as local_conn:
-                translation_rows = local_conn.execute(
-                    f"""
-                    SELECT variant_id, lang, target_text
-                    FROM variant_translations
-                    WHERE variant_id IN ({placeholders})
-                    ORDER BY lang
-                    """,
+                translation_rows, remark_rows = self._select_content_rows_by_variant_ids(
                     variant_ids,
-                ).fetchall()
-                remark_rows = local_conn.execute(
-                    f"""
-                    SELECT variant_id, remark_key, remark_value
-                    FROM variant_remarks
-                    WHERE variant_id IN ({placeholders})
-                    ORDER BY remark_key
-                    """,
-                    variant_ids,
-                ).fetchall()
+                    conn=local_conn,
+                )
         translations_by_id: dict[int, dict[str, str]] = defaultdict(dict)
         for row in translation_rows:
             translations_by_id[int(row["variant_id"])][row["lang"]] = normalize_content_value(row["target_text"])
@@ -706,6 +658,62 @@ class _VariantStore:
             for row in rows
         ]
 
+    def _select_rows_by_variant_ids(
+        self,
+        variant_ids: list[int],
+        *,
+        conn: sqlite3.Connection,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for chunk in iter_sql_chunks(variant_ids, conn):
+            placeholders = ", ".join("?" for _ in chunk)
+            rows.extend(
+                conn.execute(
+                    f"""
+                    SELECT *
+                    FROM variants
+                    WHERE variant_id IN ({placeholders})
+                    ORDER BY variant_id
+                    """,
+                    chunk,
+                ).fetchall()
+            )
+        return rows
+
+    def _select_content_rows_by_variant_ids(
+        self,
+        variant_ids: list[int],
+        *,
+        conn: sqlite3.Connection,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        translation_rows: list[dict[str, Any]] = []
+        remark_rows: list[dict[str, Any]] = []
+        for chunk in iter_sql_chunks(variant_ids, conn):
+            placeholders = ", ".join("?" for _ in chunk)
+            translation_rows.extend(
+                conn.execute(
+                    f"""
+                    SELECT variant_id, lang, target_text
+                    FROM variant_translations
+                    WHERE variant_id IN ({placeholders})
+                    ORDER BY lang
+                    """,
+                    chunk,
+                ).fetchall()
+            )
+            remark_rows.extend(
+                conn.execute(
+                    f"""
+                    SELECT variant_id, remark_key, remark_value
+                    FROM variant_remarks
+                    WHERE variant_id IN ({placeholders})
+                    ORDER BY remark_key
+                    """,
+                    chunk,
+                ).fetchall()
+            )
+        return translation_rows, remark_rows
+
     def hydrate_variant_rows(
         self,
         rows: list[dict[str, Any]],
@@ -736,17 +744,11 @@ class _VariantStore:
                     continue
                 seen.add(variant_id)
                 variant_ids.append(variant_id)
-            placeholders = ", ".join("?" for _ in variant_ids)
-            query = f"""
-                SELECT *
-                FROM variants
-                WHERE variant_id IN ({placeholders})
-            """
             if conn is not None:
-                canonical_rows = conn.execute(query, variant_ids).fetchall()
+                canonical_rows = self._select_rows_by_variant_ids(variant_ids, conn=conn)
             else:
                 with get_conn() as local_conn:
-                    canonical_rows = local_conn.execute(query, variant_ids).fetchall()
+                    canonical_rows = self._select_rows_by_variant_ids(variant_ids, conn=local_conn)
             rows_by_id = {
                 int(row["variant_id"]): row
                 for row in canonical_rows

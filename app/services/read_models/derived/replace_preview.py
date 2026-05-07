@@ -6,17 +6,17 @@ from app.services.branch.models import BranchRef
 from app.services.branch.preview_contract import effect_forecast_row
 from app.services.branch.policy import BranchReplacePolicy
 from app.services.project.service import DEFAULT_PROJECT_ID
-from app.services.read_models.datasets.scope_members import ScopeMembershipDataset
-from app.services.read_models.selectors import ScopeSelector, VariantFilter
+from app.services.read_models.repository import ReadModelRepository
+from app.services.read_models.selectors import ScopeSelector
 
 
 class ReplacePreviewView:
     def __init__(
         self,
         *,
-        scope_members: ScopeMembershipDataset | None = None,
+        repository: ReadModelRepository | None = None,
     ) -> None:
-        self.scope_members = scope_members or ScopeMembershipDataset()
+        self.repository = repository or ReadModelRepository()
 
     def build(
         self,
@@ -26,18 +26,16 @@ class ReplacePreviewView:
         project_id: int = DEFAULT_PROJECT_ID,
     ) -> dict[str, Any]:
         _ = BranchReplacePolicy.for_branches(source_branch_ref, target_branch_ref)
-        source_payload = self.scope_members.list(
+        source_member_rows = self.repository.select_branch_identity_rows(
+            project_id,
             ScopeSelector.from_branch(source_branch_ref),
-            filters=VariantFilter(state="all"),
-            project_id=project_id,
         )
-        target_payload = self.scope_members.list(
+        target_member_rows = self.repository.select_branch_identity_rows(
+            project_id,
             ScopeSelector.from_branch(target_branch_ref),
-            filters=VariantFilter(state="all"),
-            project_id=project_id,
         )
-        source_rows = {item["business_key"]: item for item in source_payload["rows"]}
-        target_rows = {item["business_key"]: item for item in target_payload["rows"]}
+        source_rows = {item["business_key"]: item for item in source_member_rows}
+        target_rows = {item["business_key"]: item for item in target_member_rows}
         source_keys = set(source_rows)
         target_keys = set(target_rows)
         added = sorted(source_keys - target_keys)

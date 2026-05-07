@@ -131,6 +131,36 @@ def test_workbook_batch_service_persists_rows_for_batch_reader(tmp_path) -> None
     assert rows[0]["payload"]["translations"] == {"fr": "Bonjour"}
 
 
+def test_workbook_batch_reads_file_name_from_source_name_column(tmp_path) -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Batch Source Name Project",
+        ["fr"],
+        ["context"],
+        business_key_header="key",
+        source_header="source_text",
+    )
+    root = tmp_path / "batch-source-name"
+    write_workbook(
+        root,
+        "bundle/messages.xlsx",
+        [
+            ["Source.Name", "key", "source_text", "fr"],
+            ["business/from-column.xlsx", "hello.key", "Hello", "Bonjour"],
+        ],
+    )
+
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        int(project["project_id"]),
+        WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="range"),
+    )
+    rows = list(WorkbookBatchService().iter_rows(batch["workbook_batch_id"], int(project["project_id"])))
+
+    assert rows[0]["file_path"] == "bundle/messages.xlsx"
+    assert rows[0]["payload"]["file_name"] == "business/from-column.xlsx"
+
+
 def test_workbook_batch_service_iter_row_chunks_preserves_order(tmp_path) -> None:
     reset_demo()
     project = ProjectService().create_project(

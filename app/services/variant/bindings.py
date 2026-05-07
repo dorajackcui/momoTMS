@@ -6,6 +6,7 @@ from typing import Any
 
 from app.db import get_conn
 from app.services.project.service import DEFAULT_PROJECT_ID
+from app.services.shared.sql import iter_sql_chunks
 from app.services.shared.utils import now_iso
 from app.services.variant.records import BindingRecord
 from app.services.variant.repositories import VariantCommandRepository, VariantQueryRepository
@@ -165,30 +166,11 @@ class _ScopeBindingStore:
     ) -> dict[int, BindingRecord]:
         if not entry_ids:
             return {}
-        placeholders = ", ".join("?" for _ in entry_ids)
         if conn is not None:
-            rows = conn.execute(
-                f"""
-                SELECT *
-                FROM scope_bindings
-                WHERE scope_type = ?
-                  AND scope_value = ?
-                  AND entry_id IN ({placeholders})
-                """,
-                [scope_type, scope_value, *entry_ids],
-            ).fetchall()
+            rows = self._select_for_entries(entry_ids, scope_type, scope_value, conn=conn)
         else:
             with get_conn() as local_conn:
-                rows = local_conn.execute(
-                    f"""
-                    SELECT *
-                    FROM scope_bindings
-                    WHERE scope_type = ?
-                      AND scope_value = ?
-                      AND entry_id IN ({placeholders})
-                    """,
-                    [scope_type, scope_value, *entry_ids],
-                ).fetchall()
+                rows = self._select_for_entries(entry_ids, scope_type, scope_value, conn=local_conn)
         return {int(row["entry_id"]): row for row in self._hydrate_rows(rows)}
 
     def list_for_entry(
@@ -226,32 +208,62 @@ class _ScopeBindingStore:
     ) -> dict[int, list[BindingRecord]]:
         if not entry_ids:
             return {}
-        placeholders = ", ".join("?" for _ in entry_ids)
         if conn is not None:
-            rows = conn.execute(
-                f"""
-                SELECT *
-                FROM scope_bindings
-                WHERE entry_id IN ({placeholders})
-                ORDER BY entry_id, scope_type, scope_value
-                """,
-                entry_ids,
-            ).fetchall()
+            rows = self._select_all_for_entries(entry_ids, conn=conn)
         else:
             with get_conn() as local_conn:
-                rows = local_conn.execute(
+                rows = self._select_all_for_entries(entry_ids, conn=local_conn)
+        grouped: dict[int, list[BindingRecord]] = defaultdict(list)
+        for item in self._hydrate_rows(rows):
+            grouped[int(item["entry_id"])].append(item)
+        return grouped
+
+    def _select_for_entries(
+        self,
+        entry_ids: list[int],
+        scope_type: str,
+        scope_value: str,
+        *,
+        conn: sqlite3.Connection,
+    ) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for chunk in iter_sql_chunks(entry_ids, conn, reserved_params=2):
+            placeholders = ", ".join("?" for _ in chunk)
+            rows.extend(
+                conn.execute(
+                    f"""
+                    SELECT *
+                    FROM scope_bindings
+                    WHERE scope_type = ?
+                      AND scope_value = ?
+                      AND entry_id IN ({placeholders})
+                    """,
+                    [scope_type, scope_value, *chunk],
+                ).fetchall()
+            )
+        return rows
+
+    def _select_all_for_entries(
+        self,
+        entry_ids: list[int],
+        *,
+        conn: sqlite3.Connection,
+    ) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for chunk in iter_sql_chunks(entry_ids, conn):
+            placeholders = ", ".join("?" for _ in chunk)
+            rows.extend(
+                conn.execute(
                     f"""
                     SELECT *
                     FROM scope_bindings
                     WHERE entry_id IN ({placeholders})
                     ORDER BY entry_id, scope_type, scope_value
                     """,
-                    entry_ids,
+                    chunk,
                 ).fetchall()
-        grouped: dict[int, list[BindingRecord]] = defaultdict(list)
-        for item in self._hydrate_rows(rows):
-            grouped[int(item["entry_id"])].append(item)
-        return grouped
+            )
+        return rows
 
     def clear_scope(
         self,

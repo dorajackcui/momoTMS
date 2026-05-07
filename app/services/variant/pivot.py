@@ -14,6 +14,21 @@ PIVOT_STATUS_CHANGED = "changed"
 PIVOT_STATUS_REVIEWED = "reviewed"
 
 
+def pivot_language_requires_review(
+    current_variant: VariantRecord | dict[str, object],
+    new_translations: dict[str, str],
+    pivot_language: str,
+) -> bool:
+    current_translations = dict(current_variant.get("translations") or {})
+    old_value = normalize_content_value(current_translations.get(pivot_language))
+    new_value = normalize_content_value(new_translations.get(pivot_language))
+    if old_value == new_value:
+        return False
+    if current_variant.get("pivot_status") == PIVOT_STATUS_INIT and old_value == "":
+        return False
+    return True
+
+
 def pivot_changed_by_branch_ref(variant: VariantRecord | dict[str, object]) -> str | None:
     scope_type = variant.get("pivot_changed_by_scope_type")
     scope_value = variant.get("pivot_changed_by_scope_value")
@@ -92,6 +107,4 @@ class VariantPivotCoordinator:
         new_translations: dict[str, str],
         pivot_language: str,
     ) -> bool:
-        old_value = normalize_content_value(current_variant["translations"].get(pivot_language))
-        new_value = normalize_content_value(new_translations.get(pivot_language))
-        return old_value != new_value
+        return pivot_language_requires_review(current_variant, new_translations, pivot_language)

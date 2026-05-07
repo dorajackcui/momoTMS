@@ -15,6 +15,8 @@ from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
 from app.services.shared.jobs import JobService
+from app.services.variant.bindings import BindingLookupService
+from app.services.variant.repositories import VariantQueryRepository
 from app.services.workflows.trash import TrashService
 from tests.service_helpers import branch_services
 from app.services.workbooks.batches import WorkbookBatchService
@@ -495,6 +497,43 @@ def test_branch_replace_preview_reports_rebind_target_when_variant_ids_differ() 
     assert "variant_resolution_counts" not in execute["summary"]
     assert "row_outcome_counts" not in execute["summary"]
     assert "already_in_target_count" not in execute["summary"]
+
+
+def test_branch_replace_preview_uses_identity_rows_without_variant_content_hydration(monkeypatch) -> None:
+    reset_demo()
+    services = branch_services()
+    branch_ref = BranchRef.dev("2.5.3")
+    BranchRegistryService().ensure_dev_branch(branch_ref.branch_value, project_id=1)
+    for index in range(12):
+        business_key = f"replace.bulk.{index:02d}"
+        entry = services.entries.get_or_create_entry(business_key, project_id=1)
+        variant_id = services.catalog.create_variant(
+            int(entry["entry_id"]),
+            services.catalog.build_content(
+                f"{business_key}.xlsx",
+                f"Bulk source {index}",
+                {"fr": f"Bulk text {index}"},
+                {"context": "bulk"},
+            ),
+        )
+        services.bindings.bind(int(entry["entry_id"]), branch_ref, variant_id)
+
+    def fail_variant_hydration(*args, **kwargs):
+        raise AssertionError("replace preview should not hydrate variant content")
+
+    def fail_binding_hydration(*args, **kwargs):
+        raise AssertionError("replace preview should not hydrate bindings")
+
+    monkeypatch.setattr(VariantQueryRepository, "hydrate_variant_rows", fail_variant_hydration)
+    monkeypatch.setattr(BindingLookupService, "list_bindings_for_entries", fail_binding_hydration)
+
+    preview = BranchReplaceService().preview(branch_ref, BranchRef.rel_current())
+
+    rows = [row for row in preview["rows"] if row["business_key"].startswith("replace.bulk.")]
+    assert preview["summary"]["final_target_entry_count"] == 12
+    assert preview["summary"]["added_to_target_count"] == 12
+    assert len(rows) == 12
+    assert all(row["status"] == "ADD_TO_TARGET" for row in rows)
 
 
 def test_replace_rolls_back_when_target_rewrite_fails(monkeypatch) -> None:
@@ -1079,6 +1118,44 @@ def test_import_batch_sparse_patch_preserves_unmapped_languages_and_remarks(tmp_
     assert entry["translations"]["fr"] == "Bonjour patch"
     assert entry["translations"]["en"] == "Hello initial"
     assert entry["remarks"]["context"] == "Initial context"
+
+
+def test_import_batch_reads_file_name_from_source_name_column(tmp_path) -> None:
+    reset_demo()
+
+    import_root = tmp_path / "source-name-import"
+    write_import_workbook(
+        import_root,
+        "bundle/upload.xlsx",
+        [
+            ["Source.Name", "business_key", "source", "fr"],
+            ["business/sheet-value.xlsx", "source.name.import", "Source text", "Bonjour"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+    report = ImportService().import_report(batch["import_batch_id"])
+
+    assert report["rows"][0]["file_path"] == "bundle/upload.xlsx"
+    assert report["rows"][0]["payload"]["file_name"] == "business/sheet-value.xlsx"
+
+
+def test_import_batch_omits_file_name_when_source_name_is_absent(tmp_path) -> None:
+    reset_demo()
+
+    import_root = tmp_path / "missing-source-name-import"
+    write_import_workbook(
+        import_root,
+        "bundle/upload.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["source.name.absent", "Source text", "Bonjour"],
+        ],
+    )
+    batch = ImportService().import_directory(str(import_root))
+    report = ImportService().import_report(batch["import_batch_id"])
+
+    assert report["rows"][0]["file_path"] == "bundle/upload.xlsx"
+    assert "file_name" not in report["rows"][0]["payload"]
 
 
 def test_import_batch_source_switch_preserves_existing_target_variant_fields(tmp_path) -> None:
@@ -1866,6 +1943,98 @@ def test_workbook_content_mutation_requires_current_bound_source(tmp_path) -> No
     assert statuses == ["UPDATED_BOUND_VARIANT", "SOURCE_MISMATCH"]
     assert updated["translations"]["fr"] == "Updated"
     assert updated["remarks"]["context"] == "Updated context"
+
+
+def test_workbook_content_mutation_preserves_and_clears_file_name_by_source_name_mapping(tmp_path) -> None:
+    reset_demo()
+    services = branch_services()
+    entry = services.entries.get_or_create_entry("content.file.name", project_id=1)
+    variant_id = services.catalog.create_variant(
+        int(entry["entry_id"]),
+        services.catalog.build_content(
+            "business/original.xlsx",
+            "Current source",
+            {"fr": "Original"},
+            {"context": "Original context"},
+        ),
+    )
+    services.bindings.bind(int(entry["entry_id"]), BranchRef.dev("2.4.3"), variant_id)
+
+    preserve_root = tmp_path / "content-preserve-file-name"
+    write_import_workbook(
+        preserve_root,
+        "bundle/upload.xlsx",
+        [
+            ["business_key", "source", "fr"],
+            ["content.file.name", "Current source", "Updated once"],
+        ],
+    )
+    preserve_batch = WorkbookBatchService().create_batch_from_directory(
+        preserve_root,
+        1,
+        WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="content"),
+    )
+    BranchMutationService().apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "workbook_batch",
+            "mutation_type": "content",
+            "workbook_batch_id": preserve_batch["workbook_batch_id"],
+        },
+    )
+    assert services.catalog.get_variant(variant_id)["file_name"] == "business/original.xlsx"
+
+    clear_root = tmp_path / "content-clear-file-name"
+    write_import_workbook(
+        clear_root,
+        "bundle/upload.xlsx",
+        [
+            ["Source.Name", "business_key", "source", "fr"],
+            ["", "content.file.name", "Current source", "Updated twice"],
+        ],
+    )
+    clear_batch = WorkbookBatchService().create_batch_from_directory(
+        clear_root,
+        1,
+        WorkbookWorkflowContext(workflow_kind="branch_mutation", mutation_type="content"),
+    )
+    BranchMutationService().apply(
+        BranchRef.dev("2.4.3"),
+        {
+            "kind": "workbook_batch",
+            "mutation_type": "content",
+            "workbook_batch_id": clear_batch["workbook_batch_id"],
+        },
+    )
+
+    updated = services.catalog.get_variant(variant_id)
+    assert updated["file_name"] == ""
+    assert updated["translations"]["fr"] == "Updated twice"
+
+
+def test_branch_bootstrap_created_variant_does_not_fallback_to_file_path(tmp_path) -> None:
+    reset_demo()
+    root = tmp_path / "bootstrap-file-name"
+    write_import_workbook(
+        root,
+        "bundle/bootstrap.xlsx",
+        [
+            ["business_key", "source"],
+            ["bootstrap.file.name", "Bootstrap source"],
+        ],
+    )
+    batch = WorkbookBatchService().create_batch_from_directory(
+        root,
+        1,
+        WorkbookWorkflowContext(workflow_kind="create_branch"),
+    )
+    dev_ref = BranchRef.dev("2.4.3")
+    BranchBootstrapService().bootstrap(dev_ref, batch["workbook_batch_id"], project_id=1)
+
+    rows = branch_services().list_branch_entries(dev_ref)
+    row = next(item for item in rows if item["business_key"] == "bootstrap.file.name")
+    variant = branch_services().catalog.get_variant(int(row["variant_id"]))
+    assert variant["file_name"] == ""
 
 
 def test_workbook_branch_trash_uses_key_only_rows(tmp_path) -> None:

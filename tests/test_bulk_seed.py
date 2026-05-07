@@ -233,15 +233,15 @@ def test_read_excel_chunks_basic(tmp_path):
     workbook_path = tmp_path / "test.xlsx"
     _create_test_workbook(
         workbook_path,
-        headers=["Key", "MsgStr", "fr", "en", "context"],
+        headers=["Source.Name", "Key", "MsgStr", "fr", "en", "context"],
         rows=[
-            ["key_1", "Hello", "Bonjour", "Hello", "greeting"],
-            ["key_2", "World", "Monde", "World", "noun"],
-            ["key_3", "Foo", "Fou", "Foo", "test"],
+            ["business/test.xlsx", "key_1", "Hello", "Bonjour", "Hello", "greeting"],
+            ["business/test.xlsx", "key_2", "World", "Monde", "World", "noun"],
+            ["business/test.xlsx", "key_3", "Foo", "Fou", "Foo", "test"],
         ],
     )
     schema = {
-        "fixed_columns": {"business_key": "Key", "source": "MsgStr", "file_name": "file_name"},
+        "fixed_columns": {"business_key": "Key", "source": "MsgStr"},
         "translation_columns": ["fr", "en"],
         "remark_columns": ["context"],
     }
@@ -254,8 +254,26 @@ def test_read_excel_chunks_basic(tmp_path):
     assert first_row["source"] == "Hello"
     assert first_row["translations"] == {"fr": "Bonjour", "en": "Hello"}
     assert first_row["remarks"] == {"context": "greeting"}
-    assert first_row["file_name"] == "test.xlsx"
+    assert first_row["file_name"] == "business/test.xlsx"
     assert first_row["sheet_name"] == "Sheet1"
+
+
+def test_read_excel_chunks_uses_empty_file_name_without_source_name_column(tmp_path):
+    workbook_path = tmp_path / "physical.xlsx"
+    _create_test_workbook(
+        workbook_path,
+        headers=["Key", "MsgStr", "fr"],
+        rows=[["key_1", "Hello", "Bonjour"]],
+    )
+    schema = {
+        "fixed_columns": {"business_key": "Key", "source": "MsgStr"},
+        "translation_columns": ["fr"],
+        "remark_columns": [],
+    }
+
+    chunks = list(read_excel_chunks(str(workbook_path), schema, chunk_size=2))
+
+    assert chunks[0][0]["file_name"] == ""
 
 
 def test_read_excel_chunks_fails_on_missing_header(tmp_path):
