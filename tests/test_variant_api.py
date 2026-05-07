@@ -7,11 +7,13 @@ from openpyxl import Workbook
 
 from app.db import get_db_path
 from app.main import app
+from app.schemas import VariantGridColumnRef, VariantGridFilterRequest
 from app.services.branch.models import BranchRef
 from app.services.branch.registry import BranchRegistryService
 from app.services.demo.service import DemoService
 from app.services.imports.service import ImportService
 from app.services.project.service import ProjectService
+from app.services.read_models.grid_filters import build_grid_query
 from app.services.read_models.repository import ReadModelRepository
 from app.services.read_models.selectors import VariantFilter
 from app.services.variant.catalog import VariantCatalogService
@@ -653,6 +655,46 @@ def test_project_variants_route_supports_state_filters_and_project_scope() -> No
         assert [row["business_key"] for row in second_project_response.json()["rows"]] == [
             "other.project.key"
         ]
+
+
+def test_variant_grid_filter_request_validates_columns_against_schema() -> None:
+    reset_demo()
+    request = VariantGridFilterRequest(
+        scope={"kind": "project"},
+        state="all",
+        filters=[
+            {
+                "column": {"kind": "translation", "name": "fr"},
+                "text": "Bonjour",
+                "values": [],
+            }
+        ],
+        page=1,
+        page_size=500,
+    )
+    spec = build_grid_query(1, request)
+    assert spec.page == 1
+    assert spec.page_size == 50
+    assert spec.scope_selector is None
+    assert spec.state == "all"
+    assert spec.filters[0].column == VariantGridColumnRef(kind="translation", name="fr")
+
+    bad_request = VariantGridFilterRequest(
+        scope={"kind": "project"},
+        filters=[
+            {
+                "column": {"kind": "translation", "name": "missing_lang"},
+                "text": "",
+                "values": [],
+            }
+        ],
+    )
+    try:
+        build_grid_query(1, bad_request)
+    except ValueError as exc:
+        assert "unknown translation column for project: missing_lang" in str(exc)
+    else:
+        raise AssertionError("expected unknown translation column to fail")
 
 
 def test_project_variants_route_supports_branch_filters_search_and_multi_bindings() -> None:

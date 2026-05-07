@@ -13,6 +13,9 @@ from app.services.project.service import ProjectService
 from app.services.branch.models import BranchRef
 
 
+reset_database = init_db
+
+
 def _create_project_and_entries(conn, n=3):
     conn.execute(
         "INSERT INTO projects(name, is_default, created_at) VALUES ('test', 1, '2026-01-01T00:00:00+00:00')"
@@ -187,6 +190,23 @@ def test_scope_bindings_entry_variant_index_exists() -> None:
         rows = conn.execute("PRAGMA index_list('scope_bindings')").fetchall()
     index_names = {row["name"] for row in rows}
     assert "idx_scope_bindings_entry_variant" in index_names
+
+
+def test_variant_grid_filter_indexes_exist() -> None:
+    reset_database()
+    with get_conn() as conn:
+        translation_indexes = {
+            row["name"]
+            for row in conn.execute("PRAGMA index_list('variant_translations')").fetchall()
+        }
+        remark_indexes = {
+            row["name"]
+            for row in conn.execute("PRAGMA index_list('variant_remarks')").fetchall()
+        }
+    assert "idx_variant_translations_lang_variant" in translation_indexes
+    assert "idx_variant_translations_lang_text_variant" in translation_indexes
+    assert "idx_variant_remarks_key_variant" in remark_indexes
+    assert "idx_variant_remarks_key_value_variant" in remark_indexes
 
 
 def test_bulk_bind():

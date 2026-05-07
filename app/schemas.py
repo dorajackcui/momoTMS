@@ -277,6 +277,53 @@ class ProjectVariantsResponse(BaseModel):
     page_size: int = 0
 
 
+class VariantGridColumnRef(BaseModel):
+    kind: Literal["field", "translation", "remark"]
+    name: str
+
+
+class VariantGridScope(BaseModel):
+    kind: Literal["project", "branch"]
+    branch_ref: str | None = None
+
+
+class VariantGridColumnFilter(BaseModel):
+    column: VariantGridColumnRef
+    text: str | None = None
+    values: list[str | None] = Field(default_factory=list)
+
+
+class VariantGridQueryRequest(BaseModel):
+    scope: VariantGridScope
+    state: Literal["active", "orphan", "all"] = "active"
+    filters: list[VariantGridColumnFilter] = Field(default_factory=list)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1)
+
+
+class ProjectVariantsQueryResponse(ProjectVariantsResponse):
+    has_next_page: bool = False
+    total_rows_exact: bool = True
+
+
+class VariantGridFilterRequest(VariantGridQueryRequest):
+    target_column: VariantGridColumnRef | None = None
+    option_search: str | None = None
+    limit: int = Field(default=100, ge=1)
+
+
+class VariantFilterOptionValue(BaseModel):
+    value: str | None = None
+    label: str
+    count: int | None = None
+
+
+class VariantFilterOptionsResponse(BaseModel):
+    values: list[VariantFilterOptionValue] = Field(default_factory=list)
+    limit: int = 100
+    has_more: bool = False
+
+
 class SameSourceCandidateRow(BaseModel):
     variant_id: int
     entry_id: int

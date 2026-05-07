@@ -9,7 +9,7 @@ from typing import Any, Iterator
 
 DB_PATH = Path("data/tms.db")
 DB_PATH_ENV_VAR = "MOMO_TMS_DB_PATH"
-SCHEMA_VERSION = "variant-v12"
+SCHEMA_VERSION = "variant-v13"
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> dict[str, Any]:
@@ -154,6 +154,11 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
         );
 
+        CREATE INDEX idx_variant_translations_lang_variant
+        ON variant_translations(lang, variant_id);
+        CREATE INDEX idx_variant_translations_lang_text_variant
+        ON variant_translations(lang, target_text, variant_id);
+
         CREATE TABLE variant_remarks (
             variant_id INTEGER NOT NULL,
             remark_key TEXT NOT NULL,
@@ -162,6 +167,11 @@ def _rebuild_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (variant_id, remark_key),
             FOREIGN KEY (variant_id) REFERENCES variants(variant_id) ON DELETE CASCADE
         );
+
+        CREATE INDEX idx_variant_remarks_key_variant
+        ON variant_remarks(remark_key, variant_id);
+        CREATE INDEX idx_variant_remarks_key_value_variant
+        ON variant_remarks(remark_key, remark_value, variant_id);
 
         CREATE TABLE dev_versions (
             project_id INTEGER NOT NULL,
