@@ -1,8 +1,9 @@
-import { useDeferredValue, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
 import { getProjectVariantFilterOptions, queryProjectVariants } from "@/domains/variants/api";
+import type { VariantGridColumnRef } from "@/domains/variants/types";
 import { queryKeys, invalidateProject } from "@/shared/api/queryKeys";
 import { VariantGrid } from "@/shared/ui/VariantGrid";
 import { EditPanel } from "@/shared/ui/EditPanel";
@@ -29,13 +30,21 @@ export function ReleasePage() {
   const [page, setPage] = useState(1);
 
   const deferredFilters = useDeferredValue(gridFilters);
-  const browseParams = {
+  const browseParams = useMemo(() => ({
     scope: { kind: "branch" as const, branch_ref: branchRef },
     state: stateFilter,
     filters: toApiFilters(deferredFilters),
     page,
     page_size: pageSize,
-  };
+  }), [branchRef, deferredFilters, page, stateFilter]);
+
+  const loadFilterOptions = useCallback((targetColumn: VariantGridColumnRef, optionSearch: string) =>
+    getProjectVariantFilterOptions(projectId, {
+      ...browseParams,
+      target_column: targetColumn,
+      option_search: optionSearch,
+      limit: 100,
+    }), [browseParams, projectId]);
 
   const browseQuery = useQuery({
     queryKey: queryKeys.branchRows(projectId, branchRef, browseParams),
@@ -69,14 +78,7 @@ export function ReleasePage() {
           onPageChange={setPage}
           filters={gridFilters}
           onFiltersChange={(filters) => { setGridFilters(filters); setPage(1); }}
-          loadFilterOptions={(targetColumn, optionSearch) =>
-            getProjectVariantFilterOptions(projectId, {
-              ...browseParams,
-              target_column: targetColumn,
-              option_search: optionSearch,
-              limit: 100,
-            })
-          }
+          loadFilterOptions={loadFilterOptions}
           stateFilter={stateFilter}
           onStateFilterChange={(s) => { setStateFilter(s); setPage(1); }}
           showStateFilter={false}

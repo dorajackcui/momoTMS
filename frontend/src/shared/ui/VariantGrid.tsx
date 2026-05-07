@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { DataGrid } from "react-data-grid";
 import type { Column } from "react-data-grid";
 
@@ -66,8 +67,9 @@ function HeaderFilterButton(props: {
   column: VariantGridColumnRef;
   filters: VariantGridFilterState;
   activeColumnKey: string | null;
-  setActiveColumnKey: (key: string | null) => void;
+  setActiveFilter: (filter: ActiveFilter | null) => void;
 }) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const key = columnKey(props.column);
   const committed = props.filters[key] ?? { text: "", values: [] };
   const isOpen = props.activeColumnKey === key;
@@ -79,9 +81,11 @@ function HeaderFilterButton(props: {
       className={`${styles.filterButton} ${isActive ? styles.filterButtonActive : ""}`}
       aria-label={`Filter ${props.label}`}
       title={`Filter ${props.label}`}
+      ref={buttonRef}
       onClick={(event) => {
         event.stopPropagation();
-        props.setActiveColumnKey(isOpen ? null : key);
+        const rect = buttonRef.current?.getBoundingClientRect();
+        props.setActiveFilter(isOpen || !rect ? null : { key, anchorRect: rect });
       }}
     >
       v
@@ -92,6 +96,7 @@ function HeaderFilterButton(props: {
 function HeaderFilterPopover(props: {
   label: string;
   column: VariantGridColumnRef;
+  anchorRect: DOMRectReadOnly;
   filters: VariantGridFilterState;
   onFiltersChange: (filters: VariantGridFilterState) => void;
   onClose: () => void;
@@ -107,6 +112,20 @@ function HeaderFilterPopover(props: {
   const [optionSearch, setOptionSearch] = useState("");
   const [options, setOptions] = useState<VariantFilterOptionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const popoverStyle = useMemo<CSSProperties>(() => {
+    const width = 260;
+    const padding = 8;
+    const viewportWidth = window.innerWidth;
+    let left = props.anchorRect.left;
+    if (left + width > viewportWidth - padding) {
+      left = props.anchorRect.right - width;
+    }
+    left = Math.max(padding, Math.min(left, viewportWidth - width - padding));
+    return {
+      left,
+      top: Math.max(padding, props.anchorRect.bottom - 2),
+    };
+  }, [props.anchorRect]);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +142,7 @@ function HeaderFilterPopover(props: {
     return () => {
       cancelled = true;
     };
-  }, [optionSearch, props.column.kind, props.column.name]);
+  }, [optionSearch, props.column.kind, props.column.name, props.loadFilterOptions]);
 
   function apply() {
     const next = { ...props.filters };
@@ -144,8 +163,12 @@ function HeaderFilterPopover(props: {
     props.onClose();
   }
 
-  return (
-    <div className={styles.filterPopover} onClick={(event) => event.stopPropagation()}>
+  return createPortal(
+    <div
+      className={styles.filterPopover}
+      style={popoverStyle}
+      onClick={(event) => event.stopPropagation()}
+    >
       <label className={styles.filterLabel}>
         <span>Search</span>
         <input
@@ -190,9 +213,15 @@ function HeaderFilterPopover(props: {
         <button type="button" onClick={clearColumn}>Clear column</button>
         <button type="button" onClick={apply} aria-label={`Apply ${props.label} filter`}>Apply</button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
+
+type ActiveFilter = {
+  key: string;
+  anchorRect: DOMRectReadOnly;
+};
 
 export function VariantGrid(props: VariantGridProps) {
   const {
@@ -203,7 +232,8 @@ export function VariantGrid(props: VariantGridProps) {
     columnToggles, onColumnToggleChange,
   } = props;
 
-  const [activeColumnKey, setActiveColumnKey] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter | null>(null);
+  const activeColumnKey = activeFilter?.key ?? null;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
   function renderFilterableHeader(label: string, column: VariantGridColumnRef) {
@@ -216,15 +246,16 @@ export function VariantGrid(props: VariantGridProps) {
           column={column}
           filters={filters}
           activeColumnKey={activeColumnKey}
-          setActiveColumnKey={setActiveColumnKey}
+          setActiveFilter={setActiveFilter}
         />
-        {activeColumnKey === key ? (
+        {activeColumnKey === key && activeFilter ? (
           <HeaderFilterPopover
             label={label}
             column={column}
+            anchorRect={activeFilter.anchorRect}
             filters={filters}
             onFiltersChange={onFiltersChange}
-            onClose={() => setActiveColumnKey(null)}
+            onClose={() => setActiveFilter(null)}
             loadFilterOptions={loadFilterOptions}
           />
         ) : null}

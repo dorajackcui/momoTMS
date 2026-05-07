@@ -1,9 +1,10 @@
-import { useDeferredValue } from "react";
+import { useCallback, useDeferredValue, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
 import { getProjectVariantFilterOptions, queryProjectVariants } from "@/domains/variants/api";
+import type { VariantGridColumnRef } from "@/domains/variants/types";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { applySearchPatch, normalizeText, parsePositiveInt } from "@/shared/lib/url";
 import { InlineNotice } from "@/shared/ui/primitives";
@@ -41,7 +42,7 @@ export function WorkspacePage() {
 
   const deferredFilters = useDeferredValue(gridFilters);
 
-  const params = {
+  const params = useMemo(() => ({
     scope: branchFilter
       ? { kind: "branch" as const, branch_ref: branchFilter }
       : { kind: "project" as const },
@@ -49,7 +50,15 @@ export function WorkspacePage() {
     filters: toApiFilters(deferredFilters),
     page,
     page_size: pageSize,
-  };
+  }), [branchFilter, deferredFilters, page, stateFilter]);
+
+  const loadFilterOptions = useCallback((targetColumn: VariantGridColumnRef, optionSearch: string) =>
+    getProjectVariantFilterOptions(projectId, {
+      ...params,
+      target_column: targetColumn,
+      option_search: optionSearch,
+      limit: 100,
+    }), [projectId, params]);
 
   const query = useQuery({
     queryKey: queryKeys.projectVariants(projectId, params),
@@ -111,14 +120,7 @@ export function WorkspacePage() {
       onFiltersChange={handleGridFiltersChange}
       branchFilter={branchFilter ?? ""}
       onBranchFilterChange={(value) => handleColumnFilter("branch", value)}
-      loadFilterOptions={(targetColumn, optionSearch) =>
-        getProjectVariantFilterOptions(projectId, {
-          ...params,
-          target_column: targetColumn,
-          option_search: optionSearch,
-          limit: 100,
-        })
-      }
+      loadFilterOptions={loadFilterOptions}
       stateFilter={stateFilter}
       onStateFilterChange={handleStateFilter}
       branchOptions={branchOptions}

@@ -42,12 +42,6 @@
   min-height: 400px;
 }
 
-.dataGrid :global(.rdg-header-row),
-.dataGrid :global(.rdg-header-row .rdg-cell) {
-  overflow: visible;
-  z-index: 30;
-}
-
 .headerCell {
   position: relative;
   display: grid;
@@ -79,10 +73,8 @@
 }
 
 .filterPopover {
-  position: absolute;
+  position: fixed;
   z-index: 100;
-  inset-block-start: calc(100% - 2px);
-  inset-inline-start: 0;
   display: grid;
   gap: 8px;
   inline-size: 260px;

@@ -352,6 +352,16 @@ test("Workspace applies source header filter with explicit apply", async ({
   await expect
     .poll(() => optionsRequests.some((item) => item.target_column?.name === "source"))
     .toBeTruthy();
+
+  await page.getByRole("button", { name: "Filter state" }).click();
+  const stateSearch = page.getByLabel("Search state");
+  await expect(stateSearch).toBeVisible();
+  const stateSearchBox = await stateSearch.boundingBox();
+  const viewport = page.viewportSize();
+  expect(stateSearchBox.x + stateSearchBox.width).toBeLessThanOrEqual(viewport.width);
+  await expect
+    .poll(() => optionsRequests.some((item) => item.target_column?.name === "state"))
+    .toBeTruthy();
 });
 
 test("Release trash shows workbook upload panel and calls correct API", async ({

@@ -1,9 +1,10 @@
-import { useDeferredValue, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useAppShell } from "@/app/shell/AppShellContext";
 import { previewBranchReplace, executeBranchReplace } from "@/domains/branches/api";
 import { getProjectVariantFilterOptions, queryProjectVariants } from "@/domains/variants/api";
+import type { VariantGridColumnRef } from "@/domains/variants/types";
 import type { EffectForecastPreview } from "@/domains/branches/types";
 import type { JobDetail } from "@/domains/jobs/types";
 import { queryKeys, invalidateProject } from "@/shared/api/queryKeys";
@@ -32,13 +33,21 @@ export function BranchDetail(props: { projectId: number; version: string; onBack
   const [replacePreview, setReplacePreview] = useState<EffectForecastPreview | null>(null);
 
   const deferredFilters = useDeferredValue(gridFilters);
-  const browseParams = {
+  const browseParams = useMemo(() => ({
     scope: { kind: "branch" as const, branch_ref: branchRef },
     state: stateFilter,
     filters: toApiFilters(deferredFilters),
     page,
     page_size: pageSize,
-  };
+  }), [branchRef, deferredFilters, page, stateFilter]);
+
+  const loadFilterOptions = useCallback((targetColumn: VariantGridColumnRef, optionSearch: string) =>
+    getProjectVariantFilterOptions(projectId, {
+      ...browseParams,
+      target_column: targetColumn,
+      option_search: optionSearch,
+      limit: 100,
+    }), [browseParams, projectId]);
 
   const browseQuery = useQuery({
     queryKey: queryKeys.branchRows(projectId, branchRef, browseParams),
@@ -93,14 +102,7 @@ export function BranchDetail(props: { projectId: number; version: string; onBack
           onPageChange={setPage}
           filters={gridFilters}
           onFiltersChange={(filters) => { setGridFilters(filters); setPage(1); }}
-          loadFilterOptions={(targetColumn, optionSearch) =>
-            getProjectVariantFilterOptions(projectId, {
-              ...browseParams,
-              target_column: targetColumn,
-              option_search: optionSearch,
-              limit: 100,
-            })
-          }
+          loadFilterOptions={loadFilterOptions}
           stateFilter={stateFilter}
           onStateFilterChange={(s) => { setStateFilter(s); setPage(1); }}
           showStateFilter={false}
