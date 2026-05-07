@@ -1,4 +1,7 @@
 import type {
+  ProjectSchema,
+} from "@/domains/projects/types";
+import type {
   VariantGridColumnFilter,
   VariantGridColumnRef,
 } from "@/domains/variants/types";
@@ -9,6 +12,15 @@ export type VariantGridColumnFilterState = {
 };
 
 export type VariantGridFilterState = Record<string, VariantGridColumnFilterState>;
+
+const allowedFieldColumns = new Set([
+  "business_key",
+  "file_name",
+  "source",
+  "branch",
+  "state",
+  "pivot_status",
+]);
 
 export function columnKey(column: VariantGridColumnRef): string {
   return `${column.kind}:${column.name}`;
@@ -34,6 +46,26 @@ export function toApiFilters(filters: VariantGridFilterState): VariantGridColumn
     if (!text && values.length === 0) return [];
     return [{ column, text, values }];
   });
+}
+
+export function pruneFiltersForSchema(
+  filters: VariantGridFilterState,
+  schema: ProjectSchema,
+): VariantGridFilterState {
+  const translationColumns = new Set(schema.translation_columns);
+  const remarkColumns = new Set(schema.remark_columns);
+  const result: VariantGridFilterState = {};
+
+  for (const [key, filter] of Object.entries(filters)) {
+    const column = parseColumnKey(key);
+    if (!column) continue;
+    if (column.kind === "field" && !allowedFieldColumns.has(column.name)) continue;
+    if (column.kind === "translation" && !translationColumns.has(column.name)) continue;
+    if (column.kind === "remark" && !remarkColumns.has(column.name)) continue;
+    result[key] = filter;
+  }
+
+  return result;
 }
 
 export function hasAnyFilter(filters: VariantGridFilterState): boolean {

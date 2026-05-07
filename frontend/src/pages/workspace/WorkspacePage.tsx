@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useMemo } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
@@ -12,6 +12,7 @@ import { VariantGrid } from "@/shared/ui/VariantGrid";
 import {
   decodeGridFilters,
   encodeGridFilters,
+  pruneFiltersForSchema,
   toApiFilters,
   type VariantGridFilterState,
 } from "@/shared/ui/variantGridFilters";
@@ -29,7 +30,12 @@ export function WorkspacePage() {
   const rawBranchFilter = normalizeText(searchParams.get("branch"));
   const branchFilter = rawBranchFilter ? shell.branchRef : null;
   const page = parsePositiveInt(searchParams.get("page")) ?? 1;
-  const gridFilters = decodeGridFilters(searchParams.get("grid_filters"));
+  const gridFilterParam = searchParams.get("grid_filters");
+  const rawGridFilters = useMemo(() => decodeGridFilters(gridFilterParam), [gridFilterParam]);
+  const gridFilters = useMemo(
+    () => pruneFiltersForSchema(rawGridFilters, schema),
+    [rawGridFilters, schema],
+  );
   const columnToggles = {
     translations: searchParams.get("translations") !== "0",
     remarks: searchParams.get("remarks") === "1",
@@ -41,6 +47,16 @@ export function WorkspacePage() {
   ];
 
   const deferredFilters = useDeferredValue(gridFilters);
+
+  useEffect(() => {
+    const rawEncoded = encodeGridFilters(rawGridFilters);
+    const prunedEncoded = encodeGridFilters(gridFilters);
+    if (rawEncoded === prunedEncoded) return;
+    setSearchParams(
+      (current) => applySearchPatch(current, { grid_filters: prunedEncoded, page: null }),
+      { replace: true },
+    );
+  }, [gridFilters, rawGridFilters, setSearchParams]);
 
   const params = useMemo(() => ({
     scope: branchFilter

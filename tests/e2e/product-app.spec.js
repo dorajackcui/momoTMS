@@ -364,6 +364,44 @@ test("Workspace applies source header filter with explicit apply", async ({
     .toBeTruthy();
 });
 
+test("Workspace prunes stale URL grid filters before querying variants", async ({
+  page,
+}) => {
+  const queryRequests = [];
+  const rawFilters = {
+    "translation:missing_lang": { text: "bonjour", values: [] },
+    "field:source": { text: "welcome", values: [] },
+  };
+  const encodedFilters = encodeURIComponent(JSON.stringify(rawFilters));
+
+  await page.route("**/api/projects/1/variants/query", async (route) => {
+    queryRequests.push(route.request().postDataJSON());
+    await route.continue();
+  });
+
+  await page.goto(`/app/workspace?project=1&lang=fr&state=all&grid_filters=${encodedFilters}`);
+  await expect(page.getByTestId("product-app")).toBeVisible();
+
+  await expect.poll(() => queryRequests.length).toBeGreaterThan(0);
+  expect(queryRequests.some((item) =>
+    (item.filters || []).some((filter) =>
+      filter.column.kind === "translation" &&
+      filter.column.name === "missing_lang"
+    )
+  )).toBeFalsy();
+  expect(queryRequests.some((item) =>
+    (item.filters || []).some((filter) =>
+      filter.column.kind === "field" &&
+      filter.column.name === "source" &&
+      filter.text === "welcome"
+    )
+  )).toBeTruthy();
+  await expect.poll(() => {
+    const value = new URL(page.url()).searchParams.get("grid_filters");
+    return value ? value.includes("missing_lang") : false;
+  }).toBeFalsy();
+});
+
 test("Release trash shows workbook upload panel and calls correct API", async ({
   page,
 }) => {
