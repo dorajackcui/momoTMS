@@ -21,7 +21,7 @@ DEFAULT_DEV_WORKBOOK = Path(
 DEFAULT_RUNTIME_ROOT = ROOT / "data" / "branch_cycle_smoke"
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the focused branch-cycle smoke flow against local Excel workbooks.",
     )
@@ -94,8 +94,8 @@ def main() -> int:
     parser.add_argument(
         "--content-progress-interval",
         type=int,
-        default=1000,
-        help="Print content mutation progress every N rows. Use 0 to disable.",
+        default=5000,
+        help="Print content mutation progress every N rows. Defaults to 5000. Use 0 to disable.",
     )
     parser.add_argument(
         "--max-content-seconds",
@@ -103,6 +103,11 @@ def main() -> int:
         default=300.0,
         help="Abort content mutation after this many seconds. Use 0 to disable.",
     )
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     try:

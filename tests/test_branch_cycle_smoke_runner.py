@@ -33,6 +33,12 @@ def rows_by_key(branch_ref: BranchRef, project_id: int) -> dict[str, dict]:
     }
 
 
+def test_smoke_runner_default_content_progress_interval_is_5000() -> None:
+    args = run_branch_cycle_smoke.build_parser().parse_args([])
+
+    assert args.content_progress_interval == 5000
+
+
 def test_smoke_runner_runs_two_dev_cycles_then_replaces_release(tmp_path, capsys) -> None:
     release_workbook = write_workbook(
         tmp_path / "release" / "2.4diff3.xlsx",
