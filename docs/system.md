@@ -157,7 +157,7 @@ Domain services:
 
 ## Database Tables
 
-Current schema version: `variant-v12`
+Current schema version: `variant-v13`
 
 Live tables:
 
@@ -197,6 +197,7 @@ Read models:
 2. `app/services/read_models/repository.py` loads raw scope members, live variants, history candidates, entry timelines, and projection rows
 3. `app/services/read_models/hydrate.py` is the single assembly path for variant content, bindings, lifecycle state, and pivot metadata
 4. datasets and derived views build on top of that shared repository plus hydrator pair instead of re-defining their own query rules
+5. Rich grid filters are evaluated in SQL before hydration. The row query pages variant ids first, hydrates only the selected page, and uses translation/remark lookup indexes for column filters and option lists.
 
 Bootstrap:
 

@@ -152,6 +152,23 @@ Variants workspace query:
 - `pivot_changed_by_branch_ref` uses the same `rel/current` or `dev/x.y.z` ref format as the rest of the API
 - row payloads include `variant_id`, `entry_id`, `business_key`, `file_name`, `source`, hydrated translations or remarks, `bindings`, `state`, `orphaned_at`, `pivot_status`, `pivot_changed_by_branch_ref`, `pivot_changed_at`, `pivot_reviewed_at`, `created_at`, and `updated_at`
 
+Rich variant grid query:
+
+- `POST /api/projects/{project_id}/variants/query` accepts a JSON body with `scope`, optional `state`, `filters`, `page`, and `page_size`
+- `scope.kind = project` returns project-wide live variants, excluding trashed rows; `state` supports `active`, `orphan`, and `all`
+- `scope.kind = branch` requires `branch_ref` and returns rows bound to that branch; branch-scope row queries ignore project `state`
+- `filters[]` accepts a typed `column` plus optional `text` and `values[]`
+- supported column refs are `field:business_key`, `field:file_name`, `field:source`, `field:branch`, `field:state`, `field:pivot_status`, `translation:<lang>`, and `remark:<key>`
+- `text` is case-insensitive contains; `values[]` is exact matching; same-column text and values combine with AND, and different columns combine with AND
+- `page_size` defaults to 50 and is capped at 50
+- response rows reuse `ProjectVariantRow` and add `has_next_page` plus `total_rows_exact`
+
+Rich variant grid filter options:
+
+- `POST /api/projects/{project_id}/variants/filter-options` accepts the same scope and filters plus `target_column`, optional `option_search`, and `limit`
+- the route returns distinct values for `target_column`, applies other column filters, ignores filters for `target_column`, defaults `limit` to 100, and caps it at 100
+- blank or missing values are represented as JSON `null` and displayed by `/app` as `(blank)`
+
 Branch-first catalog reads:
 
 - `GET /api/projects/{project_id}/branches/{branch_ref:path}/rows` accepts `search_business_key`, `search_source`, `page`, and optional `page_size`
@@ -264,6 +281,8 @@ The product app depends on:
 - job list, detail, report, and artifact APIs
 - canonical entry-variant and orphan inspection APIs
 - project-scoped branch mutation and sync routes plus fill and QA routes
+- `/app` uses the rich variant grid POST APIs for Workspace, Release browse, and Dev browse filtering; legacy GET row APIs remain available for simple reads
+- variant grid row pages use 50 rows; filter option lists show at most the first 100 distinct values
 
 The product app uses URL state as the primary workspace contract for `project`, `lang`, `branch`, `tab`, `job`, and `business_key`. It may store the selected project id locally only as a fallback when the URL does not provide one, clears that fallback when no projects exist, and refreshes page state from project-scoped APIs only.
 
@@ -318,6 +337,8 @@ Branch read models:
 Inspection reads:
 
 - `GET /api/projects/{project_id}/variants`
+- `POST /api/projects/{project_id}/variants/query`
+- `POST /api/projects/{project_id}/variants/filter-options`
 - `GET /api/projects/{project_id}/entries/{business_key}/variants`
 - `GET /api/projects/{project_id}/orphan-variants`
 
