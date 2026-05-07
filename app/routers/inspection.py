@@ -10,6 +10,8 @@ from app.schemas import (
     OrphanVariantsResponse,
     ProjectVariantsQueryResponse,
     ProjectVariantsResponse,
+    VariantFilterOptionsResponse,
+    VariantGridFilterRequest,
     VariantGridQueryRequest,
 )
 from app.services.read_models.datasets.entry_timeline import EntryTimelineDataset
@@ -66,6 +68,21 @@ def project_variants_query(
         else:
             payload = ScopeMembershipDataset().query(request, project_id=project_id)
         return ProjectVariantsQueryResponse(**payload)
+
+    return handle_errors(run)
+
+
+@router.post("/api/projects/{project_id}/variants/filter-options", response_model=VariantFilterOptionsResponse)
+def project_variant_filter_options(
+    project_id: int,
+    request: VariantGridFilterRequest,
+) -> VariantFilterOptionsResponse:
+    def run() -> VariantFilterOptionsResponse:
+        if request.scope.kind == "project":
+            payload = ProjectLiveVariantsDataset().filter_options(request, project_id=project_id)
+        else:
+            payload = ScopeMembershipDataset().filter_options(request, project_id=project_id)
+        return VariantFilterOptionsResponse(**payload)
 
     return handle_errors(run)
 

@@ -4,7 +4,7 @@ from typing import Any
 
 from app.services.project.service import DEFAULT_PROJECT_ID, ProjectService
 from app.services.read_models.hydrate import ReadModelHydrator
-from app.services.read_models.grid_filters import build_grid_query
+from app.services.read_models.grid_filters import build_grid_options, build_grid_query
 from app.services.read_models.repository import ReadModelRepository
 from app.services.read_models.selectors import VariantFilter
 
@@ -62,3 +62,15 @@ class ProjectLiveVariantsDataset:
             "has_next_page": payload["has_next_page"],
             "total_rows_exact": payload["total_rows_exact"],
         }
+
+    def filter_options(
+        self,
+        request,
+        *,
+        project_id: int = DEFAULT_PROJECT_ID,
+    ) -> dict[str, Any]:
+        self.projects.require_project(project_id)
+        spec = build_grid_options(project_id, request, projects=self.projects)
+        if spec.query.scope_selector is not None:
+            raise ValueError("project scope is required")
+        return self.repository.list_grid_filter_options(spec)

@@ -6,7 +6,12 @@ from typing import Any
 from app.db import get_conn
 from app.schemas import VariantGridColumnRef
 from app.services.branch.models import BranchRef
-from app.services.read_models.grid_filters import GridColumnFilter, GridQuerySpec
+from app.services.read_models.grid_filters import (
+    GridColumnFilter,
+    GridOptionsSpec,
+    GridQuerySpec,
+    filters_excluding_target,
+)
 from app.services.read_models.selectors import ScopeSelector, VariantFilter
 from app.services.read_models.types import FillCandidate, ProjectionRow
 from app.services.shared.io import normalize_content_value, normalize_non_content_value
@@ -197,6 +202,58 @@ class ReadModelRepository:
             "page_size": spec.page_size,
             "has_next_page": spec.page * spec.page_size < total_rows,
             "total_rows_exact": True,
+        }
+
+    def list_grid_filter_options(
+        self,
+        spec: GridOptionsSpec,
+        *,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]:
+        query_spec = GridQuerySpec(
+            project_id=spec.query.project_id,
+            scope_selector=spec.query.scope_selector,
+            state=spec.query.state,
+            filters=filters_excluding_target(spec.query.filters, spec.target_column),
+            page=1,
+            page_size=spec.limit,
+        )
+        where_clauses, where_params = self._grid_where(query_spec)
+        join_sql = self._grid_option_join_sql(spec.target_column)
+        value_sql, option_params = self._grid_option_value_sql(spec.target_column)
+        if spec.option_search:
+            where_clauses.append(f"LOWER(COALESCE({value_sql}, '')) LIKE ?")
+            where_params.append(f"%{spec.option_search}%")
+        where_sql = " AND ".join(where_clauses)
+        query = f"""
+            SELECT DISTINCT {value_sql} AS option_value
+            FROM variants v
+            JOIN entries e ON e.entry_id = v.entry_id
+            {join_sql}
+            WHERE {where_sql}
+            ORDER BY
+                CASE WHEN option_value IS NULL THEN 0 ELSE 1 END,
+                LOWER(option_value)
+            LIMIT ?
+        """
+        params = [*option_params, *where_params, spec.limit + 1]
+        if conn is not None:
+            rows = conn.execute(query, params).fetchall()
+        else:
+            with get_conn() as local_conn:
+                rows = local_conn.execute(query, params).fetchall()
+        values = [
+            {
+                "value": row["option_value"],
+                "label": "(blank)" if row["option_value"] is None else row["option_value"],
+                "count": None,
+            }
+            for row in rows[: spec.limit]
+        ]
+        return {
+            "values": values,
+            "limit": spec.limit,
+            "has_more": len(rows) > spec.limit,
         }
 
     def list_same_source_history_rows(
@@ -571,6 +628,37 @@ class ReadModelRepository:
                 ") THEN 'active' ELSE 'orphan' END"
             )
         raise ValueError(f"unsupported grid field: {column.name}")
+
+    def _grid_option_join_sql(self, column: VariantGridColumnRef) -> str:
+        if column.kind == "field":
+            if column.name == "branch":
+                return "LEFT JOIN scope_bindings option_b ON option_b.variant_id = v.variant_id"
+            return ""
+        if column.kind == "translation":
+            return (
+                "LEFT JOIN variant_translations option_vt "
+                "ON option_vt.variant_id = v.variant_id "
+                "AND option_vt.lang = ?"
+            )
+        if column.kind == "remark":
+            return (
+                "LEFT JOIN variant_remarks option_vr "
+                "ON option_vr.variant_id = v.variant_id "
+                "AND option_vr.remark_key = ?"
+            )
+        raise ValueError(f"unsupported grid column kind: {column.kind}")
+
+    def _grid_option_value_sql(self, column: VariantGridColumnRef) -> tuple[str, list[Any]]:
+        if column.kind == "field":
+            if column.name == "branch":
+                return "NULLIF(COALESCE(option_b.scope_type || '/' || option_b.scope_value, ''), '')", []
+            expression = self._grid_field_expression(column)
+            return f"NULLIF(COALESCE({expression}, ''), '')", []
+        if column.kind == "translation":
+            return "NULLIF(COALESCE(option_vt.target_text, ''), '')", [column.name]
+        if column.kind == "remark":
+            return "NULLIF(COALESCE(option_vr.remark_value, ''), '')", [column.name]
+        raise ValueError(f"unsupported grid column kind: {column.kind}")
 
     def _grid_text_clause(
         self,

@@ -849,6 +849,120 @@ def test_project_variants_query_branch_scope_ignores_project_state_and_supports_
     assert payload["rows"][0]["state"] == "active"
 
 
+def test_project_variant_filter_options_return_distinct_values_and_ignore_target_filter() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Grid Filter Options Project",
+        ["fr"],
+        ["context"],
+    )
+    project_id = int(project["project_id"])
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="rose.red",
+        source="Red rose",
+        file_name="flowers.xlsx",
+        translations={"fr": "Rose rouge"},
+        remarks={"context": "garden"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="rose.white",
+        source="White rose",
+        file_name="flowers.xlsx",
+        translations={"fr": "Rose blanche"},
+        remarks={"context": "vase"},
+        branch_refs=[BranchRef.dev("2.5.0")],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="lily.blue",
+        source="Blue lily",
+        file_name="lilies.xlsx",
+        translations={"fr": ""},
+        remarks={"context": ""},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/projects/{project_id}/variants/filter-options",
+            json={
+                "scope": {"kind": "project"},
+                "state": "all",
+                "target_column": {"kind": "translation", "name": "fr"},
+                "filters": [
+                    {"column": {"kind": "field", "name": "source"}, "text": "rose", "values": []},
+                    {"column": {"kind": "translation", "name": "fr"}, "text": "", "values": ["Rose rouge"]},
+                ],
+                "option_search": "rose",
+                "limit": 500,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 100
+    assert payload["has_more"] is False
+    assert [item["value"] for item in payload["values"]] == ["Rose blanche", "Rose rouge"]
+    assert [item["label"] for item in payload["values"]] == ["Rose blanche", "Rose rouge"]
+
+
+def test_project_variant_filter_options_support_blank_and_branch_values() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Grid Filter Blank Options Project",
+        ["fr"],
+        ["context"],
+    )
+    project_id = int(project["project_id"])
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="blank.option",
+        source="Blank option",
+        file_name="",
+        translations={"fr": ""},
+        remarks={"context": ""},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="dev.option",
+        source="Dev option",
+        file_name="dev.xlsx",
+        translations={"fr": "Dev"},
+        remarks={"context": "dev"},
+        branch_refs=[BranchRef.dev("2.5.0")],
+    )
+
+    with TestClient(app) as client:
+        blank_response = client.post(
+            f"/api/projects/{project_id}/variants/filter-options",
+            json={
+                "scope": {"kind": "branch", "branch_ref": "rel/current"},
+                "target_column": {"kind": "field", "name": "file_name"},
+                "filters": [],
+                "limit": 100,
+            },
+        )
+        branch_response = client.post(
+            f"/api/projects/{project_id}/variants/filter-options",
+            json={
+                "scope": {"kind": "project"},
+                "state": "all",
+                "target_column": {"kind": "field", "name": "branch"},
+                "filters": [],
+                "limit": 100,
+            },
+        )
+
+    assert blank_response.status_code == 200
+    assert blank_response.json()["values"][0] == {"value": None, "label": "(blank)", "count": None}
+    assert branch_response.status_code == 200
+    assert [item["value"] for item in branch_response.json()["values"]] == ["dev/2.5.0", "rel/current"]
+
+
 def test_project_variants_route_supports_branch_filters_search_and_multi_bindings() -> None:
     reset_demo()
     services = branch_services()
