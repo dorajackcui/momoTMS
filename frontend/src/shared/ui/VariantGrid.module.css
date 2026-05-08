@@ -116,6 +116,28 @@
   color: var(--text);
 }
 
+.optionTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.optionTools button {
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.optionTools button:hover {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
 .optionList {
   display: grid;
   gap: 4px;

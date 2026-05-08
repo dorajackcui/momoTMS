@@ -157,9 +157,12 @@ Rich variant grid query:
 - `POST /api/projects/{project_id}/variants/query` accepts a JSON body with `scope`, optional `state`, `filters`, `page`, and `page_size`
 - `scope.kind = project` returns project-wide live variants, excluding trashed rows; `state` supports `active`, `orphan`, and `all`
 - `scope.kind = branch` requires `branch_ref` and returns rows bound to that branch; branch-scope row queries ignore project `state`
-- `filters[]` accepts a typed `column` plus optional `text` and `values[]`
+- `filters[]` accepts a typed `column` plus optional `text`, `value_mode`, `value_search`, and `values[]`
 - supported column refs are `field:business_key`, `field:file_name`, `field:source`, `field:branch`, `field:state`, `field:pivot_status`, `translation:<lang>`, and `remark:<key>`
-- `text` is case-insensitive contains; `values[]` is exact matching; same-column text and values combine with AND, and different columns combine with AND
+- `text` is case-insensitive row contains filtering
+- `value_mode` supports `all`, `include`, and `exclude`; omitted mode remains backward compatible by treating non-empty `values[]` as `include` and empty `values[]` as `all`
+- `include` means only `values[]` exact matches are selected; `exclude` means all candidate values except `values[]`; `all` means all candidate values, optionally scoped by case-insensitive `value_search`
+- same-column text and value selection combine with AND, and different columns combine with AND
 - `page_size` defaults to 50 and is capped at 50
 - response rows reuse `ProjectVariantRow` and add `has_next_page` plus `total_rows_exact`
 
@@ -167,6 +170,7 @@ Rich variant grid filter options:
 
 - `POST /api/projects/{project_id}/variants/filter-options` accepts the same scope and filters plus `target_column`, optional `option_search`, and `limit`
 - the route returns distinct values for `target_column`, applies other column filters, ignores filters for `target_column`, defaults `limit` to 100, and caps it at 100
+- filter options are sorted by value name; count sorting and per-value counts are not part of the current contract
 - blank or missing values are represented as JSON `null` and displayed by `/app` as `(blank)`
 
 Branch-first catalog reads:

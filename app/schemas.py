@@ -290,6 +290,8 @@ class VariantGridScope(BaseModel):
 class VariantGridColumnFilter(BaseModel):
     column: VariantGridColumnRef
     text: str | None = None
+    value_mode: Literal["all", "include", "exclude"] | None = None
+    value_search: str | None = None
     values: list[str | None] = Field(default_factory=list)
 
 

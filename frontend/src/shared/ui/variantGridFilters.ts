@@ -4,10 +4,13 @@ import type {
 import type {
   VariantGridColumnFilter,
   VariantGridColumnRef,
+  VariantGridValueMode,
 } from "@/domains/variants/types";
 
 export type VariantGridColumnFilterState = {
   text: string;
+  valueMode: VariantGridValueMode;
+  valueSearch: string;
   values: Array<string | null>;
 };
 
@@ -42,9 +45,18 @@ export function toApiFilters(filters: VariantGridFilterState): VariantGridColumn
     const column = parseColumnKey(key);
     if (!column) return [];
     const text = filter.text.trim();
+    const valueMode = filter.valueMode ?? (filter.values.length > 0 ? "include" : "all");
+    const valueSearch = (filter.valueSearch ?? "").trim();
     const values = filter.values;
-    if (!text && values.length === 0) return [];
-    return [{ column, text, values }];
+    const hasValueSelection = valueMode !== "all" || valueSearch || values.length > 0;
+    if (!text && !hasValueSelection) return [];
+    return [{
+      column,
+      text,
+      value_mode: valueMode,
+      value_search: valueSearch,
+      values,
+    }];
   });
 }
 
@@ -74,8 +86,21 @@ export function hasAnyFilter(filters: VariantGridFilterState): boolean {
 
 export function encodeGridFilters(filters: VariantGridFilterState): string | null {
   const entries = Object.entries(filters)
-    .map(([key, filter]) => [key, { text: filter.text.trim(), values: filter.values }] as const)
-    .filter(([, filter]) => filter.text || filter.values.length > 0);
+    .map(([key, filter]) => [
+      key,
+      {
+        text: filter.text.trim(),
+        valueMode: filter.valueMode ?? (filter.values.length > 0 ? "include" : "all"),
+        valueSearch: (filter.valueSearch ?? "").trim(),
+        values: filter.values,
+      },
+    ] as const)
+    .filter(([, filter]) =>
+      filter.text ||
+      filter.valueMode !== "all" ||
+      filter.valueSearch ||
+      filter.values.length > 0
+    );
   return entries.length > 0 ? JSON.stringify(Object.fromEntries(entries)) : null;
 }
 
@@ -86,11 +111,17 @@ export function decodeGridFilters(value: string | null): VariantGridFilterState 
     const result: VariantGridFilterState = {};
     for (const [key, filter] of Object.entries(parsed)) {
       if (!parseColumnKey(key)) continue;
+      const valueMode = filter.valueMode === "all" || filter.valueMode === "include" || filter.valueMode === "exclude"
+        ? filter.valueMode
+        : undefined;
+      const values = Array.isArray(filter.values)
+        ? filter.values.filter((item): item is string | null => item === null || typeof item === "string")
+        : [];
       result[key] = {
         text: typeof filter.text === "string" ? filter.text : "",
-        values: Array.isArray(filter.values)
-          ? filter.values.filter((item): item is string | null => item === null || typeof item === "string")
-          : [],
+        valueMode: valueMode ?? (values.length > 0 ? "include" : "all"),
+        valueSearch: typeof filter.valueSearch === "string" ? filter.valueSearch : "",
+        values,
       };
     }
     return result;

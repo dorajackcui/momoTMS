@@ -603,10 +603,26 @@ class ReadModelRepository:
         if text_clause:
             clauses.append(text_clause)
             params.extend(text_params)
-        values_clause, values_params = self._grid_values_clause(item.column, item.values)
-        if values_clause:
-            clauses.append(values_clause)
-            params.extend(values_params)
+        value_search_clause, value_search_params = self._grid_text_clause(
+            item.column,
+            item.value_search if item.value_mode in {"all", "exclude"} else "",
+        )
+        if value_search_clause:
+            clauses.append(value_search_clause)
+            params.extend(value_search_params)
+        if item.value_mode == "include":
+            if item.values:
+                values_clause, values_params = self._grid_values_clause(item.column, item.values)
+                if values_clause:
+                    clauses.append(values_clause)
+                    params.extend(values_params)
+            elif not item.text:
+                clauses.append("0 = 1")
+        elif item.value_mode == "exclude" and item.values:
+            values_clause, values_params = self._grid_values_clause(item.column, item.values)
+            if values_clause:
+                clauses.append(f"NOT {values_clause}")
+                params.extend(values_params)
         if not clauses:
             return None, []
         return f"({' AND '.join(clauses)})", params

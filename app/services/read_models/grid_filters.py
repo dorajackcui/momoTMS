@@ -31,6 +31,8 @@ class GridColumnFilter:
     column: VariantGridColumnRef
     text: str
     values: tuple[str | None, ...]
+    value_mode: str
+    value_search: str
 
 
 @dataclass(frozen=True)
@@ -112,10 +114,18 @@ def _validated_filter(
     item: VariantGridColumnFilter,
     schema: dict,
 ) -> GridColumnFilter:
+    values = tuple(_normalized_value(value) for value in item.values)
+    value_mode = item.value_mode
+    if value_mode is None:
+        value_mode = "include" if values else "all"
+    if value_mode == "all":
+        values = ()
     return GridColumnFilter(
         column=_validated_column(item.column, schema),
         text=normalize_non_content_value(item.text).lower(),
-        values=tuple(_normalized_value(value) for value in item.values),
+        values=values,
+        value_mode=value_mode,
+        value_search=normalize_non_content_value(item.value_search).lower(),
     )
 
 

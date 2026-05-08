@@ -366,6 +366,58 @@ test("Workspace applies source header filter with explicit apply", async ({
     .toBeTruthy();
 });
 
+test("Workspace header filter supports select all and invert semantics", async ({
+  page,
+}) => {
+  const queryRequests = [];
+
+  await page.route("**/api/projects/1/variants/query", async (route) => {
+    queryRequests.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await page.route("**/api/projects/1/variants/filter-options", async (route) => {
+    await route.fulfill({
+      json: {
+        values: [
+          { value: "First dev source", label: "First dev source", count: null },
+          { value: "Second dev source", label: "Second dev source", count: null },
+        ],
+        limit: 100,
+        has_more: false,
+      },
+    });
+  });
+
+  await page.goto("/app/workspace?project=1&lang=fr&state=all");
+  await page.getByRole("button", { name: "Filter source" }).click();
+  await page.getByLabel("Find source values").fill("dev");
+  await page.getByRole("button", { name: "Select all source values" }).click();
+  await page.getByRole("button", { name: "Apply source filter" }).click();
+
+  await expect.poll(() => queryRequests.some((item) =>
+    (item.filters || []).some((filter) =>
+      filter.column.kind === "field" &&
+      filter.column.name === "source" &&
+      filter.value_mode === "all" &&
+      filter.value_search === "dev"
+    )
+  )).toBeTruthy();
+
+  await page.getByRole("button", { name: "Filter source" }).click();
+  await page.getByRole("button", { name: "Invert source values" }).click();
+  await page.getByRole("button", { name: "Apply source filter" }).click();
+
+  await expect.poll(() => queryRequests.some((item) =>
+    (item.filters || []).some((filter) =>
+      filter.column.kind === "field" &&
+      filter.column.name === "source" &&
+      filter.value_mode === "include" &&
+      Array.isArray(filter.values) &&
+      filter.values.length === 0
+    )
+  )).toBeTruthy();
+});
+
 test("Workspace prunes stale URL grid filters before querying variants", async ({
   page,
 }) => {

@@ -8,10 +8,12 @@ import type {
   ProjectVariantRow,
   VariantFilterOptionsResponse,
   VariantGridColumnRef,
+  VariantGridValueMode,
 } from "@/domains/variants/types";
 import {
   columnKey,
   hasAnyFilter,
+  type VariantGridColumnFilterState,
   type VariantGridFilterState,
 } from "@/shared/ui/variantGridFilters";
 
@@ -62,6 +64,19 @@ function toggleOption(
     : [...values, value];
 }
 
+function defaultColumnFilter(): VariantGridColumnFilterState {
+  return { text: "", valueMode: "all", valueSearch: "", values: [] };
+}
+
+function isColumnFilterActive(filter: VariantGridColumnFilterState): boolean {
+  return (
+    filter.text.trim() !== "" ||
+    filter.valueMode !== "all" ||
+    filter.valueSearch.trim() !== "" ||
+    filter.values.length > 0
+  );
+}
+
 function HeaderFilterButton(props: {
   label: string;
   column: VariantGridColumnRef;
@@ -71,9 +86,9 @@ function HeaderFilterButton(props: {
 }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const key = columnKey(props.column);
-  const committed = props.filters[key] ?? { text: "", values: [] };
+  const committed = props.filters[key] ?? defaultColumnFilter();
   const isOpen = props.activeColumnKey === key;
-  const isActive = committed.text.trim() !== "" || committed.values.length > 0;
+  const isActive = isColumnFilterActive(committed);
 
   return (
     <button
@@ -106,10 +121,12 @@ function HeaderFilterPopover(props: {
   ) => Promise<VariantFilterOptionsResponse>;
 }) {
   const key = columnKey(props.column);
-  const committed = props.filters[key] ?? { text: "", values: [] };
+  const committed = props.filters[key] ?? defaultColumnFilter();
   const [draftText, setDraftText] = useState(committed.text);
   const [draftValues, setDraftValues] = useState<Array<string | null>>(committed.values);
-  const [optionSearch, setOptionSearch] = useState("");
+  const [draftValueMode, setDraftValueMode] = useState<VariantGridValueMode>(committed.valueMode);
+  const [draftValueSearch, setDraftValueSearch] = useState(committed.valueSearch);
+  const [optionSearch, setOptionSearch] = useState(committed.valueSearch);
   const [options, setOptions] = useState<VariantFilterOptionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const popoverStyle = useMemo<CSSProperties>(() => {
@@ -144,10 +161,61 @@ function HeaderFilterPopover(props: {
     };
   }, [optionSearch, props.column.kind, props.column.name, props.loadFilterOptions]);
 
+  function optionIsChecked(value: string | null): boolean {
+    const selected = draftValues.some((item) => optionValueKey(item) === optionValueKey(value));
+    if (draftValueMode === "all") return true;
+    if (draftValueMode === "exclude") return !selected;
+    return selected;
+  }
+
+  function toggleDraftOption(value: string | null) {
+    if (draftValueMode === "all") {
+      setDraftValueMode("exclude");
+      setDraftValueSearch(optionSearch.trim());
+      setDraftValues([value]);
+      return;
+    }
+    setDraftValues((current) => toggleOption(current, value));
+  }
+
+  function selectAllValues() {
+    setDraftValueMode("all");
+    setDraftValues([]);
+    setDraftValueSearch(optionSearch.trim());
+  }
+
+  function invertValues() {
+    if (draftValueMode === "all") {
+      setDraftValueMode("include");
+      setDraftValues([]);
+      setDraftValueSearch("");
+      return;
+    }
+    if (draftValueMode === "include") {
+      if (draftValues.length === 0) {
+        setDraftValueMode("all");
+        setDraftValueSearch(optionSearch.trim());
+      } else {
+        setDraftValueMode("exclude");
+        setDraftValueSearch(optionSearch.trim());
+      }
+      return;
+    }
+    setDraftValueMode("include");
+    setDraftValueSearch("");
+  }
+
   function apply() {
     const next = { ...props.filters };
-    const value = { text: draftText.trim(), values: draftValues };
-    if (!value.text && value.values.length === 0) {
+    const value = {
+      text: draftText.trim(),
+      valueMode: draftValueMode,
+      valueSearch: draftValueMode === "all" || draftValueMode === "exclude"
+        ? draftValueSearch.trim()
+        : "",
+      values: draftValues,
+    };
+    if (!isColumnFilterActive(value)) {
       delete next[key];
     } else {
       next[key] = value;
@@ -188,6 +256,22 @@ function HeaderFilterPopover(props: {
           onChange={(event) => setOptionSearch(event.target.value)}
         />
       </label>
+      <div className={styles.optionTools}>
+        <button
+          type="button"
+          onClick={selectAllValues}
+          aria-label={`Select all ${props.label} values`}
+        >
+          Select All
+        </button>
+        <button
+          type="button"
+          onClick={invertValues}
+          aria-label={`Invert ${props.label} values`}
+        >
+          Invert
+        </button>
+      </div>
       <div className={styles.optionList}>
         {error ? <span className={styles.optionMeta}>{error}</span> : null}
         {options?.values.map((option) => {
@@ -200,8 +284,8 @@ function HeaderFilterPopover(props: {
             >
               <input
                 type="checkbox"
-                checked={draftValues.some((item) => optionValueKey(item) === optionValueKey(option.value))}
-                onChange={() => setDraftValues((current) => toggleOption(current, option.value))}
+                checked={optionIsChecked(option.value)}
+                onChange={() => toggleDraftOption(option.value)}
               />
               <span>{displayLabel}</span>
             </label>

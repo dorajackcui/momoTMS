@@ -85,9 +85,13 @@ export type VariantGridScope =
   | { kind: "project" }
   | { kind: "branch"; branch_ref: string };
 
+export type VariantGridValueMode = "all" | "include" | "exclude";
+
 export type VariantGridColumnFilter = {
   column: VariantGridColumnRef;
   text?: string | null;
+  value_mode?: VariantGridValueMode | null;
+  value_search?: string | null;
   values?: Array<string | null>;
 };
 

@@ -800,6 +800,141 @@ def test_project_variants_query_filters_every_column_family_and_caps_page_size()
     assert payload["rows"][0]["remarks"]["context"] == "garden"
 
 
+def test_project_variants_query_supports_include_and_exclude_value_modes() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Grid Filter Value Mode Project",
+        ["fr"],
+        ["context"],
+    )
+    project_id = int(project["project_id"])
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="k.one",
+        source="One source",
+        file_name="one.xlsx",
+        translations={"fr": "Un"},
+        remarks={"context": "first"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="k.two",
+        source="Two source",
+        file_name="two.xlsx",
+        translations={"fr": "Deux"},
+        remarks={"context": "second"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="k.three",
+        source="Three source",
+        file_name="three.xlsx",
+        translations={"fr": "Trois"},
+        remarks={"context": "third"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        include_response = client.post(
+            f"/api/projects/{project_id}/variants/query",
+            json={
+                "scope": {"kind": "project"},
+                "state": "all",
+                "filters": [
+                    {
+                        "column": {"kind": "field", "name": "source"},
+                        "value_mode": "include",
+                        "values": ["One source", "Three source"],
+                    }
+                ],
+                "page": 1,
+                "page_size": 50,
+            },
+        )
+        exclude_response = client.post(
+            f"/api/projects/{project_id}/variants/query",
+            json={
+                "scope": {"kind": "project"},
+                "state": "all",
+                "filters": [
+                    {
+                        "column": {"kind": "field", "name": "source"},
+                        "value_mode": "exclude",
+                        "values": ["Two source"],
+                    }
+                ],
+                "page": 1,
+                "page_size": 50,
+            },
+        )
+
+    assert include_response.status_code == 200
+    assert {row["business_key"] for row in include_response.json()["rows"]} == {"k.one", "k.three"}
+    assert exclude_response.status_code == 200
+    assert {row["business_key"] for row in exclude_response.json()["rows"]} == {"k.one", "k.three"}
+
+
+def test_project_variants_query_all_value_mode_uses_value_search_universe() -> None:
+    reset_demo()
+    project = ProjectService().create_project(
+        "Grid Filter Select All Project",
+        ["fr"],
+        ["context"],
+    )
+    project_id = int(project["project_id"])
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="rose.red",
+        source="Red rose",
+        file_name="flowers.xlsx",
+        translations={"fr": "Rose rouge"},
+        remarks={"context": "garden"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="rose.white",
+        source="White rose",
+        file_name="flowers.xlsx",
+        translations={"fr": "Rose blanche"},
+        remarks={"context": "vase"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+    create_bound_variant_with_remarks(
+        project_id=project_id,
+        business_key="tree.oak",
+        source="Oak tree",
+        file_name="trees.xlsx",
+        translations={"fr": "Chene"},
+        remarks={"context": "forest"},
+        branch_refs=[BranchRef.rel_current()],
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/projects/{project_id}/variants/query",
+            json={
+                "scope": {"kind": "project"},
+                "state": "all",
+                "filters": [
+                    {
+                        "column": {"kind": "field", "name": "source"},
+                        "value_mode": "all",
+                        "value_search": "rose",
+                        "values": [],
+                    }
+                ],
+                "page": 1,
+                "page_size": 50,
+            },
+        )
+
+    assert response.status_code == 200
+    assert {row["business_key"] for row in response.json()["rows"]} == {"rose.red", "rose.white"}
+
+
 def test_project_variants_query_branch_scope_ignores_project_state_and_supports_blank_values() -> None:
     reset_demo()
     project = ProjectService().create_project(
