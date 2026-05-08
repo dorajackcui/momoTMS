@@ -45,9 +45,9 @@
 .headerCell {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(0, 1fr) 20px;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   padding: 2px 0;
 }
 
@@ -58,18 +58,33 @@
 }
 
 .filterButton {
-  inline-size: 24px;
-  block-size: 24px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--muted);
+  display: grid;
+  place-items: center;
+  inline-size: 18px;
+  block-size: 18px;
+  border: 1px solid #cfded6;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #0d7d5d;
   cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.75);
+}
+
+.filterButton:hover {
+  border-color: #62b591;
+  background: #f4fbf7;
 }
 
 .filterButtonActive {
   border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.filterIcon {
+  inline-size: 0;
+  block-size: 0;
+  border-inline: 4px solid transparent;
+  border-block-start: 5px solid currentColor;
 }
 
 .filterPopover {

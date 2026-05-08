@@ -88,7 +88,7 @@ function HeaderFilterButton(props: {
         props.setActiveFilter(isOpen || !rect ? null : { key, anchorRect: rect });
       }}
     >
-      v
+      <span className={styles.filterIcon} aria-hidden="true" />
     </button>
   );
 }

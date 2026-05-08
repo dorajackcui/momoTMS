@@ -334,7 +334,9 @@ test("Workspace applies source header filter with explicit apply", async ({
   });
 
   await page.goto("/app/workspace?project=1&lang=fr&state=all");
-  await page.getByRole("button", { name: "Filter source" }).click();
+  const sourceFilterButton = page.getByRole("button", { name: "Filter source" });
+  await expect(sourceFilterButton).toHaveText("");
+  await sourceFilterButton.click();
   await expect(page.getByText("Showing first 100 values")).toBeVisible();
   await page.getByLabel("Search source").fill("welcome");
   await expect.poll(() => queryRequests.some((item) =>
